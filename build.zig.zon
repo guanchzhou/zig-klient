@@ -1,0 +1,15 @@
+.{
+    .name = .klient,
+    .version = "0.1.0",
+    .fingerprint = 0x2b17863871121995,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tests",
+        "README.md",
+        "LICENSE",
+    },
+}
