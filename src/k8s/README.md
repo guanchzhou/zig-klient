@@ -1,6 +1,6 @@
 # Kubernetes Client Module
 
-Native Zig implementation of a Kubernetes API client for c3s.
+Native Zig implementation of a Kubernetes API client.
 
 ## Overview
 
@@ -114,38 +114,36 @@ const info = try manager.getClusterInfo();
 defer info.deinit(allocator);
 ```
 
-## Integration with c3s
+## Integration Examples
 
-### Application Initialization
-The K8s manager is initialized in `app.zig`:
+### Basic Client Initialization
 
 ```zig
-// Initialize Kubernetes manager
-var k8s_manager = k8s.K8sManager.init(allocator);
+const klient = @import("klient");
 
-// Try to connect (non-fatal)
-k8s_manager.connect() catch |err| {
-    Logger.warn("Failed to connect to Kubernetes: {}. Using fixtures.", .{err});
-};
-
-// Get cluster data for header
-const cluster_data = try k8s_manager.getClusterInfo();
-defer cluster_data.deinit(allocator);
-
-var header = try Header.initWithData(allocator, theme, cluster_data);
+// Initialize Kubernetes client
+var client = try klient.K8sClient.init(allocator, .{
+    .server = "https://kubernetes.example.com",
+    .token = "your-bearer-token",
+});
+defer client.deinit();
 ```
 
-### Pod Data Loading
-Pods are loaded from K8s in `pods_view.zig`:
+### Loading Pod Data
 
 ```zig
-if (k8s_manager.isConnected()) {
-    const k8s_pods = try k8s_manager.getPods();
-    defer allocator.free(k8s_pods);
-    
-    try app.pods_view.loadPodsFromK8s(k8s_pods);
-    Logger.info("Loaded {d} pods from Kubernetes cluster", .{k8s_pods.len});
-}
+// List pods in a namespace
+var pods_client = klient.Pods.init(&client);
+const pod_list = try pods_client.list("default");
+defer pod_list.deinit();
+
+// Or list all pods across all namespaces
+const all_pods = try pods_client.listAll();
+defer all_pods.deinit();
+
+// Get cluster version
+const cluster_info = try client.getClusterInfo();
+defer cluster_info.deinit();
 ```
 
 ## Data Structures

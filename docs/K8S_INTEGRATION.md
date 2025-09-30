@@ -128,7 +128,7 @@ $ zig build
 
 ## 🔍 Testing
 
-Run c3s - it will:
+Run your application - it will:
 1. Attempt to connect to K8s (will fail gracefully)
 2. Fall back to fixture data
 3. Display sample pods and cluster info

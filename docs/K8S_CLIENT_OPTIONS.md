@@ -80,7 +80,7 @@
 
 **How it works:**
 1. User runs `kubectl proxy` (starts HTTP proxy on localhost:8001)
-2. c3s connects to `http://localhost:8001` (no auth needed)
+2. Application connects to `http://localhost:8001` (no auth needed)
 3. Use Zig's HTTP client (no TLS complications)
 
 **Pros:**
@@ -185,7 +185,7 @@ pub const K8sClient = struct {
 ```zig
 // build.zig
 const exe = b.addExecutable(.{
-    .name = "c3s",
+    .name = "myapp",
     .root_source_file = .{ .path = "src/main.zig" },
     .target = target,
     .optimize = optimize,
@@ -264,8 +264,8 @@ kubectl proxy
 curl http://localhost:8001/api/v1/namespaces
 curl http://localhost:8001/apis/metrics.k8s.io/v1beta1/nodes
 
-# Terminal 3: Run c3s
-./zig-out/bin/c3s
+# Terminal 3: Run application
+./zig-out/bin/myapp
 ```
 
 ### Full Test with C library:
@@ -274,7 +274,7 @@ curl http://localhost:8001/apis/metrics.k8s.io/v1beta1/nodes
 # Ensure metrics-server is running in cluster
 kubectl top nodes  # Should work
 
-# Run c3s
-./zig-out/bin/c3s
+# Run application
+./zig-out/bin/myapp
 # Should show real cluster data with live CPU/MEM
 ```
