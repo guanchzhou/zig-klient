@@ -1,5 +1,5 @@
 /// Zig Kubernetes Client Library
-/// 
+///
 /// A production-ready Kubernetes client library for Zig, providing:
 /// - Full CRUD operations on 14+ resource types
 /// - Bearer token, mTLS, and exec credential authentication
@@ -7,22 +7,21 @@
 /// - Watch API for real-time resource updates
 /// - Thread-safe connection pooling
 /// - Custom Resource Definitions (CRD) support
-/// 
+///
 /// Example usage:
 /// ```zig
 /// const klient = @import("klient");
-/// 
+///
 /// var client = try klient.K8sClient.init(allocator, .{
 ///     .server = "https://api.k8s.example.com",
 ///     .token = "your-bearer-token",
 /// });
 /// defer client.deinit();
-/// 
+///
 /// // List all pods
 /// var pods_client = klient.Pods.init(&client);
 /// const pods = try pods_client.listAll();
 /// ```
-
 const std = @import("std");
 
 // Core K8s client
@@ -102,8 +101,8 @@ pub const awsEksConfig = exec_credential.awsEksConfig;
 pub const gcpGkeConfig = exec_credential.gcpGkeConfig;
 pub const azureAksConfig = exec_credential.azureAksConfig;
 
-// Kubeconfig parsing
-pub const KubeconfigParser = @import("k8s/kubeconfig_json.zig").KubeconfigParser;
+// Kubeconfig parsing (direct YAML parsing, no kubectl required)
+pub const KubeconfigParser = @import("k8s/kubeconfig_yaml.zig").KubeconfigParser;
 
 // Version information
 pub const version = .{

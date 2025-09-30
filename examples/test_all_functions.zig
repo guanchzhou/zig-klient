@@ -38,7 +38,7 @@ pub fn main() !void {
 
     // === Core Client Functions ===
     std.debug.print("Testing Core Client Functions:\n", .{});
-    
+
     // Test getClusterInfo
     if (client.getClusterInfo()) |info| {
         testPassed("getClusterInfo()");
@@ -50,7 +50,7 @@ pub fn main() !void {
     // === Pods Client ===
     std.debug.print("\nTesting Pods Client:\n", .{});
     var pods_client = klient.Pods.init(&client);
-    
+
     // Test listAll
     if (pods_client.client.listAll()) |pods_parsed| {
         defer pods_parsed.deinit();
@@ -59,7 +59,7 @@ pub fn main() !void {
     } else |err| {
         testFailed("Pods.listAll()", err);
     }
-    
+
     // Test list (namespaced)
     if (pods_client.client.list("kube-system")) |pods_parsed| {
         defer pods_parsed.deinit();
@@ -68,7 +68,7 @@ pub fn main() !void {
     } else |err| {
         testFailed("Pods.list(namespace)", err);
     }
-    
+
     // Test get (specific pod)
     if (pods_client.client.list("kube-system")) |pods_parsed| {
         defer pods_parsed.deinit();
@@ -86,7 +86,7 @@ pub fn main() !void {
     // === Deployments Client ===
     std.debug.print("\nTesting Deployments Client:\n", .{});
     var deployments_client = klient.Deployments.init(&client);
-    
+
     // Test listAll
     if (deployments_client.client.listAll()) |deps_parsed| {
         defer deps_parsed.deinit();
@@ -95,7 +95,7 @@ pub fn main() !void {
     } else |err| {
         testFailed("Deployments.listAll()", err);
     }
-    
+
     // Test list (namespaced)
     if (deployments_client.client.list("kube-system")) |deps_parsed| {
         defer deps_parsed.deinit();
@@ -108,7 +108,7 @@ pub fn main() !void {
     // === Services Client ===
     std.debug.print("\nTesting Services Client:\n", .{});
     var services_client = klient.Services.init(&client);
-    
+
     // Test listAll
     if (services_client.client.listAll()) |svcs_parsed| {
         defer svcs_parsed.deinit();
@@ -117,7 +117,7 @@ pub fn main() !void {
     } else |err| {
         testFailed("Services.listAll()", err);
     }
-    
+
     // Test list (namespaced)
     if (services_client.client.list("default")) |svcs_parsed| {
         defer svcs_parsed.deinit();
@@ -130,7 +130,7 @@ pub fn main() !void {
     // === ConfigMaps Client ===
     std.debug.print("\nTesting ConfigMaps Client:\n", .{});
     var configmaps_client = klient.ConfigMaps.init(&client);
-    
+
     // Test listAll
     if (configmaps_client.client.listAll()) |cms_parsed| {
         defer cms_parsed.deinit();
@@ -139,7 +139,7 @@ pub fn main() !void {
     } else |err| {
         testFailed("ConfigMaps.listAll()", err);
     }
-    
+
     // Test list (namespaced)
     if (configmaps_client.client.list("kube-system")) |cms_parsed| {
         defer cms_parsed.deinit();
@@ -152,7 +152,7 @@ pub fn main() !void {
     // === Secrets Client ===
     std.debug.print("\nTesting Secrets Client:\n", .{});
     var secrets_client = klient.Secrets.init(&client);
-    
+
     // Test listAll
     if (secrets_client.client.listAll()) |secrets_parsed| {
         defer secrets_parsed.deinit();
@@ -161,7 +161,7 @@ pub fn main() !void {
     } else |err| {
         testFailed("Secrets.listAll()", err);
     }
-    
+
     // Test list (namespaced)
     if (secrets_client.client.list("default")) |secrets_parsed| {
         defer secrets_parsed.deinit();
@@ -174,7 +174,7 @@ pub fn main() !void {
     // === Namespaces Client (cluster-scoped) ===
     std.debug.print("\nTesting Namespaces Client:\n", .{});
     var namespaces_client = klient.Namespaces.init(&client);
-    
+
     // Test list
     if (namespaces_client.list()) |ns_parsed| {
         defer ns_parsed.deinit();
@@ -187,7 +187,7 @@ pub fn main() !void {
     // === Nodes Client (cluster-scoped) ===
     std.debug.print("\nTesting Nodes Client:\n", .{});
     var nodes_client = klient.Nodes.init(&client);
-    
+
     // Test list
     if (nodes_client.list()) |nodes_parsed| {
         defer nodes_parsed.deinit();
@@ -200,7 +200,7 @@ pub fn main() !void {
     // === ReplicaSets Client ===
     std.debug.print("\nTesting ReplicaSets Client:\n", .{});
     var replicasets_client = klient.ReplicaSets.init(&client);
-    
+
     // Test listAll
     if (replicasets_client.client.listAll()) |rs_parsed| {
         defer rs_parsed.deinit();
@@ -213,7 +213,7 @@ pub fn main() !void {
     // === StatefulSets Client ===
     std.debug.print("\nTesting StatefulSets Client:\n", .{});
     var statefulsets_client = klient.StatefulSets.init(&client);
-    
+
     // Test listAll
     if (statefulsets_client.client.listAll()) |sts_parsed| {
         defer sts_parsed.deinit();
@@ -226,7 +226,7 @@ pub fn main() !void {
     // === DaemonSets Client ===
     std.debug.print("\nTesting DaemonSets Client:\n", .{});
     var daemonsets_client = klient.DaemonSets.init(&client);
-    
+
     // Test listAll
     if (daemonsets_client.client.listAll()) |ds_parsed| {
         defer ds_parsed.deinit();
@@ -239,7 +239,7 @@ pub fn main() !void {
     // === Jobs Client ===
     std.debug.print("\nTesting Jobs Client:\n", .{});
     var jobs_client = klient.Jobs.init(&client);
-    
+
     // Test listAll
     if (jobs_client.client.listAll()) |jobs_parsed| {
         defer jobs_parsed.deinit();
@@ -252,7 +252,7 @@ pub fn main() !void {
     // === CronJobs Client ===
     std.debug.print("\nTesting CronJobs Client:\n", .{});
     var cronjobs_client = klient.CronJobs.init(&client);
-    
+
     // Test listAll
     if (cronjobs_client.client.listAll()) |cj_parsed| {
         defer cj_parsed.deinit();
@@ -265,7 +265,7 @@ pub fn main() !void {
     // === PersistentVolumes Client (cluster-scoped) ===
     std.debug.print("\nTesting PersistentVolumes Client:\n", .{});
     var pvs_client = klient.PersistentVolumes.init(&client);
-    
+
     // Test list
     if (pvs_client.list()) |pvs_parsed| {
         defer pvs_parsed.deinit();
@@ -278,7 +278,7 @@ pub fn main() !void {
     // === PersistentVolumeClaims Client ===
     std.debug.print("\nTesting PersistentVolumeClaims Client:\n", .{});
     var pvcs_client = klient.PersistentVolumeClaims.init(&client);
-    
+
     // Test listAll
     if (pvcs_client.client.listAll()) |pvcs_parsed| {
         defer pvcs_parsed.deinit();
@@ -290,7 +290,7 @@ pub fn main() !void {
 
     // === Connection Pool ===
     std.debug.print("\nTesting Connection Pool:\n", .{});
-    
+
     if (klient.pool.ConnectionPool.init(allocator, .{
         .server = "http://127.0.0.1:8080",
         .max_connections = 5,
@@ -299,14 +299,14 @@ pub fn main() !void {
         var pool = pool_result;
         defer pool.deinit();
         testPassed("ConnectionPool.init()");
-        
+
         const stats = pool.stats();
         testPassed("ConnectionPool.stats()");
         std.debug.print("    Max: {d}, Total: {d}, Idle: {d}, InUse: {d}\n", .{
-            stats.max_connections,
-            stats.total_connections,
-            stats.idle_connections,
-            stats.in_use_connections,
+            stats.max,
+            stats.total,
+            stats.idle,
+            stats.in_use,
         });
     } else |err| {
         testFailed("ConnectionPool.init()", err);
@@ -351,7 +351,7 @@ pub fn main() !void {
     std.debug.print("  Total:  {d}\n", .{test_count});
     std.debug.print("  Passed: {d}\n", .{passed_count});
     std.debug.print("  Failed: {d}\n", .{failed_count});
-    
+
     if (failed_count == 0) {
         std.debug.print("\n🎉 ALL TESTS PASSED! 🎉\n", .{});
         std.debug.print("zig-klient is fully functional with your Rancher Desktop cluster!\n", .{});

@@ -22,8 +22,8 @@ pub fn main() !void {
     });
 
     const current_context = kubeconfig.getContextByName(kubeconfig.current_context) orelse return error.ContextNotFound;
-    const cluster = kubeconfig.getCluster(current_context.cluster) orelse return error.ClusterNotFound;
-    const user = kubeconfig.getUser(current_context.user) orelse return error.UserNotFound;
+    const cluster = kubeconfig.getClusterByName(current_context.cluster) orelse return error.ClusterNotFound;
+    const user = kubeconfig.getUserByName(current_context.user) orelse return error.UserNotFound;
 
     std.debug.print("   ✓ Server: {s}\n", .{cluster.server});
     if (user.token) |token| {
@@ -52,12 +52,13 @@ pub fn main() !void {
     // Test 2: List all pods
     std.debug.print("\n4. Listing all pods (cluster-wide)...\n", .{});
     var pods_client = klient.Pods.init(&client);
-    const all_pods = try pods_client.client.listAll();
-    std.debug.print("   ✓ Found {d} pods\n", .{all_pods.items.len});
-    
+    const all_pods_parsed = try pods_client.client.listAll();
+    defer all_pods_parsed.deinit();
+    std.debug.print("   ✓ Found {d} pods\n", .{all_pods_parsed.value.items.len});
+
     // Show first 5 pods
-    const show_count = @min(5, all_pods.items.len);
-    for (all_pods.items[0..show_count]) |pod| {
+    const show_count = @min(5, all_pods_parsed.value.items.len);
+    for (all_pods_parsed.value.items[0..show_count]) |pod| {
         const ns = pod.metadata.namespace orelse "default";
         std.debug.print("     - {s}/{s}\n", .{
             ns,
@@ -68,10 +69,11 @@ pub fn main() !void {
     // Test 3: List deployments
     std.debug.print("\n5. Listing deployments in kube-system...\n", .{});
     var deployments_client = klient.Deployments.init(&client);
-    const deployments = try deployments_client.client.list("kube-system");
-    std.debug.print("   ✓ Found {d} deployments\n", .{deployments.items.len});
-    
-    for (deployments.items) |deployment| {
+    const deployments_parsed = try deployments_client.client.list("kube-system");
+    defer deployments_parsed.deinit();
+    std.debug.print("   ✓ Found {d} deployments\n", .{deployments_parsed.value.items.len});
+
+    for (deployments_parsed.value.items) |deployment| {
         const replicas = deployment.spec.?.replicas orelse 0;
         std.debug.print("     - {s} (replicas: {d})\n", .{
             deployment.metadata.name,
@@ -82,26 +84,29 @@ pub fn main() !void {
     // Test 4: List services
     std.debug.print("\n6. Listing services in default namespace...\n", .{});
     var services_client = klient.Services.init(&client);
-    const services = try services_client.client.list("default");
-    std.debug.print("   ✓ Found {d} services\n", .{services.items.len});
+    const services_parsed = try services_client.client.list("default");
+    defer services_parsed.deinit();
+    std.debug.print("   ✓ Found {d} services\n", .{services_parsed.value.items.len});
 
     // Test 5: List namespaces
     std.debug.print("\n7. Listing all namespaces...\n", .{});
     var namespaces_client = klient.Namespaces.init(&client);
-    const namespaces = try namespaces_client.list();
-    std.debug.print("   ✓ Found {d} namespaces\n", .{namespaces.items.len});
-    
-    for (namespaces.items) |ns| {
+    const namespaces_parsed = try namespaces_client.list();
+    defer namespaces_parsed.deinit();
+    std.debug.print("   ✓ Found {d} namespaces\n", .{namespaces_parsed.value.items.len});
+
+    for (namespaces_parsed.value.items) |ns| {
         std.debug.print("     - {s}\n", .{ns.metadata.name});
     }
 
     // Test 6: List nodes
     std.debug.print("\n8. Listing cluster nodes...\n", .{});
     var nodes_client = klient.Nodes.init(&client);
-    const nodes = try nodes_client.list();
-    std.debug.print("   ✓ Found {d} nodes\n", .{nodes.items.len});
-    
-    for (nodes.items) |node| {
+    const nodes_parsed = try nodes_client.list();
+    defer nodes_parsed.deinit();
+    std.debug.print("   ✓ Found {d} nodes\n", .{nodes_parsed.value.items.len});
+
+    for (nodes_parsed.value.items) |node| {
         std.debug.print("     - {s}\n", .{node.metadata.name});
     }
 
@@ -113,7 +118,7 @@ pub fn main() !void {
         .idle_timeout_ms = 30_000,
     });
     defer pool.deinit();
-    
+
     const stats = pool.stats();
     std.debug.print("   ✓ Pool capacity: {d}\n", .{stats.max});
     std.debug.print("   ✓ Active connections: {d}\n", .{stats.total});
@@ -123,7 +128,7 @@ pub fn main() !void {
     const retry_config = klient.retry.defaultConfig;
     std.debug.print("   ✓ Max attempts: {d}\n", .{retry_config.max_attempts});
     std.debug.print("   ✓ Initial backoff: {d}ms\n", .{retry_config.initial_backoff_ms});
-    
+
     // Summary
     std.debug.print("\n=== Test Summary ===\n", .{});
     std.debug.print("✓ All 10 tests passed!\n", .{});
