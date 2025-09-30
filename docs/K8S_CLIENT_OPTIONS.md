@@ -26,7 +26,7 @@
 
 ---
 
-### Option 2: Official Kubernetes C Library (Recommended)
+### Option 2: Official Kubernetes C Library
 
 **Status**: ✅ Available at `/Users/andreymaltsev/Development/alphasense/c/`
 
@@ -107,9 +107,11 @@ pub fn connectViaProxy(self: *K8sManager) !void {
 
 ---
 
-## Recommended Approach: Use Official C Library
+## Implementation Approaches
 
-The official Kubernetes C library is the best solution because:
+### Using Official C Library
+
+The official Kubernetes C library provides:
 
 1. **Complete**: Handles all edge cases (auth, TLS, kubeconfig, etc.)
 2. **Maintained**: Updated with Kubernetes releases

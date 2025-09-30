@@ -1,40 +1,38 @@
 # zig-klient
 
-**Production-ready Kubernetes client library for Zig**
+A production-ready Kubernetes client library for Zig, providing comprehensive resource management with 75% feature parity to the official Kubernetes C client.
 
-A comprehensive, type-safe Kubernetes client library written in idiomatic Zig, providing 75% feature parity with the official Kubernetes C client and covering 98% of real-world use cases.
-
-## 🚀 Features
+## Features
 
 ### Core Capabilities
-- ✅ **14 Resource Types**: Pod, Deployment, Service, ConfigMap, Secret, Namespace, Node, ReplicaSet, StatefulSet, DaemonSet, Job, CronJob, PersistentVolume, PersistentVolumeClaim
-- ✅ **Full CRUD Operations**: Create, Read, Update, Delete, Patch on all resources
-- ✅ **Generic Resource Client**: Type-safe operations with `ResourceClient<T>` pattern
-- ✅ **JSON Serialization**: Built-in support for Kubernetes JSON API
+- 14 Resource Types: Pod, Deployment, Service, ConfigMap, Secret, Namespace, Node, ReplicaSet, StatefulSet, DaemonSet, Job, CronJob, PersistentVolume, PersistentVolumeClaim
+- Full CRUD Operations: Create, Read, Update, Delete, Patch on all resources
+- Generic Resource Client: Type-safe operations with `ResourceClient<T>` pattern
+- JSON Serialization: Built-in support for Kubernetes JSON API
 
 ### Authentication
-- ✅ **Bearer Token**: Standard token-based authentication
-- ✅ **mTLS**: Client certificate authentication with full TLS support
-- ✅ **Exec Credential Plugins**: AWS EKS, GCP GKE, Azure AKS integration
-- ✅ **Kubeconfig Parsing**: via `kubectl config view --output json`
+- Bearer Token: Standard token-based authentication
+- mTLS: Client certificate authentication with full TLS support
+- Exec Credential Plugins: AWS EKS, GCP GKE, Azure AKS integration
+- Kubeconfig Parsing: via `kubectl config view --output json`
 
 ### Advanced Features
-- ✅ **Retry Logic**: Exponential backoff with jitter, 3 preset configurations
-- ✅ **Watch API**: Real-time resource updates with streaming support
-- ✅ **Informers**: Local caching with automatic synchronization
-- ✅ **Connection Pooling**: Thread-safe connection management
-- ✅ **CRD Support**: Dynamic client for Custom Resource Definitions
-- ✅ **Predefined CRDs**: Cert-Manager, Istio, Prometheus, Argo, Knative
+- Retry Logic: Exponential backoff with jitter, 3 preset configurations
+- Watch API: Real-time resource updates with streaming support
+- Informers: Local caching with automatic synchronization
+- Connection Pooling: Thread-safe connection management
+- CRD Support: Dynamic client for Custom Resource Definitions
+- Predefined CRDs: Cert-Manager, Istio, Prometheus, Argo, Knative
 
 ### Quality
-- ✅ **30+ Tests**: Comprehensive test coverage
-- ✅ **Memory Safe**: Proper allocator usage throughout
-- ✅ **Type Safe**: Compile-time guarantees
-- ✅ **Well Documented**: Inline documentation and examples
+- 30+ Tests: Comprehensive test coverage
+- Memory Safe: Proper allocator usage throughout
+- Type Safe: Compile-time guarantees
+- Zero Dependencies: No external libraries required
 
-## 📦 Installation
+## Installation
 
-### As a Zig Package (Recommended)
+### As a Zig Package
 
 Add to your `build.zig.zon`:
 
@@ -44,7 +42,8 @@ Add to your `build.zig.zon`:
     .version = "0.1.0",
     .dependencies = .{
         .klient = .{
-            .path = "../zig-klient",  // Local path
+            .url = "https://github.com/guanchzhou/zig-klient/archive/main.tar.gz",
+            .hash = "...", // zig will provide this
         },
     },
 }
@@ -65,7 +64,7 @@ exe.root_module.addImport("klient", klient_dep.module("klient"));
 
 Copy the `src/k8s/` directory into your project and import directly.
 
-## 🎯 Quick Start
+## Quick Start
 
 ### Basic Usage
 
@@ -213,7 +212,7 @@ var custom = klient.DynamicClient.init(&client, my_crd);
 const apps = try custom.list("default");
 ```
 
-## 📚 Resource Operations
+## Resource Operations
 
 All resource types support the same operations:
 
@@ -228,18 +227,11 @@ const deleted = try pods.delete("namespace", "pod-name");
 const patched = try pods.patch("namespace", "pod-name", patch_json);
 const logs = try pods.logs("pod-name", "namespace", "container-name");
 
-// Deployments
-var deployments = klient.Deployments.init(&client);
-// ... same operations
-
-// Services
-var services = klient.Services.init(&client);
-// ... same operations
-
-// And so on for all 14 resource types...
+// Same for: Deployments, Services, ConfigMaps, Secrets, Namespaces, Nodes,
+// ReplicaSets, StatefulSets, DaemonSets, Jobs, CronJobs, PVs, PVCs
 ```
 
-## 🧪 Testing
+## Testing
 
 Run all tests:
 
@@ -257,13 +249,13 @@ zig build test-new-resources  # Additional resources
 zig build test-advanced       # TLS, Pool, CRD
 ```
 
-## 📖 Documentation
+## Documentation
 
-- **[K8S_FINAL_STATUS.md](docs/K8S_FINAL_STATUS.md)** - Complete implementation overview
-- **[C_CLIENT_COMPARISON.md](docs/C_CLIENT_COMPARISON.md)** - Feature comparison with official C client
-- **[K8S_FULL_IMPLEMENTATION.md](docs/K8S_FULL_IMPLEMENTATION.md)** - Detailed implementation guide
+- [K8S_FINAL_STATUS.md](docs/K8S_FINAL_STATUS.md) - Complete implementation overview
+- [C_CLIENT_COMPARISON.md](docs/C_CLIENT_COMPARISON.md) - Feature comparison with official C client
+- [K8S_FULL_IMPLEMENTATION.md](docs/K8S_FULL_IMPLEMENTATION.md) - Detailed implementation guide
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 zig-klient/
@@ -284,35 +276,35 @@ zig-klient/
 └── docs/                       # Documentation
 ```
 
-## 🎯 Feature Parity
+## Feature Parity
 
 | Feature | Official C Client | zig-klient | Coverage |
 |---------|------------------|------------|----------|
-| HTTP Operations | ✅ | ✅ | 100% |
-| Core Resources | ✅ (15) | ✅ (14) | 93% |
-| Auth Methods | ✅ (5) | ✅ (3) | 60% |
+| HTTP Operations | Yes | Yes | 100% |
+| Core Resources | 15 | 14 | 93% |
+| Auth Methods | 5 | 3 | 60% |
 | Retry Logic | Basic | Advanced | 150% |
-| Watch API | ✅ | ✅ | 100% |
+| Watch API | Yes | Yes | 100% |
 | Connection Pool | Basic | Advanced | 120% |
-| CRD Support | ✅ | ✅ | 110% |
+| CRD Support | Yes | Yes | 110% |
 | **Overall** | **100%** | **75%** | **75%** |
 
-**Coverage: 98% of real-world Kubernetes operations**
+**Use Case Coverage: 98%** - Covers the vast majority of real-world Kubernetes operations.
 
-## 🛠️ Requirements
+## Requirements
 
-- **Zig 0.15.1** or newer
-- **kubectl** (for kubeconfig parsing)
-- **Cloud CLI tools** (optional, for exec credential plugins):
+- Zig 0.15.1 or newer
+- kubectl (for kubeconfig parsing)
+- Cloud CLI tools (optional, for exec credential plugins):
   - `aws` CLI for EKS
   - `gke-gcloud-auth-plugin` for GKE
   - `kubelogin` for AKS
 
-## 📝 License
+## License
 
 MIT License - see LICENSE file for details
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please:
 
@@ -322,9 +314,9 @@ Contributions are welcome! Please:
 4. Ensure all tests pass (`zig build test`)
 5. Submit a pull request
 
-## 🔮 Roadmap
+## Roadmap
 
-### Implemented ✅
+### Implemented
 - [x] Core resource types
 - [x] All HTTP methods
 - [x] Bearer token auth
@@ -336,25 +328,9 @@ Contributions are welcome! Please:
 - [x] Connection pooling
 - [x] CRD support
 
-### Future Enhancements ⏳
+### Future Enhancements
 - [ ] WebSocket support (exec/attach/port-forward)
 - [ ] Protobuf protocol support
 - [ ] Server-side apply
 - [ ] Admission webhooks
 - [ ] Advanced patch strategies
-
-## 💬 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/zig-klient/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/zig-klient/discussions)
-
-## ⭐ Acknowledgments
-
-Built with inspiration from:
-- Official Kubernetes client libraries
-- Kubernetes C client
-- Zig community best practices
-
----
-
-**Made with ❤️ in Zig** | **Production Ready** 🚀 | **75% Feature Parity** ✅ | **98% Use Case Coverage** 📊
