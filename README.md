@@ -25,7 +25,7 @@ A production-ready Kubernetes client library for Zig, providing comprehensive re
 - Predefined CRDs: Cert-Manager, Istio, Prometheus, Argo, Knative
 
 ### Quality
-- 30+ Tests: Comprehensive test coverage
+- 21 Test Files: Comprehensive test coverage (unit + integration)
 - Memory Safe: Proper allocator usage throughout
 - Type Safe: Compile-time guarantees
 - Zero Dependencies: No external libraries required
@@ -62,7 +62,7 @@ exe.root_module.addImport("klient", klient_dep.module("klient"));
 
 ### Manual Integration
 
-Copy the `src/k8s/` directory into your project and import directly.
+Copy the `src/` directory into your project and import as a module.
 
 ## Quick Start
 
@@ -86,9 +86,10 @@ pub fn main() !void {
 
     // List all pods
     var pods = klient.Pods.init(&client);
-    const pod_list = try pods.listAll();
+    const pod_list = try pods.client.listAll();
+    defer pod_list.deinit();
     
-    for (pod_list.items) |pod| {
+    for (pod_list.value.items) |pod| {
         std.debug.print("Pod: {s}\n", .{pod.metadata.name});
     }
 }
@@ -97,15 +98,13 @@ pub fn main() !void {
 ### With mTLS Authentication
 
 ```zig
-const tls_config = try klient.tls.loadFromFiles(allocator, 
-    "/path/to/client.crt",
-    "/path/to/client.key",
-    "/path/to/ca.crt"
-);
-
 var client = try klient.K8sClient.init(allocator, .{
     .server = "https://kubernetes.example.com",
-    .tls_config = tls_config,
+    .tls_config = .{
+        .client_cert_path = "/path/to/client.crt",
+        .client_key_path = "/path/to/client.key",
+        .ca_cert_path = "/path/to/ca.crt",
+    },
 });
 defer client.deinit();
 ```
@@ -113,8 +112,9 @@ defer client.deinit();
 ### With AWS EKS Authentication
 
 ```zig
-const aws_config = try klient.exec_credential.awsEksConfig(allocator, "my-cluster");
+const aws_config = try klient.awsEksConfig(allocator, "my-cluster");
 const cred = try klient.exec_credential.executeCredentialPlugin(allocator, aws_config);
+defer allocator.free(cred.status.?.token.?);
 
 var client = try klient.K8sClient.init(allocator, .{
     .server = "https://xxx.eks.amazonaws.com",
@@ -137,32 +137,31 @@ defer client.deinit();
 ### Using Watch API
 
 ```zig
-var watcher = klient.Watcher(klient.Pod).init(
-    allocator,
-    &client,
-    "/api/v1",
-    "pods",
-    "default"
-);
+const WatcherPod = klient.Watcher(klient.Pod);
+var watcher = try WatcherPod.init(&client, .{
+    .path = "/api/v1/namespaces/default/pods",
+    .timeout_seconds = 300,
+});
 defer watcher.deinit();
 
 while (try watcher.next()) |event| {
-    std.debug.print("Event: {s} - Pod: {s}\n", .{
-        event.type_,
-        event.object.metadata.name,
-    });
+    switch (event.event_type) {
+        .ADDED => std.debug.print("Pod added: {s}\n", .{event.object.metadata.name}),
+        .MODIFIED => std.debug.print("Pod modified: {s}\n", .{event.object.metadata.name}),
+        .DELETED => std.debug.print("Pod deleted: {s}\n", .{event.object.metadata.name}),
+        else => {},
+    }
 }
 ```
 
 ### Using Informer Pattern
 
 ```zig
-var informer = klient.Informer(klient.Pod).init(
+const InformerPod = klient.Informer(klient.Pod);
+var informer = try InformerPod.init(
     allocator,
     &client,
-    "/api/v1",
-    "pods",
-    "default"
+    "/api/v1/namespaces/default/pods"
 );
 defer informer.deinit();
 
@@ -177,19 +176,19 @@ if (informer.get("my-pod")) |pod| {
 ### Connection Pooling
 
 ```zig
-var pool_manager = try klient.PoolManager.init(allocator, .{
+var pool = try klient.ConnectionPool.init(allocator, .{
     .server = "https://kubernetes.example.com",
     .max_connections = 20,
     .idle_timeout_ms = 60_000,
 });
-defer pool_manager.deinit();
+defer pool.deinit();
 
 // Start automatic cleanup
-try pool_manager.startCleanup(10_000);
+try pool.startCleanup(10_000);
 
 // Get pool stats
-const stats = pool_manager.pool.stats();
-std.debug.print("Utilization: {d}%\n", .{stats.utilization()});
+const stats = pool.stats();
+std.debug.print("Utilization: {d:.1}%\n", .{stats.utilization()});
 ```
 
 ### Custom Resource Definitions
@@ -198,6 +197,7 @@ std.debug.print("Utilization: {d}%\n", .{stats.utilization()});
 // Use predefined CRD
 var cert_client = klient.DynamicClient.init(&client, klient.CertManagerCertificate);
 const certs = try cert_client.list("production");
+defer certs.deinit();
 
 // Or define custom CRD
 const my_crd = klient.CRDInfo{
@@ -210,6 +210,7 @@ const my_crd = klient.CRDInfo{
 
 var custom = klient.DynamicClient.init(&client, my_crd);
 const apps = try custom.list("default");
+defer apps.deinit();
 ```
 
 ## Resource Operations
@@ -219,21 +220,37 @@ All resource types support the same operations:
 ```zig
 // Pods
 var pods = klient.Pods.init(&client);
-const pod_list = try pods.list("namespace");
-const pod = try pods.get("namespace", "pod-name");
-const created = try pods.create(pod_spec, "namespace");
-const updated = try pods.update(pod_spec, "namespace", "pod-name");
-const deleted = try pods.delete("namespace", "pod-name");
-const patched = try pods.patch("namespace", "pod-name", patch_json);
-const logs = try pods.logs("pod-name", "namespace", "container-name");
 
-// Same for: Deployments, Services, ConfigMaps, Secrets, Namespaces, Nodes,
+// List operations (return std.json.Parsed - must call .deinit())
+const pod_list = try pods.client.list("namespace");
+defer pod_list.deinit();
+
+const all_pods = try pods.client.listAll();
+defer all_pods.deinit();
+
+// Get operation
+const pod = try pods.client.get("namespace", "pod-name");
+defer pod.deinit();
+
+// Create/Update/Delete/Patch operations
+const created = try pods.client.create(pod_spec, "namespace");
+const updated = try pods.client.update(pod_spec, "namespace", "pod-name");
+const deleted = try pods.client.delete("namespace", "pod-name");
+const patched = try pods.client.patch("namespace", "pod-name", patch_json, "application/json-patch+json");
+
+// Pod-specific: Get logs
+const logs = try pods.logs("pod-name", "namespace");
+defer allocator.free(logs);
+
+// Same pattern for: Deployments, Services, ConfigMaps, Secrets, Namespaces, Nodes,
 // ReplicaSets, StatefulSets, DaemonSets, Jobs, CronJobs, PVs, PVCs
 ```
 
 ## Testing
 
-Run all tests:
+### Unit Tests
+
+Run all unit tests (isolated functionality):
 
 ```bash
 zig build test
@@ -242,18 +259,27 @@ zig build test
 Run specific test suites:
 
 ```bash
-zig build test-client        # Core client tests
-zig build test-resources      # Resource operations
-zig build test-retry          # Retry logic
-zig build test-new-resources  # Additional resources
-zig build test-advanced       # TLS, Pool, CRD
+zig build test-retry      # Retry logic tests
+zig build test-advanced   # TLS, Connection Pool, CRD tests
+```
+
+### Integration Tests
+
+Integration tests run against a real Kubernetes cluster. See [docs/TESTING.md](docs/TESTING.md) for details.
+
+```bash
+cd examples/tests
+./run_all_tests.sh
 ```
 
 ## Documentation
 
+- [TESTING.md](docs/TESTING.md) - Testing guide (unit + integration)
+- [INTEGRATION_TESTS.md](docs/INTEGRATION_TESTS.md) - Integration test results
 - [IMPLEMENTATION.md](docs/IMPLEMENTATION.md) - Complete implementation details
 - [COMPARISON.md](docs/COMPARISON.md) - Feature comparison with official Kubernetes C client
 - [ROADMAP.md](docs/ROADMAP.md) - Current status and future enhancements
+- [PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) - Project organization
 
 ## Architecture
 
@@ -272,7 +298,9 @@ zig-klient/
 │       ├── crd.zig             # CRD support
 │       ├── exec_credential.zig # Cloud auth
 │       └── kubeconfig_json.zig # Config parsing
-├── tests/                      # 30+ comprehensive tests
+├── tests/                      # Unit tests (isolated)
+├── examples/                   # Usage examples
+│   └── tests/                  # Integration tests (real cluster)
 └── docs/                       # Documentation
 ```
 
@@ -302,7 +330,7 @@ zig-klient/
 
 ## License
 
-MIT License - see LICENSE file for details
+Apache 2.0 License - see LICENSE file for details
 
 ## Contributing
 
@@ -316,19 +344,21 @@ Contributions are welcome! Please:
 
 ## Roadmap
 
-### Implemented
-- [x] Core resource types
-- [x] All HTTP methods
+### Implemented ✅
+- [x] Core resource types (14 total)
+- [x] All HTTP methods (GET, POST, PUT, DELETE, PATCH)
 - [x] Bearer token auth
 - [x] mTLS auth
-- [x] Exec credential plugins
-- [x] Retry logic with backoff
-- [x] Watch API
-- [x] Informers
-- [x] Connection pooling
-- [x] CRD support
+- [x] Exec credential plugins (AWS, GCP, Azure)
+- [x] Retry logic with exponential backoff and jitter
+- [x] Watch API for streaming updates
+- [x] Informers with local caching
+- [x] Thread-safe connection pooling
+- [x] CRD support with dynamic client
+- [x] 21 test files (unit + integration)
+- [x] 100% integration test pass rate
 
-### Future Enhancements
+### Future Enhancements 🚀
 - [ ] WebSocket support (exec/attach/port-forward)
 - [ ] Protobuf protocol support
 - [ ] Server-side apply
