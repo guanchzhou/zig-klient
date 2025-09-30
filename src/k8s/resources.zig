@@ -12,7 +12,8 @@ pub fn ResourceClient(comptime T: type) type {
         const Self = @This();
         
         /// List resources in a namespace
-        pub fn list(self: Self, namespace: ?[]const u8) !types.List(T) {
+        /// NOTE: Caller must call deinit() on the returned Parsed object
+        pub fn list(self: Self, namespace: ?[]const u8) !std.json.Parsed(types.List(T)) {
             const ns = namespace orelse self.client.namespace;
             const path = try std.fmt.allocPrint(
                 self.client.allocator,
@@ -28,13 +29,17 @@ pub fn ResourceClient(comptime T: type) type {
                 types.List(T),
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
         
         /// List all resources across all namespaces
-        pub fn listAll(self: Self) !types.List(T) {
+        /// NOTE: Caller must call deinit() on the returned Parsed object
+        pub fn listAll(self: Self) !std.json.Parsed(types.List(T)) {
             const path = try std.fmt.allocPrint(
                 self.client.allocator,
                 "{s}/{s}",
@@ -49,9 +54,12 @@ pub fn ResourceClient(comptime T: type) type {
                 types.List(T),
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
         
         /// Get a specific resource by name
@@ -285,7 +293,8 @@ pub const Namespaces = struct {
     }
     
     /// List all namespaces (cluster-scoped)
-    pub fn list(self: Namespaces) !types.List(types.Namespace) {
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: Namespaces) !std.json.Parsed(types.List(types.Namespace)) {
         const path = "/api/v1/namespaces";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
@@ -294,9 +303,12 @@ pub const Namespaces = struct {
             types.List(types.Namespace),
             self.client.client.allocator,
             body,
-            .{ .ignore_unknown_fields = true },
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
         );
-        return parsed.value;
+        return parsed;
     }
 };
 
@@ -314,7 +326,8 @@ pub const Nodes = struct {
     }
     
     /// List all nodes (cluster-scoped)
-    pub fn list(self: Nodes) !types.List(types.Node) {
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: Nodes) !std.json.Parsed(types.List(types.Node)) {
         const path = "/api/v1/nodes";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
@@ -323,9 +336,12 @@ pub const Nodes = struct {
             types.List(types.Node),
             self.client.client.allocator,
             body,
-            .{ .ignore_unknown_fields = true },
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
         );
-        return parsed.value;
+        return parsed;
     }
 };
 
@@ -449,7 +465,8 @@ pub const PersistentVolumes = struct {
     }
     
     /// List all PVs (cluster-scoped)
-    pub fn list(self: PersistentVolumes) !types.List(types.PersistentVolume) {
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: PersistentVolumes) !std.json.Parsed(types.List(types.PersistentVolume)) {
         const path = "/api/v1/persistentvolumes";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
@@ -458,9 +475,12 @@ pub const PersistentVolumes = struct {
             types.List(types.PersistentVolume),
             self.client.client.allocator,
             body,
-            .{ .ignore_unknown_fields = true },
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
         );
-        return parsed.value;
+        return parsed;
     }
 };
 

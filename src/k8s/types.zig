@@ -16,8 +16,8 @@ pub const ObjectMeta = struct {
 /// Generic Kubernetes resource wrapper
 pub fn Resource(comptime T: type) type {
     return struct {
-        apiVersion: []const u8,
-        kind: []const u8,
+        apiVersion: ?[]const u8 = null,
+        kind: ?[]const u8 = null,
         metadata: ObjectMeta,
         spec: ?T = null,
         status: ?std.json.Value = null,
@@ -39,7 +39,7 @@ pub fn List(comptime T: type) type {
 
 /// Pod specification
 pub const PodSpec = struct {
-    containers: []Container,
+    containers: ?[]Container = null,
     restartPolicy: ?[]const u8 = null,
     nodeName: ?[]const u8 = null,
     serviceAccountName: ?[]const u8 = null,
@@ -47,8 +47,8 @@ pub const PodSpec = struct {
 };
 
 pub const Container = struct {
-    name: []const u8,
-    image: []const u8,
+    name: ?[]const u8 = null,
+    image: ?[]const u8 = null,
     command: ?[][]const u8 = null,
     args: ?[][]const u8 = null,
     ports: ?[]ContainerPort = null,
@@ -127,9 +127,9 @@ pub const ContainerStatus = struct {
 /// Deployment specification
 pub const DeploymentSpec = struct {
     replicas: ?i32 = null,
-    selector: LabelSelector,
-    template: PodTemplateSpec,
-    strategy: ?DeploymentStrategy = null,
+    selector: ?std.json.Value = null,
+    template: ?std.json.Value = null,
+    strategy: ?std.json.Value = null,
 };
 
 pub const LabelSelector = struct {
@@ -138,14 +138,14 @@ pub const LabelSelector = struct {
 };
 
 pub const LabelSelectorRequirement = struct {
-    key: []const u8,
-    operator: []const u8,
+    key: ?[]const u8 = null,
+    operator: ?[]const u8 = null,
     values: ?[][]const u8 = null,
 };
 
 pub const PodTemplateSpec = struct {
     metadata: ?ObjectMeta = null,
-    spec: PodSpec,
+    spec: ?PodSpec = null,
 };
 
 pub const DeploymentStrategy = struct {
@@ -161,7 +161,7 @@ pub const RollingUpdateDeployment = struct {
 /// Service specification
 pub const ServiceSpec = struct {
     selector: ?std.json.Value = null,
-    ports: []ServicePort,
+    ports: ?[]ServicePort = null,
     type_: ?[]const u8 = null,
     clusterIP: ?[]const u8 = null,
     externalIPs: ?[][]const u8 = null,
@@ -170,8 +170,8 @@ pub const ServiceSpec = struct {
 pub const ServicePort = struct {
     name: ?[]const u8 = null,
     protocol: ?[]const u8 = null,
-    port: i32,
-    targetPort: ?i32 = null,
+    port: ?std.json.Value = null,
+    targetPort: ?std.json.Value = null,
     nodePort: ?i32 = null,
 };
 
@@ -203,22 +203,22 @@ pub const NodeSpec = struct {
 /// ReplicaSet specification
 pub const ReplicaSetSpec = struct {
     replicas: ?i32 = null,
-    selector: LabelSelector,
-    template: PodTemplateSpec,
+    selector: ?std.json.Value = null,
+    template: ?std.json.Value = null,
 };
 
 /// StatefulSet specification
 pub const StatefulSetSpec = struct {
     replicas: ?i32 = null,
-    selector: LabelSelector,
-    template: PodTemplateSpec,
-    serviceName: []const u8,
+    selector: ?std.json.Value = null,
+    template: ?std.json.Value = null,
+    serviceName: ?[]const u8 = null,
     volumeClaimTemplates: ?[]std.json.Value = null,
-    updateStrategy: ?StatefulSetUpdateStrategy = null,
+    updateStrategy: ?std.json.Value = null,
 };
 
 pub const StatefulSetUpdateStrategy = struct {
-    type_: []const u8, // RollingUpdate or OnDelete
+    type_: ?[]const u8 = null, // RollingUpdate or OnDelete
     rollingUpdate: ?RollingUpdateStatefulSetStrategy = null,
 };
 
@@ -229,13 +229,13 @@ pub const RollingUpdateStatefulSetStrategy = struct {
 
 /// DaemonSet specification
 pub const DaemonSetSpec = struct {
-    selector: LabelSelector,
-    template: PodTemplateSpec,
-    updateStrategy: ?DaemonSetUpdateStrategy = null,
+    selector: ?std.json.Value = null,
+    template: ?std.json.Value = null,
+    updateStrategy: ?std.json.Value = null,
 };
 
 pub const DaemonSetUpdateStrategy = struct {
-    type_: []const u8, // RollingUpdate or OnDelete
+    type_: ?[]const u8 = null, // RollingUpdate or OnDelete
     rollingUpdate: ?RollingUpdateDaemonSet = null,
 };
 
@@ -246,7 +246,7 @@ pub const RollingUpdateDaemonSet = struct {
 
 /// Job specification
 pub const JobSpec = struct {
-    template: PodTemplateSpec,
+    template: ?std.json.Value = null,
     completions: ?i32 = null,
     parallelism: ?i32 = null,
     backoffLimit: ?i32 = null,
@@ -256,8 +256,8 @@ pub const JobSpec = struct {
 
 /// CronJob specification
 pub const CronJobSpec = struct {
-    schedule: []const u8,
-    jobTemplate: JobTemplateSpec,
+    schedule: ?[]const u8 = null,
+    jobTemplate: ?std.json.Value = null,
     concurrencyPolicy: ?[]const u8 = null,
     suspended: ?bool = null,
     successfulJobsHistoryLimit: ?i32 = null,
@@ -266,7 +266,7 @@ pub const CronJobSpec = struct {
 
 pub const JobTemplateSpec = struct {
     metadata: ?ObjectMeta = null,
-    spec: JobSpec,
+    spec: ?JobSpec = null,
 };
 
 /// PersistentVolume specification
@@ -296,7 +296,14 @@ pub const Job = Resource(JobSpec);
 pub const CronJob = Resource(CronJobSpec);
 pub const Service = Resource(ServiceSpec);
 pub const ConfigMap = Resource(ConfigMapData);
-pub const Secret = Resource(SecretData);
+pub const Secret = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    data: ?std.json.Value = null,
+    stringData: ?std.json.Value = null,
+    type: ?[]const u8 = null,
+};
 pub const Namespace = Resource(NamespaceSpec);
 pub const Node = Resource(NodeSpec);
 pub const PersistentVolume = Resource(PersistentVolumeSpec);
