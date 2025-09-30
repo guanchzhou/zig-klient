@@ -251,9 +251,9 @@ zig build test-advanced       # TLS, Pool, CRD
 
 ## Documentation
 
-- [K8S_FINAL_STATUS.md](docs/K8S_FINAL_STATUS.md) - Complete implementation overview
-- [C_CLIENT_COMPARISON.md](docs/C_CLIENT_COMPARISON.md) - Feature comparison with official C client
-- [K8S_FULL_IMPLEMENTATION.md](docs/K8S_FULL_IMPLEMENTATION.md) - Detailed implementation guide
+- [IMPLEMENTATION.md](docs/IMPLEMENTATION.md) - Complete implementation details
+- [COMPARISON.md](docs/COMPARISON.md) - Feature comparison with official Kubernetes C client
+- [ROADMAP.md](docs/ROADMAP.md) - Current status and future enhancements
 
 ## Architecture
 
