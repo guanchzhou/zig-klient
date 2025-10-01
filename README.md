@@ -1,14 +1,14 @@
 # zig-klient
 
-> **Status**: Production-Ready | 51 Resource Types | 16 API Groups
+> **Status**: Production-Ready | 61 Resource Types | 19 API Groups | 100% K8s 1.34 Coverage
 
-A production-ready Kubernetes client library for Zig implementing **51 standard Kubernetes resource types** with **CRUD operations** for each, covering **83.6% of Kubernetes 1.34 standard resources** across **16 API groups**.
+A production-ready Kubernetes client library for Zig implementing **ALL 61 standard Kubernetes 1.34 resource types** with **CRUD operations** for each, covering **100% of Kubernetes 1.34 standard resources** across **19 API groups**.
 
 **Verified against**: Rancher Desktop with Kubernetes 1.34.1
 
 ## Features
 
-### Resource Coverage (51 Resources Across 16 API Groups)
+### Resource Coverage (61 Resources Across 19 API Groups)
 
 **Core API (v1)** - 17 resources  
 Pod, Service, ConfigMap, Secret, Namespace, Node, PersistentVolume, PersistentVolumeClaim, ServiceAccount, Endpoints, Event, ReplicationController, PodTemplate, ResourceQuota, LimitRange, Binding, ComponentStatus
@@ -22,11 +22,17 @@ Job, CronJob
 **Networking (networking.k8s.io/v1)** - 6 resources  
 Ingress, IngressClass, NetworkPolicy, EndpointSlice, IPAddress, ServiceCIDR
 
+**Gateway API (gateway.networking.k8s.io/v1, v1beta1)** - 5 resources  
+GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant
+
 **RBAC (rbac.authorization.k8s.io/v1)** - 4 resources  
 Role, RoleBinding, ClusterRole, ClusterRoleBinding
 
-**Storage (storage.k8s.io/v1)** - 5 resources  
-StorageClass, VolumeAttachment, CSIDriver, CSINode, CSIStorageCapacity
+**Storage (storage.k8s.io/v1)** - 6 resources  
+StorageClass, VolumeAttachment, CSIDriver, CSINode, CSIStorageCapacity, VolumeAttributesClass
+
+**Dynamic Resource Allocation (resource.k8s.io/v1)** - 4 resources  
+ResourceClaim, ResourceClaimTemplate, ResourceSlice, DeviceClass
 
 **Policy (policy/v1)** - 1 resource  
 PodDisruptionBudget
@@ -56,14 +62,16 @@ FlowSchema, PriorityLevelConfiguration
 RuntimeClass
 
 ### Core Capabilities
-- **51 Resource Types**: All standard Kubernetes resources
+- **61 Resource Types**: ALL Kubernetes 1.34 standard resources (100% coverage)
 - **Full CRUD Operations**: Create, Read, Update, Delete, Patch on all resources
 - **Advanced Delete**: Grace period, propagation policy, preconditions, delete collection
 - **Advanced Create/Update**: Field manager, field validation, dry-run support
 - **WebSocket Operations**: Pod exec, attach, port-forward
+- **Gateway API**: GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant
+- **Dynamic Resource Allocation**: ResourceClaim, DeviceClass, ResourceSlice support
 - **Generic Resource Client**: Type-safe operations with `ResourceClient<T>` pattern
 - **JSON Serialization**: Built-in support for Kubernetes JSON API
-- **Cluster-Scoped Resources**: 17 resources with custom list methods
+- **Cluster-Scoped Resources**: 21 resources with custom list methods
 
 ### Authentication
 - Bearer Token: Standard token-based authentication
@@ -643,8 +651,8 @@ zig-klient/
 | Feature | Kubernetes 1.34 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
 | HTTP Operations | All methods | All methods | 100% ✅ |
-| K8s Resource Types | 61 standard | 51 | 83.6% |
-| API Groups | 19 | 16 | 84.2% |
+| K8s Resource Types | 61 standard | 61 | 100% ✅ |
+| API Groups | 19 | 19 | 100% ✅ |
 | Auth Methods | 5 | 4 (practical) | 100% ✅ |
 | In-Cluster Config | Yes | Yes | 100% ✅ |
 | Delete Options | Yes | Yes | 100% ✅ |
@@ -656,15 +664,14 @@ zig-klient/
 | Pagination | Yes | Yes | 100% ✅ |
 | Server-Side Apply | Yes | Yes | 100% ✅ |
 | WebSocket Support | Yes | Yes | 100% ✅ |
+| Gateway API | Yes | Yes | 100% ✅ |
+| Dynamic Resource Allocation | Yes | Yes | 100% ✅ |
 
-**Implemented**: 51 of 61 standard Kubernetes 1.34 resource types across 16 of 19 API groups
+**Implemented**: ALL 61 standard Kubernetes 1.34 resource types across ALL 19 API groups
 
-**Missing** (10 NEW resources in K8s 1.34):
-- Gateway API (5 resources): GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant
-- Dynamic Resource Allocation (4 resources): ResourceClaim, ResourceClaimTemplate, ResourceSlice, DeviceClass
-- Storage enhancement (1 resource): VolumeAttributesClass
+**Includes**: Core API (v1), apps/v1, batch/v1, networking.k8s.io/v1, gateway.networking.k8s.io/v1, RBAC, storage, resource.k8s.io/v1, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
 
-**Includes**: Core API (v1), apps/v1, batch/v1, networking, RBAC, storage, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
+**Coverage**: 100% of Kubernetes 1.34 standard resources - workloads, networking, Gateway API, storage, security, auto-scaling, dynamic resource allocation, admission control, certificates, API management, and more!
 
 See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed breakdown.
 

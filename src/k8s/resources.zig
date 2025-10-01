@@ -1445,3 +1445,221 @@ pub const CSIStorageCapacities = struct {
         };
     }
 };
+
+// Gateway API resources (gateway.networking.k8s.io/v1)
+
+pub const GatewayClasses = struct {
+    client: ResourceClient(types.GatewayClass),
+
+    pub fn init(k8s_client: *K8sClient) GatewayClasses {
+        return .{
+            .client = ResourceClient(types.GatewayClass){
+                .client = k8s_client,
+                .api_path = "/apis/gateway.networking.k8s.io/v1",
+                .resource = "gatewayclasses",
+            },
+        };
+    }
+
+    /// List all GatewayClasses (cluster-scoped)
+    pub fn list(self: GatewayClasses) !std.json.Parsed(types.List(types.GatewayClass)) {
+        const path = "/apis/gateway.networking.k8s.io/v1/gatewayclasses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.GatewayClass),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const Gateways = struct {
+    client: ResourceClient(types.Gateway),
+
+    pub fn init(k8s_client: *K8sClient) Gateways {
+        return .{
+            .client = ResourceClient(types.Gateway){
+                .client = k8s_client,
+                .api_path = "/apis/gateway.networking.k8s.io/v1",
+                .resource = "gateways",
+            },
+        };
+    }
+};
+
+pub const HTTPRoutes = struct {
+    client: ResourceClient(types.HTTPRoute),
+
+    pub fn init(k8s_client: *K8sClient) HTTPRoutes {
+        return .{
+            .client = ResourceClient(types.HTTPRoute){
+                .client = k8s_client,
+                .api_path = "/apis/gateway.networking.k8s.io/v1",
+                .resource = "httproutes",
+            },
+        };
+    }
+};
+
+pub const GRPCRoutes = struct {
+    client: ResourceClient(types.GRPCRoute),
+
+    pub fn init(k8s_client: *K8sClient) GRPCRoutes {
+        return .{
+            .client = ResourceClient(types.GRPCRoute){
+                .client = k8s_client,
+                .api_path = "/apis/gateway.networking.k8s.io/v1",
+                .resource = "grpcroutes",
+            },
+        };
+    }
+};
+
+pub const ReferenceGrants = struct {
+    client: ResourceClient(types.ReferenceGrant),
+
+    pub fn init(k8s_client: *K8sClient) ReferenceGrants {
+        return .{
+            .client = ResourceClient(types.ReferenceGrant){
+                .client = k8s_client,
+                .api_path = "/apis/gateway.networking.k8s.io/v1beta1",
+                .resource = "referencegrants",
+            },
+        };
+    }
+};
+
+// Dynamic Resource Allocation resources (resource.k8s.io/v1)
+
+pub const ResourceClaims = struct {
+    client: ResourceClient(types.ResourceClaim),
+
+    pub fn init(k8s_client: *K8sClient) ResourceClaims {
+        return .{
+            .client = ResourceClient(types.ResourceClaim){
+                .client = k8s_client,
+                .api_path = "/apis/resource.k8s.io/v1",
+                .resource = "resourceclaims",
+            },
+        };
+    }
+};
+
+pub const ResourceClaimTemplates = struct {
+    client: ResourceClient(types.ResourceClaimTemplate),
+
+    pub fn init(k8s_client: *K8sClient) ResourceClaimTemplates {
+        return .{
+            .client = ResourceClient(types.ResourceClaimTemplate){
+                .client = k8s_client,
+                .api_path = "/apis/resource.k8s.io/v1",
+                .resource = "resourceclaimtemplates",
+            },
+        };
+    }
+};
+
+pub const ResourceSlices = struct {
+    client: ResourceClient(types.ResourceSlice),
+
+    pub fn init(k8s_client: *K8sClient) ResourceSlices {
+        return .{
+            .client = ResourceClient(types.ResourceSlice){
+                .client = k8s_client,
+                .api_path = "/apis/resource.k8s.io/v1",
+                .resource = "resourceslices",
+            },
+        };
+    }
+
+    /// List all ResourceSlices (cluster-scoped)
+    pub fn list(self: ResourceSlices) !std.json.Parsed(types.List(types.ResourceSlice)) {
+        const path = "/apis/resource.k8s.io/v1/resourceslices";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.ResourceSlice),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const DeviceClasses = struct {
+    client: ResourceClient(types.DeviceClass),
+
+    pub fn init(k8s_client: *K8sClient) DeviceClasses {
+        return .{
+            .client = ResourceClient(types.DeviceClass){
+                .client = k8s_client,
+                .api_path = "/apis/resource.k8s.io/v1",
+                .resource = "deviceclasses",
+            },
+        };
+    }
+
+    /// List all DeviceClasses (cluster-scoped)
+    pub fn list(self: DeviceClasses) !std.json.Parsed(types.List(types.DeviceClass)) {
+        const path = "/apis/resource.k8s.io/v1/deviceclasses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.DeviceClass),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+// Storage enhancement (storage.k8s.io/v1)
+
+pub const VolumeAttributesClasses = struct {
+    client: ResourceClient(types.VolumeAttributesClass),
+
+    pub fn init(k8s_client: *K8sClient) VolumeAttributesClasses {
+        return .{
+            .client = ResourceClient(types.VolumeAttributesClass){
+                .client = k8s_client,
+                .api_path = "/apis/storage.k8s.io/v1",
+                .resource = "volumeattributesclasses",
+            },
+        };
+    }
+
+    /// List all VolumeAttributesClasses (cluster-scoped)
+    pub fn list(self: VolumeAttributesClasses) !std.json.Parsed(types.List(types.VolumeAttributesClass)) {
+        const path = "/apis/storage.k8s.io/v1/volumeattributesclasses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.VolumeAttributesClass),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};

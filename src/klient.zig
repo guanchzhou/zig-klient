@@ -81,6 +81,16 @@ pub const APIService = types.APIService;
 pub const FlowSchema = types.FlowSchema;
 pub const PriorityLevelConfiguration = types.PriorityLevelConfiguration;
 pub const RuntimeClass = types.RuntimeClass;
+pub const GatewayClass = types.GatewayClass;
+pub const Gateway = types.Gateway;
+pub const HTTPRoute = types.HTTPRoute;
+pub const GRPCRoute = types.GRPCRoute;
+pub const ReferenceGrant = types.ReferenceGrant;
+pub const ResourceClaim = types.ResourceClaim;
+pub const ResourceClaimTemplate = types.ResourceClaimTemplate;
+pub const ResourceSlice = types.ResourceSlice;
+pub const DeviceClass = types.DeviceClass;
+pub const VolumeAttributesClass = types.VolumeAttributesClass;
 
 // RBAC helper types
 pub const PolicyRule = types.PolicyRule;
@@ -142,6 +152,16 @@ pub const APIServices = final_resources.APIServices;
 pub const FlowSchemas = final_resources.FlowSchemas;
 pub const PriorityLevelConfigurations = final_resources.PriorityLevelConfigurations;
 pub const RuntimeClasses = final_resources.RuntimeClasses;
+pub const GatewayClasses = resources.GatewayClasses;
+pub const Gateways = resources.Gateways;
+pub const HTTPRoutes = resources.HTTPRoutes;
+pub const GRPCRoutes = resources.GRPCRoutes;
+pub const ReferenceGrants = resources.ReferenceGrants;
+pub const ResourceClaims = resources.ResourceClaims;
+pub const ResourceClaimTemplates = resources.ResourceClaimTemplates;
+pub const ResourceSlices = resources.ResourceSlices;
+pub const DeviceClasses = resources.DeviceClasses;
+pub const VolumeAttributesClasses = resources.VolumeAttributesClasses;
 
 // Advanced features
 pub const retry = @import("k8s/retry.zig");

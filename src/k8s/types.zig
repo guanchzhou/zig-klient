@@ -784,6 +784,87 @@ pub const RuntimeClass = struct {
     scheduling: ?std.json.Value = null,
 };
 
+/// GatewayClass specification (gateway.networking.k8s.io/v1)
+pub const GatewayClassSpec = struct {
+    controllerName: []const u8,
+    description: ?[]const u8 = null,
+    parametersRef: ?std.json.Value = null,
+};
+
+/// Gateway specification (gateway.networking.k8s.io/v1)
+pub const GatewaySpec = struct {
+    gatewayClassName: []const u8,
+    listeners: []std.json.Value,
+    addresses: ?[]std.json.Value = null,
+};
+
+/// HTTPRoute specification (gateway.networking.k8s.io/v1)
+pub const HTTPRouteSpec = struct {
+    parentRefs: ?[]std.json.Value = null,
+    hostnames: ?[][]const u8 = null,
+    rules: ?[]std.json.Value = null,
+};
+
+/// GRPCRoute specification (gateway.networking.k8s.io/v1)
+pub const GRPCRouteSpec = struct {
+    parentRefs: ?[]std.json.Value = null,
+    hostnames: ?[][]const u8 = null,
+    rules: ?[]std.json.Value = null,
+};
+
+/// ReferenceGrant specification (gateway.networking.k8s.io/v1beta1)
+pub const ReferenceGrantSpec = struct {
+    from: []std.json.Value,
+    to: []std.json.Value,
+};
+
+/// ResourceClaim specification (resource.k8s.io/v1)
+pub const ResourceClaimSpec = struct {
+    devices: ?std.json.Value = null,
+};
+
+/// ResourceClaimTemplate specification (resource.k8s.io/v1)
+pub const ResourceClaimTemplateSpec = struct {
+    spec: std.json.Value,
+};
+
+/// ResourceSlice specification (resource.k8s.io/v1)
+pub const ResourceSliceSpec = struct {
+    driver: []const u8,
+    nodeName: ?[]const u8 = null,
+    pool: ?std.json.Value = null,
+    devices: ?[]std.json.Value = null,
+};
+
+/// DeviceClass specification (resource.k8s.io/v1)
+pub const DeviceClassSpec = struct {
+    selectors: ?[]std.json.Value = null,
+    config: ?[]std.json.Value = null,
+    suitableNodes: ?std.json.Value = null,
+};
+
+/// VolumeAttributesClass (storage.k8s.io/v1) - no spec, top-level fields
+pub const VolumeAttributesClass = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    driverName: []const u8,
+    parameters: ?std.json.Value = null,
+};
+
+/// Gateway API resources (gateway.networking.k8s.io/v1)
+pub const GatewayClass = Resource(GatewayClassSpec);
+pub const Gateway = Resource(GatewaySpec);
+pub const HTTPRoute = Resource(HTTPRouteSpec);
+pub const GRPCRoute = Resource(GRPCRouteSpec);
+pub const ReferenceGrant = Resource(ReferenceGrantSpec);
+
+/// Dynamic Resource Allocation resources (resource.k8s.io/v1)
+pub const ResourceClaim = Resource(ResourceClaimSpec);
+pub const ResourceClaimTemplate = Resource(ResourceClaimTemplateSpec);
+pub const ResourceSlice = Resource(ResourceSliceSpec);
+pub const DeviceClass = Resource(DeviceClassSpec);
+
 /// API error from Kubernetes
 pub const ApiError = struct {
     kind: []const u8 = "Status",
