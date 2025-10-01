@@ -255,7 +255,7 @@ pub const K8sClient = struct {
             const ct_value = try std.fmt.bufPrint(&content_type_buffer, "application/vnd.kubernetes.protobuf;charset=utf-8", .{});
             headers.content_type = .{ .override = ct_value };
         }
-        
+
         // Set Protobuf Accept header for response
         const accept_value = try std.fmt.bufPrint(&accept_buffer, "application/vnd.kubernetes.protobuf", .{});
         _ = accept_value; // TODO: Add Accept header support to std.http.Client.Request.Headers

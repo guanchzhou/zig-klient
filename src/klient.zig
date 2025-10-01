@@ -262,8 +262,9 @@ pub const ForwardSession = port_forward_mod.ForwardSession;
 // Protobuf support (for high-performance scenarios) - using zig-protobuf library
 pub const protobuf = @import("protobuf");
 // Re-export common protobuf types for convenience
-pub const ProtobufMessage = protobuf.Message;
-pub const ProtobufField = protobuf.Field;
+pub const ProtobufFieldType = protobuf.FieldType;
+pub const ProtobufWire = protobuf.wire;
+pub const ProtobufJson = protobuf.json;
 
 // Helper functions for WebSocket path building (re-exported from websocket_client.zig)
 pub const buildExecPath = websocket.buildExecPath;

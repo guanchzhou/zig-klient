@@ -267,6 +267,20 @@ pub fn build(b: *std.Build) void {
     const volume_attributes_test_step = b.step("test-volume-attributes", "Run VolumeAttributesClass tests (K8s 1.34)");
     volume_attributes_test_step.dependOn(&run_volume_attributes_tests.step);
 
+    // Protobuf integration tests
+    const protobuf_integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/protobuf_integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    protobuf_integration_tests.root_module.addImport("klient", klient_module);
+
+    const run_protobuf_integration_tests = b.addRunArtifact(protobuf_integration_tests);
+    const protobuf_integration_test_step = b.step("test-protobuf", "Run Protobuf integration tests");
+    protobuf_integration_test_step.dependOn(&run_protobuf_integration_tests.step);
+
     // Run all unit tests
     const test_step = b.step("test", "Run all unit tests");
     test_step.dependOn(&run_retry_tests.step);
@@ -281,6 +295,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_admission_tests.step);
     test_step.dependOn(&run_advanced_resources_tests.step);
     test_step.dependOn(&run_websocket_tests.step);
+    test_step.dependOn(&run_protobuf_integration_tests.step);
     test_step.dependOn(&run_gateway_api_tests.step);
     test_step.dependOn(&run_dra_tests.step);
     test_step.dependOn(&run_volume_attributes_tests.step);
