@@ -49,6 +49,7 @@ pub const Role = types.Role;
 pub const RoleBinding = types.RoleBinding;
 pub const ClusterRole = types.ClusterRole;
 pub const ClusterRoleBinding = types.ClusterRoleBinding;
+pub const NetworkPolicy = types.NetworkPolicy;
 
 // RBAC helper types
 pub const PolicyRule = types.PolicyRule;
@@ -77,6 +78,7 @@ pub const Roles = resources.Roles;
 pub const RoleBindings = resources.RoleBindings;
 pub const ClusterRoles = resources.ClusterRoles;
 pub const ClusterRoleBindings = resources.ClusterRoleBindings;
+pub const NetworkPolicies = resources.NetworkPolicies;
 
 // Advanced features
 pub const retry = @import("k8s/retry.zig");

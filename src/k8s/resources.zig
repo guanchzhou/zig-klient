@@ -954,3 +954,17 @@ pub const ClusterRoleBindings = struct {
         return parsed;
     }
 };
+
+pub const NetworkPolicies = struct {
+    client: ResourceClient(types.NetworkPolicy),
+
+    pub fn init(k8s_client: *K8sClient) NetworkPolicies {
+        return .{
+            .client = ResourceClient(types.NetworkPolicy){
+                .client = k8s_client,
+                .api_path = "/apis/networking.k8s.io/v1",
+                .resource = "networkpolicies",
+            },
+        };
+    }
+};

@@ -318,6 +318,14 @@ pub const Subject = struct {
     apiGroup: ?[]const u8 = null,
 };
 
+/// NetworkPolicy specification
+pub const NetworkPolicySpec = struct {
+    podSelector: ?std.json.Value = null,
+    policyTypes: ?[][]const u8 = null,
+    ingress: ?[]std.json.Value = null,
+    egress: ?[]std.json.Value = null,
+};
+
 /// Type aliases for common resources
 pub const Pod = Resource(PodSpec);
 pub const Deployment = Resource(DeploymentSpec);
@@ -384,6 +392,9 @@ pub const ClusterRoleBinding = struct {
     subjects: ?[]Subject = null,
     roleRef: RoleRef,
 };
+
+/// NetworkPolicy (network security)
+pub const NetworkPolicy = Resource(NetworkPolicySpec);
 
 /// API error from Kubernetes
 pub const ApiError = struct {
