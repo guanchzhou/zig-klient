@@ -138,27 +138,27 @@ pub fn buildExecPath(
     command: []const []const u8,
     options: ExecPathOptions,
 ) ![]const u8 {
-    var query_parts = std.ArrayList([]const u8).init(allocator);
+    var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
     defer {
         for (query_parts.items) |part| allocator.free(part);
-        query_parts.deinit();
+        query_parts.deinit(allocator);
     }
 
     // Add command parts
     for (command) |cmd| {
         const part = try std.fmt.allocPrint(allocator, "command={s}", .{cmd});
-        try query_parts.append(part);
+        try query_parts.append(allocator, part);
     }
 
     // Add stream options
-    if (options.stdin) try query_parts.append(try allocator.dupe(u8, "stdin=true"));
-    if (options.stdout) try query_parts.append(try allocator.dupe(u8, "stdout=true"));
-    if (options.stderr) try query_parts.append(try allocator.dupe(u8, "stderr=true"));
-    if (options.tty) try query_parts.append(try allocator.dupe(u8, "tty=true"));
+    if (options.stdin) try query_parts.append(allocator, try allocator.dupe(u8, "stdin=true"));
+    if (options.stdout) try query_parts.append(allocator, try allocator.dupe(u8, "stdout=true"));
+    if (options.stderr) try query_parts.append(allocator, try allocator.dupe(u8, "stderr=true"));
+    if (options.tty) try query_parts.append(allocator, try allocator.dupe(u8, "tty=true"));
 
     if (options.container) |container| {
         const part = try std.fmt.allocPrint(allocator, "container={s}", .{container});
-        try query_parts.append(part);
+        try query_parts.append(allocator, part);
     }
 
     const query = try std.mem.join(allocator, "&", query_parts.items);
@@ -186,20 +186,20 @@ pub fn buildAttachPath(
     pod_name: []const u8,
     options: AttachPathOptions,
 ) ![]const u8 {
-    var query_parts = std.ArrayList([]const u8).init(allocator);
+    var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
     defer {
         for (query_parts.items) |part| allocator.free(part);
-        query_parts.deinit();
+        query_parts.deinit(allocator);
     }
 
-    if (options.stdin) try query_parts.append(try allocator.dupe(u8, "stdin=true"));
-    if (options.stdout) try query_parts.append(try allocator.dupe(u8, "stdout=true"));
-    if (options.stderr) try query_parts.append(try allocator.dupe(u8, "stderr=true"));
-    if (options.tty) try query_parts.append(try allocator.dupe(u8, "tty=true"));
+    if (options.stdin) try query_parts.append(allocator, try allocator.dupe(u8, "stdin=true"));
+    if (options.stdout) try query_parts.append(allocator, try allocator.dupe(u8, "stdout=true"));
+    if (options.stderr) try query_parts.append(allocator, try allocator.dupe(u8, "stderr=true"));
+    if (options.tty) try query_parts.append(allocator, try allocator.dupe(u8, "tty=true"));
 
     if (options.container) |container| {
         const part = try std.fmt.allocPrint(allocator, "container={s}", .{container});
-        try query_parts.append(part);
+        try query_parts.append(allocator, part);
     }
 
     const query = try std.mem.join(allocator, "&", query_parts.items);
@@ -227,15 +227,15 @@ pub fn buildPortForwardPath(
     pod_name: []const u8,
     ports: []const u16,
 ) ![]const u8 {
-    var query_parts = std.ArrayList([]const u8).init(allocator);
+    var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
     defer {
         for (query_parts.items) |part| allocator.free(part);
-        query_parts.deinit();
+        query_parts.deinit(allocator);
     }
 
     for (ports) |port| {
         const part = try std.fmt.allocPrint(allocator, "ports={d}", .{port});
-        try query_parts.append(part);
+        try query_parts.append(allocator, part);
     }
 
     const query = try std.mem.join(allocator, "&", query_parts.items);

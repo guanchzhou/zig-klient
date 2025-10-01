@@ -37,72 +37,72 @@ pub const ListOptions = struct {
 
     /// Build query string from options
     pub fn buildQueryString(self: ListOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var query_parts = std.ArrayList([]const u8).init(allocator);
+        var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
         defer {
             for (query_parts.items) |part| {
                 allocator.free(part);
             }
-            query_parts.deinit();
+            query_parts.deinit(allocator);
         }
 
         // Field selector
         if (self.field_selector) |fs| {
             const part = try std.fmt.allocPrint(allocator, "fieldSelector={s}", .{fs});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Label selector
         if (self.label_selector) |ls| {
             const part = try std.fmt.allocPrint(allocator, "labelSelector={s}", .{ls});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Limit
         if (self.limit) |limit| {
             const part = try std.fmt.allocPrint(allocator, "limit={d}", .{limit});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Continue token
         if (self.continue_token) |ct| {
             const part = try std.fmt.allocPrint(allocator, "continue={s}", .{ct});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Resource version
         if (self.resource_version) |rv| {
             const part = try std.fmt.allocPrint(allocator, "resourceVersion={s}", .{rv});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Resource version match
         if (self.resource_version_match) |rvm| {
             const part = try std.fmt.allocPrint(allocator, "resourceVersionMatch={s}", .{rvm});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Timeout
         if (self.timeout_seconds) |timeout| {
             const part = try std.fmt.allocPrint(allocator, "timeoutSeconds={d}", .{timeout});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Pretty
         if (self.pretty) {
             const part = try std.fmt.allocPrint(allocator, "pretty=true", .{});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Allow watch bookmarks
         if (self.allow_watch_bookmarks) {
             const part = try std.fmt.allocPrint(allocator, "allowWatchBookmarks=true", .{});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Send initial events
         if (self.send_initial_events) {
             const part = try std.fmt.allocPrint(allocator, "sendInitialEvents=true", .{});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (query_parts.items.len == 0) {
@@ -152,10 +152,10 @@ pub const LabelSelector = struct {
     allocator: std.mem.Allocator,
     selectors: std.ArrayList([]const u8),
 
-    pub fn init(allocator: std.mem.Allocator) LabelSelector {
+    pub fn init(allocator: std.mem.Allocator) !LabelSelector {
         return .{
             .allocator = allocator,
-            .selectors = std.ArrayList([]const u8).init(allocator),
+            .selectors = try std.ArrayList([]const u8).initCapacity(allocator, 0),
         };
     }
 
@@ -163,19 +163,19 @@ pub const LabelSelector = struct {
         for (self.selectors.items) |selector| {
             self.allocator.free(selector);
         }
-        self.selectors.deinit();
+        self.selectors.deinit(self.allocator);
     }
 
     /// Add equality selector: key=value
     pub fn addEquals(self: *LabelSelector, key: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}={s}", .{ key, value });
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Add inequality selector: key!=value
     pub fn addNotEquals(self: *LabelSelector, key: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}!={s}", .{ key, value });
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Add set-based selector: key in (value1,value2)
@@ -184,7 +184,7 @@ pub const LabelSelector = struct {
         defer self.allocator.free(values_joined);
 
         const selector = try std.fmt.allocPrint(self.allocator, "{s} in ({s})", .{ key, values_joined });
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Add set-based selector: key notin (value1,value2)
@@ -193,19 +193,19 @@ pub const LabelSelector = struct {
         defer self.allocator.free(values_joined);
 
         const selector = try std.fmt.allocPrint(self.allocator, "{s} notin ({s})", .{ key, values_joined });
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Add existence selector: key
     pub fn addExists(self: *LabelSelector, key: []const u8) !void {
         const selector = try self.allocator.dupe(u8, key);
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Add non-existence selector: !key
     pub fn addNotExists(self: *LabelSelector, key: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "!{s}", .{key});
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Build the final label selector string
@@ -222,10 +222,10 @@ pub const FieldSelector = struct {
     allocator: std.mem.Allocator,
     selectors: std.ArrayList([]const u8),
 
-    pub fn init(allocator: std.mem.Allocator) FieldSelector {
+    pub fn init(allocator: std.mem.Allocator) !FieldSelector {
         return .{
             .allocator = allocator,
-            .selectors = std.ArrayList([]const u8).init(allocator),
+            .selectors = try std.ArrayList([]const u8).initCapacity(allocator, 0),
         };
     }
 
@@ -233,19 +233,19 @@ pub const FieldSelector = struct {
         for (self.selectors.items) |selector| {
             self.allocator.free(selector);
         }
-        self.selectors.deinit();
+        self.selectors.deinit(self.allocator);
     }
 
     /// Add equality selector: key=value
     pub fn addEquals(self: *FieldSelector, field: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}={s}", .{ field, value });
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Add inequality selector: key!=value
     pub fn addNotEquals(self: *FieldSelector, field: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}!={s}", .{ field, value });
-        try self.selectors.append(selector);
+        try self.selectors.append(self.allocator, selector);
     }
 
     /// Build the final field selector string

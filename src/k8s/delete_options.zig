@@ -27,30 +27,30 @@ pub const DeleteOptions = struct {
 
     /// Build query string from options
     pub fn buildQueryString(self: DeleteOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var query_parts = std.ArrayList([]const u8).init(allocator);
+        var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
         defer {
             for (query_parts.items) |part| {
                 allocator.free(part);
             }
-            query_parts.deinit();
+            query_parts.deinit(allocator);
         }
 
         // Grace period
         if (self.grace_period_seconds) |grace| {
             const part = try std.fmt.allocPrint(allocator, "gracePeriodSeconds={d}", .{grace});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Propagation policy
         if (self.propagation_policy) |policy| {
             const part = try std.fmt.allocPrint(allocator, "propagationPolicy={s}", .{policy});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         // Dry run
         if (self.dry_run) |dr| {
             const part = try std.fmt.allocPrint(allocator, "dryRun={s}", .{dr});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (query_parts.items.len == 0) {
@@ -77,7 +77,7 @@ pub const DeleteOptions = struct {
         }
 
         if (self.preconditions) |precond| {
-            var precond_map = std.StringHashMap(std.json.Value).init(allocator);
+            var precond_map = std.StringArrayHashMap(std.json.Value).init(allocator);
             defer precond_map.deinit();
 
             if (precond.resource_version) |rv| {
@@ -90,12 +90,46 @@ pub const DeleteOptions = struct {
             try json_obj.put("preconditions", .{ .object = precond_map });
         }
 
-        var result = std.ArrayList(u8).init(allocator);
-        defer result.deinit();
-
-        try std.json.stringify(json_obj, .{}, result.writer());
-
-        return try result.toOwnedSlice();
+        // Build JSON manually (std.json.stringify deprecated in Zig 0.15.1)
+        // Simple concatenation without dynamic parts management
+        var buffer = try std.ArrayList(u8).initCapacity(allocator, 256);
+        defer buffer.deinit(allocator);
+        
+        try buffer.appendSlice(allocator, "{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\"");
+        
+        if (self.grace_period_seconds) |grace| {
+            const part = try std.fmt.allocPrint(allocator, ",\"gracePeriodSeconds\":{d}", .{grace});
+            defer allocator.free(part);
+            try buffer.appendSlice(allocator, part);
+        }
+        
+        if (self.propagation_policy) |policy| {
+            const part = try std.fmt.allocPrint(allocator, ",\"propagationPolicy\":\"{s}\"", .{policy});
+            defer allocator.free(part);
+            try buffer.appendSlice(allocator, part);
+        }
+        
+        if (self.preconditions) |precond| {
+            try buffer.appendSlice(allocator, ",\"preconditions\":{");
+            var first = true;
+            if (precond.resource_version) |rv| {
+                const part = try std.fmt.allocPrint(allocator, "\"resourceVersion\":\"{s}\"", .{rv});
+                defer allocator.free(part);
+                try buffer.appendSlice(allocator, part);
+                first = false;
+            }
+            if (precond.uid) |uid| {
+                if (!first) try buffer.appendSlice(allocator, ",");
+                const part = try std.fmt.allocPrint(allocator, "\"uid\":\"{s}\"", .{uid});
+                defer allocator.free(part);
+                try buffer.appendSlice(allocator, part);
+            }
+            try buffer.appendSlice(allocator, "}");
+        }
+        
+        try buffer.appendSlice(allocator, "}");
+        
+        return try buffer.toOwnedSlice(allocator);
     }
 };
 
@@ -116,32 +150,32 @@ pub const CreateOptions = struct {
 
     /// Build query string from options
     pub fn buildQueryString(self: CreateOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var query_parts = std.ArrayList([]const u8).init(allocator);
+        var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
         defer {
             for (query_parts.items) |part| {
                 allocator.free(part);
             }
-            query_parts.deinit();
+            query_parts.deinit(allocator);
         }
 
         if (self.field_manager) |fm| {
             const part = try std.fmt.allocPrint(allocator, "fieldManager={s}", .{fm});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (self.field_validation) |fv| {
             const part = try std.fmt.allocPrint(allocator, "fieldValidation={s}", .{fv});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (self.dry_run) |dr| {
             const part = try std.fmt.allocPrint(allocator, "dryRun={s}", .{dr});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (self.pretty) {
             const part = try std.fmt.allocPrint(allocator, "pretty=true", .{});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (query_parts.items.len == 0) {
@@ -168,32 +202,32 @@ pub const UpdateOptions = struct {
 
     /// Build query string from options
     pub fn buildQueryString(self: UpdateOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var query_parts = std.ArrayList([]const u8).init(allocator);
+        var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
         defer {
             for (query_parts.items) |part| {
                 allocator.free(part);
             }
-            query_parts.deinit();
+            query_parts.deinit(allocator);
         }
 
         if (self.field_manager) |fm| {
             const part = try std.fmt.allocPrint(allocator, "fieldManager={s}", .{fm});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (self.field_validation) |fv| {
             const part = try std.fmt.allocPrint(allocator, "fieldValidation={s}", .{fv});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (self.dry_run) |dr| {
             const part = try std.fmt.allocPrint(allocator, "dryRun={s}", .{dr});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (self.pretty) {
             const part = try std.fmt.allocPrint(allocator, "pretty=true", .{});
-            try query_parts.append(part);
+            try query_parts.append(allocator, part);
         }
 
         if (query_parts.items.len == 0) {

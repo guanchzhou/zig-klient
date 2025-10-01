@@ -55,7 +55,7 @@ test "ListOptions - buildQueryString with pagination" {
 test "LabelSelector - equality selector" {
     const allocator = testing.allocator;
 
-    var selector = klient.LabelSelector.init(allocator);
+    var selector = try klient.LabelSelector.init(allocator);
     defer selector.deinit();
 
     try selector.addEquals("app", "nginx");
@@ -70,7 +70,7 @@ test "LabelSelector - equality selector" {
 test "LabelSelector - inequality selector" {
     const allocator = testing.allocator;
 
-    var selector = klient.LabelSelector.init(allocator);
+    var selector = try klient.LabelSelector.init(allocator);
     defer selector.deinit();
 
     try selector.addEquals("env", "prod");
@@ -85,7 +85,7 @@ test "LabelSelector - inequality selector" {
 test "LabelSelector - set-based selectors" {
     const allocator = testing.allocator;
 
-    var selector = klient.LabelSelector.init(allocator);
+    var selector = try klient.LabelSelector.init(allocator);
     defer selector.deinit();
 
     const values = [_][]const u8{ "v1", "v2", "v3" };
@@ -100,7 +100,7 @@ test "LabelSelector - set-based selectors" {
 test "LabelSelector - existence selectors" {
     const allocator = testing.allocator;
 
-    var selector = klient.LabelSelector.init(allocator);
+    var selector = try klient.LabelSelector.init(allocator);
     defer selector.deinit();
 
     try selector.addExists("app");
@@ -115,7 +115,7 @@ test "LabelSelector - existence selectors" {
 test "FieldSelector - equality selector" {
     const allocator = testing.allocator;
 
-    var selector = klient.FieldSelector.init(allocator);
+    var selector = try klient.FieldSelector.init(allocator);
     defer selector.deinit();
 
     try selector.addEquals("metadata.name", "my-pod");
@@ -130,7 +130,7 @@ test "FieldSelector - equality selector" {
 test "FieldSelector - inequality selector" {
     const allocator = testing.allocator;
 
-    var selector = klient.FieldSelector.init(allocator);
+    var selector = try klient.FieldSelector.init(allocator);
     defer selector.deinit();
 
     try selector.addEquals("status.phase", "Running");
@@ -145,7 +145,7 @@ test "FieldSelector - inequality selector" {
 test "FieldSelector - empty selector" {
     const allocator = testing.allocator;
 
-    var selector = klient.FieldSelector.init(allocator);
+    var selector = try klient.FieldSelector.init(allocator);
     defer selector.deinit();
 
     const result = try selector.build();
