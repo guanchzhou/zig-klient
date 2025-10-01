@@ -70,6 +70,15 @@ pub const VolumeAttachment = types.VolumeAttachment;
 pub const CSIDriver = types.CSIDriver;
 pub const CSINode = types.CSINode;
 pub const CSIStorageCapacity = types.CSIStorageCapacity;
+pub const CertificateSigningRequest = types.CertificateSigningRequest;
+pub const ValidatingWebhookConfiguration = types.ValidatingWebhookConfiguration;
+pub const MutatingWebhookConfiguration = types.MutatingWebhookConfiguration;
+pub const ValidatingAdmissionPolicy = types.ValidatingAdmissionPolicy;
+pub const ValidatingAdmissionPolicyBinding = types.ValidatingAdmissionPolicyBinding;
+pub const APIService = types.APIService;
+pub const FlowSchema = types.FlowSchema;
+pub const PriorityLevelConfiguration = types.PriorityLevelConfiguration;
+pub const RuntimeClass = types.RuntimeClass;
 
 // RBAC helper types
 pub const PolicyRule = types.PolicyRule;
@@ -78,6 +87,7 @@ pub const Subject = types.Subject;
 
 // Resource clients
 pub const resources = @import("k8s/resources.zig");
+const final_resources = @import("k8s/final_resources.zig");
 pub const Pods = resources.Pods;
 pub const Deployments = resources.Deployments;
 pub const Services = resources.Services;
@@ -119,6 +129,15 @@ pub const VolumeAttachments = resources.VolumeAttachments;
 pub const CSIDrivers = resources.CSIDrivers;
 pub const CSINodes = resources.CSINodes;
 pub const CSIStorageCapacities = resources.CSIStorageCapacities;
+pub const CertificateSigningRequests = final_resources.CertificateSigningRequests;
+pub const ValidatingWebhookConfigurations = final_resources.ValidatingWebhookConfigurations;
+pub const MutatingWebhookConfigurations = final_resources.MutatingWebhookConfigurations;
+pub const ValidatingAdmissionPolicies = final_resources.ValidatingAdmissionPolicies;
+pub const ValidatingAdmissionPolicyBindings = final_resources.ValidatingAdmissionPolicyBindings;
+pub const APIServices = final_resources.APIServices;
+pub const FlowSchemas = final_resources.FlowSchemas;
+pub const PriorityLevelConfigurations = final_resources.PriorityLevelConfigurations;
+pub const RuntimeClasses = final_resources.RuntimeClasses;
 
 // Advanced features
 pub const retry = @import("k8s/retry.zig");
