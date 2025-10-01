@@ -5,7 +5,7 @@
 A production-ready Kubernetes client library for Zig implementing **ALL 61 standard Kubernetes 1.34 resource types** with **CRUD operations** for each, covering **100% of Kubernetes 1.34 standard resources** across **19 API groups**. Includes **native WebSocket support** for Pod exec/attach/port-forward and **native Protobuf serialization** for high-performance scenarios.
 
 **Verified against**: Rancher Desktop with Kubernetes 1.34.1  
-**Zero external dependencies**: Native implementations using only Zig's standard library
+**Minimal dependencies**: Native WebSocket + [zig-protobuf](https://github.com/Arwalk/zig-protobuf) for production-grade Protobuf support
 
 ## Features
 
@@ -96,7 +96,7 @@ RuntimeClass
 - 86 Passing Tests: Comprehensive test coverage (unit + integration)
 - Memory Safe: Proper allocator usage throughout
 - Type Safe: Compile-time guarantees with Zig's type system
-- Zero Dependencies: Only zig-yaml for YAML parsing
+- Minimal Dependencies: Only zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
 - Production Ready: Battle-tested with 100% Kubernetes 1.34 coverage
 
 ## Installation

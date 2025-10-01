@@ -86,7 +86,7 @@ pub const WebSocketClient = struct {
 
         // Verify Sec-WebSocket-Accept header
         const accept_header = req.response.headers.getFirstValue("Sec-WebSocket-Accept") orelse return error.MissingAcceptHeader;
-        
+
         // Calculate expected accept value
         var hasher = crypto.hash.Sha1.init(.{});
         hasher.update(&ws_key);
@@ -281,7 +281,7 @@ pub const WebSocketConnection = struct {
             .binary, .text => {
                 // Parse SPDY frame
                 if (frame.payload.len < 1) return error.InvalidSPDYFrame;
-                
+
                 const channel = frame.payload[0];
                 const data = try self.allocator.dupe(u8, frame.payload[1..]);
 
@@ -297,7 +297,7 @@ pub const WebSocketConnection = struct {
     /// Close the WebSocket connection
     pub fn close(self: *WebSocketConnection) void {
         if (!self.connected) return;
-        
+
         // Send close frame
         self.sendFrame(.close, &[_]u8{}) catch {};
         self.connected = false;

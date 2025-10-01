@@ -12,5 +12,9 @@
         .yaml = .{
             .path = "../zig-yaml",
         },
+        .protobuf = .{
+            .url = "git+https://github.com/Arwalk/zig-protobuf?ref=master#081a1471dfbaf9f7c11e4937d2f6d0756b32679c",
+            .hash = "protobuf-2.0.0-0e82ahVaJwAYfnNSGYt5sFQ_Ig_VYbyDQPZJ4Xbb5FuE",
+        },
     },
 }

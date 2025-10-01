@@ -10,6 +10,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Add zig-protobuf dependency
+    const protobuf_dep = b.dependency("protobuf", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Create the zig-klient library module
     const klient_module = b.addModule("klient", .{
         .root_source_file = b.path("src/klient.zig"),
@@ -17,6 +23,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     klient_module.addImport("yaml", yaml.module("yaml"));
+    klient_module.addImport("protobuf", protobuf_dep.module("protobuf"));
 
     // === Unit Tests ===
     // Note: Comprehensive integration tests are in examples/tests/
