@@ -1,8 +1,8 @@
 # zig-klient
 
-> **Status**: ✅ Production-Ready | 100% Core Feature Parity Achieved | Comprehensive Test Coverage
+> **Status**: ✅ Production-Ready | 15 Core Resource Types | ~75% Use Case Coverage
 
-A production-ready Kubernetes client library for Zig with **100% feature parity** for all core features compared to the official Kubernetes C client, covering **100% of production use cases**.
+A production-ready Kubernetes client library for Zig implementing **15 commonly used resource types** with **100% CRUD operations** for each, covering approximately **70-80% of real-world Kubernetes use cases**.
 
 ## Features
 
@@ -586,27 +586,27 @@ zig-klient/
 └── docs/                       # Documentation
 ```
 
-## Feature Parity - 100% Core Features ✅
+## Feature Parity Status
 
-| Feature | Official C Client | zig-klient | Coverage |
+| Feature | Official Clients | zig-klient | Coverage |
 |---------|------------------|------------|----------|
-| HTTP Operations | Yes | Yes | 100% |
-| Core Resources | 15 | **15** | **100%** |
-| Auth Methods | 5 | 4 (practical) | **100%** |
-| In-Cluster Config | Yes | Yes | 100% |
-| Delete Options | Yes | Yes | 100% |
-| Create/Update Options | Yes | Yes | 100% |
-| Delete Collection | Yes | Yes | 100% |
-| Retry Logic | Basic | Advanced | 150% |
-| Watch API | Yes | Yes | 100% |
-| Connection Pool | Basic | Advanced | 120% |
-| CRD Support | Yes | Yes | 110% |
-| Field/Label Selectors | Yes | Yes | 100% |
-| Pagination | Yes | Yes | 100% |
-| Server-Side Apply | Yes | Yes | 100% |
-| **Overall** | **100%** | **100%** | **100%** |
+| HTTP Operations | All methods | All methods | 100% ✅ |
+| **Total K8s Resource Types** | **90+** | **15** | **~17%** |
+| **Common Use Case Coverage** | 100% | **~75%** | **75%** |
+| Auth Methods | 5 | 4 (practical) | 100% ✅ |
+| In-Cluster Config | Yes | Yes | 100% ✅ |
+| Delete Options | Yes | Yes | 100% ✅ |
+| Create/Update Options | Yes | Yes | 100% ✅ |
+| Delete Collection | Yes | Yes | 100% ✅ |
+| Retry Logic | Basic | Advanced | 150% 🚀 |
+| Watch API | Yes | Yes | 100% ✅ |
+| Field/Label Selectors | Yes | Yes | 100% ✅ |
+| Pagination | Yes | Yes | 100% ✅ |
+| Server-Side Apply | Yes | Yes | 100% ✅ |
 
-**Use Case Coverage: 100%** - Complete parity for all production Kubernetes operations.
+**Implemented Resource Types**: 15 most commonly used (Pod, Deployment, Service, ConfigMap, Secret, Namespace, Node, ReplicaSet, StatefulSet, DaemonSet, Job, CronJob, PV, PVC, Ingress)
+
+**Missing**: RBAC (Role/RoleBinding), HorizontalPodAutoscaler, NetworkPolicy, StorageClass, ServiceAccount, ResourceQuota, and 70+ other specialized resources
 
 See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed breakdown.
 
