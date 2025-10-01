@@ -21,7 +21,7 @@ pub const CertificateSigningRequests = struct {
         const path = "/apis/certificates.k8s.io/v1/certificatesigningrequests";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.CertificateSigningRequest), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.CertificateSigningRequest), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -43,7 +43,7 @@ pub const ValidatingWebhookConfigurations = struct {
         const path = "/apis/admissionregistration.k8s.io/v1/validatingwebhookconfigurations";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.ValidatingWebhookConfiguration), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.ValidatingWebhookConfiguration), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -65,7 +65,7 @@ pub const MutatingWebhookConfigurations = struct {
         const path = "/apis/admissionregistration.k8s.io/v1/mutatingwebhookconfigurations";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.MutatingWebhookConfiguration), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.MutatingWebhookConfiguration), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -87,7 +87,7 @@ pub const ValidatingAdmissionPolicies = struct {
         const path = "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.ValidatingAdmissionPolicy), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.ValidatingAdmissionPolicy), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -109,7 +109,7 @@ pub const ValidatingAdmissionPolicyBindings = struct {
         const path = "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.ValidatingAdmissionPolicyBinding), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.ValidatingAdmissionPolicyBinding), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -131,7 +131,7 @@ pub const APIServices = struct {
         const path = "/apis/apiregistration.k8s.io/v1/apiservices";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.APIService), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.APIService), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -153,7 +153,7 @@ pub const FlowSchemas = struct {
         const path = "/apis/flowcontrol.apiserver.k8s.io/v1/flowschemas";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.FlowSchema), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.FlowSchema), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -175,7 +175,7 @@ pub const PriorityLevelConfigurations = struct {
         const path = "/apis/flowcontrol.apiserver.k8s.io/v1/prioritylevelconfigurations";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.PriorityLevelConfiguration), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.PriorityLevelConfiguration), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
@@ -197,8 +197,7 @@ pub const RuntimeClasses = struct {
         const path = "/apis/node.k8s.io/v1/runtimeclasses";
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
-        const parsed = try std.json.parseFromSlice(types.List(types.RuntimeClass), self.client.client.allocator, body, .{.ignore_unknown_fields = true, .allocate = .alloc_always});
+        const parsed = try std.json.parseFromSlice(types.List(types.RuntimeClass), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };
-
