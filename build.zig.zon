@@ -1,19 +1,16 @@
 .{
-    .name = .klient,
+    .name = .zig_klient,
     .version = "0.1.0",
-    .fingerprint = 0x2b17863871121995,
-    .minimum_zig_version = "0.15.1",
-    .dependencies = .{
-        .yaml = .{
-            .path = "../zig-yaml",
-        },
-    },
+    .fingerprint = 0x67475dbf5e099887,
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
         "tests",
-        "README.md",
-        "LICENSE",
+    },
+    .dependencies = .{
+        .yaml = .{
+            .path = "../zig-yaml",
+        },
     },
 }

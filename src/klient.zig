@@ -61,6 +61,7 @@ pub const Jobs = resources.Jobs;
 pub const CronJobs = resources.CronJobs;
 pub const PersistentVolumes = resources.PersistentVolumes;
 pub const PersistentVolumeClaims = resources.PersistentVolumeClaims;
+pub const Ingresses = resources.Ingresses;
 
 // Advanced features
 pub const retry = @import("k8s/retry.zig");
@@ -103,6 +104,60 @@ pub const azureAksConfig = exec_credential.azureAksConfig;
 
 // Kubeconfig parsing (direct YAML parsing, no kubectl required)
 pub const KubeconfigParser = @import("k8s/kubeconfig_yaml.zig").KubeconfigParser;
+
+// In-cluster configuration
+pub const incluster = @import("k8s/incluster_config.zig");
+pub const InClusterConfig = incluster.InClusterConfig;
+pub const loadInClusterConfig = incluster.loadInClusterConfig;
+pub const isInCluster = incluster.isInCluster;
+
+// List options for filtering and pagination
+pub const list_options = @import("k8s/list_options.zig");
+pub const ListOptions = list_options.ListOptions;
+pub const LabelSelector = list_options.LabelSelector;
+pub const FieldSelector = list_options.FieldSelector;
+pub const PaginatedList = list_options.PaginatedList;
+
+// Delete, create, and update options
+pub const delete_options = @import("k8s/delete_options.zig");
+pub const DeleteOptions = delete_options.DeleteOptions;
+pub const CreateOptions = delete_options.CreateOptions;
+pub const UpdateOptions = delete_options.UpdateOptions;
+pub const PropagationPolicy = delete_options.PropagationPolicy;
+pub const FieldValidation = delete_options.FieldValidation;
+
+// Server-side apply and patch options
+pub const apply = @import("k8s/apply.zig");
+pub const ApplyOptions = apply.ApplyOptions;
+pub const PatchOptions = apply.PatchOptions;
+pub const PatchType = apply.PatchType;
+pub const ApplyHelper = apply.ApplyHelper;
+pub const JsonPatch = apply.JsonPatch;
+pub const StrategicMergePatch = apply.StrategicMergePatch;
+
+// WebSocket operations (pod exec, attach, port-forward)
+pub const websocket = @import("k8s/websocket_client.zig");
+pub const WebSocketClient = websocket.WebSocketClient;
+pub const WebSocketConnection = websocket.WebSocketConnection;
+pub const Channel = websocket.Channel;
+pub const Subprotocol = websocket.Subprotocol;
+
+pub const exec_mod = @import("k8s/exec.zig");
+pub const ExecClient = exec_mod.ExecClient;
+pub const ExecOptions = exec_mod.ExecOptions;
+pub const ExecResult = exec_mod.ExecResult;
+pub const ExecSession = exec_mod.ExecSession;
+
+pub const attach_mod = @import("k8s/attach.zig");
+pub const AttachClient = attach_mod.AttachClient;
+pub const AttachOptions = attach_mod.AttachOptions;
+pub const AttachSession = attach_mod.AttachSession;
+
+pub const port_forward_mod = @import("k8s/port_forward.zig");
+pub const PortForwarder = port_forward_mod.PortForwarder;
+pub const PortForwardOptions = port_forward_mod.PortForwardOptions;
+pub const PortMapping = port_forward_mod.PortMapping;
+pub const ForwardSession = port_forward_mod.ForwardSession;
 
 // Version information
 pub const version = .{

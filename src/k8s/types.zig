@@ -286,6 +286,14 @@ pub const PersistentVolumeClaimSpec = struct {
     storageClassName: ?[]const u8 = null,
 };
 
+/// Ingress specification
+pub const IngressSpec = struct {
+    ingressClassName: ?[]const u8 = null,
+    defaultBackend: ?std.json.Value = null,
+    tls: ?[]std.json.Value = null,
+    rules: ?[]std.json.Value = null,
+};
+
 /// Type aliases for common resources
 pub const Pod = Resource(PodSpec);
 pub const Deployment = Resource(DeploymentSpec);
@@ -308,6 +316,7 @@ pub const Namespace = Resource(NamespaceSpec);
 pub const Node = Resource(NodeSpec);
 pub const PersistentVolume = Resource(PersistentVolumeSpec);
 pub const PersistentVolumeClaim = Resource(PersistentVolumeClaimSpec);
+pub const Ingress = Resource(IngressSpec);
 
 /// API error from Kubernetes
 pub const ApiError = struct {
