@@ -2,7 +2,9 @@
 
 > **Status**: Production-Ready | 51 Resource Types | 16 API Groups
 
-A production-ready Kubernetes client library for Zig implementing **51 standard Kubernetes resource types** with **CRUD operations** for each, covering all production use cases across **16 API groups**.
+A production-ready Kubernetes client library for Zig implementing **51 standard Kubernetes resource types** with **CRUD operations** for each, covering **83.6% of Kubernetes 1.34 standard resources** across **16 API groups**.
+
+**Verified against**: Rancher Desktop with Kubernetes 1.34.1
 
 ## Features
 
@@ -636,11 +638,13 @@ zig-klient/
 
 ## Feature Parity Status
 
-| Feature | Official Clients | zig-klient | Coverage |
+**Tested against**: Rancher Desktop with Kubernetes 1.34.1
+
+| Feature | Kubernetes 1.34 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
 | HTTP Operations | All methods | All methods | 100% ✅ |
-| K8s Resource Types | 51 standard | 51 | 100% ✅ |
-| API Groups | 16 | 16 | 100% ✅ |
+| K8s Resource Types | 61 standard | 51 | 83.6% |
+| API Groups | 19 | 16 | 84.2% |
 | Auth Methods | 5 | 4 (practical) | 100% ✅ |
 | In-Cluster Config | Yes | Yes | 100% ✅ |
 | Delete Options | Yes | Yes | 100% ✅ |
@@ -653,7 +657,12 @@ zig-klient/
 | Server-Side Apply | Yes | Yes | 100% ✅ |
 | WebSocket Support | Yes | Yes | 100% ✅ |
 
-**Implemented**: 51 standard Kubernetes resource types across 16 API groups
+**Implemented**: 51 of 61 standard Kubernetes 1.34 resource types across 16 of 19 API groups
+
+**Missing** (10 NEW resources in K8s 1.34):
+- Gateway API (5 resources): GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant
+- Dynamic Resource Allocation (4 resources): ResourceClaim, ResourceClaimTemplate, ResourceSlice, DeviceClass
+- Storage enhancement (1 resource): VolumeAttributesClass
 
 **Includes**: Core API (v1), apps/v1, batch/v1, networking, RBAC, storage, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
 
