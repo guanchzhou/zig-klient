@@ -134,6 +134,62 @@ pub fn build(b: *std.Build) void {
     const rbac_test_step = b.step("test-rbac", "Run RBAC tests (Role, RoleBinding, ClusterRole, ClusterRoleBinding)");
     rbac_test_step.dependOn(&run_rbac_tests.step);
 
+    // Auto-scaling and resource management tests
+    const autoscaling_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/autoscaling_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    autoscaling_tests.root_module.addImport("klient", klient_module);
+
+    const run_autoscaling_tests = b.addRunArtifact(autoscaling_tests);
+    const autoscaling_test_step = b.step("test-autoscaling", "Run auto-scaling and resource management tests");
+    autoscaling_test_step.dependOn(&run_autoscaling_tests.step);
+
+    // Storage and CSI tests
+    const storage_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/storage_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    storage_tests.root_module.addImport("klient", klient_module);
+
+    const run_storage_tests = b.addRunArtifact(storage_tests);
+    const storage_test_step = b.step("test-storage", "Run storage and CSI tests");
+    storage_test_step.dependOn(&run_storage_tests.step);
+
+    // Admission control and certificate tests
+    const admission_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/admission_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    admission_tests.root_module.addImport("klient", klient_module);
+
+    const run_admission_tests = b.addRunArtifact(admission_tests);
+    const admission_test_step = b.step("test-admission", "Run admission control and certificate tests");
+    admission_test_step.dependOn(&run_admission_tests.step);
+
+    // Advanced resources tests (APIService, FlowSchema, RuntimeClass, etc.)
+    const advanced_resources_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/advanced_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    advanced_resources_tests.root_module.addImport("klient", klient_module);
+
+    const run_advanced_resources_tests = b.addRunArtifact(advanced_resources_tests);
+    const advanced_resources_test_step = b.step("test-advanced-resources", "Run advanced resources tests");
+    advanced_resources_test_step.dependOn(&run_advanced_resources_tests.step);
+
     // WebSocket tests
     const websocket_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -165,13 +221,16 @@ pub fn build(b: *std.Build) void {
     // Run all unit tests
     const test_step = b.step("test", "Run all unit tests");
     test_step.dependOn(&run_retry_tests.step);
-    test_step.dependOn(&run_advanced_tests.step);
     test_step.dependOn(&run_kubeconfig_yaml_tests.step);
     test_step.dependOn(&run_incluster_tests.step);
     test_step.dependOn(&run_list_options_tests.step);
     test_step.dependOn(&run_delete_options_tests.step);
     test_step.dependOn(&run_serviceaccount_tests.step);
     test_step.dependOn(&run_rbac_tests.step);
+    test_step.dependOn(&run_autoscaling_tests.step);
+    test_step.dependOn(&run_storage_tests.step);
+    test_step.dependOn(&run_admission_tests.step);
+    test_step.dependOn(&run_advanced_resources_tests.step);
     test_step.dependOn(&run_websocket_tests.step);
 
     // === Integration Test Entrypoints ===
