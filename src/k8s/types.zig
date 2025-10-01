@@ -397,6 +397,42 @@ pub const EventSpec = struct {
     related: ?std.json.Value = null,
 };
 
+/// ReplicationController specification (legacy controller)
+pub const ReplicationControllerSpec = struct {
+    replicas: ?i32 = null,
+    selector: ?std.json.Value = null,
+    template: ?std.json.Value = null,
+    minReadySeconds: ?i32 = null,
+};
+
+/// PodTemplate resource specification
+pub const PodTemplateResourceSpec = struct {
+    template: ?std.json.Value = null,
+};
+
+/// ControllerRevision specification (for StatefulSet/DaemonSet history)
+pub const ControllerRevisionSpec = struct {
+    revision: i64,
+    data: ?std.json.Value = null,
+};
+
+/// Lease specification (for leader election and coordination)
+pub const LeaseSpec = struct {
+    holderIdentity: ?[]const u8 = null,
+    leaseDurationSeconds: ?i32 = null,
+    acquireTime: ?[]const u8 = null,
+    renewTime: ?[]const u8 = null,
+    leaseTransitions: ?i32 = null,
+};
+
+/// PriorityClass specification (pod scheduling priority) - cluster-scoped
+pub const PriorityClassSpec = struct {
+    value: i32,
+    globalDefault: ?bool = null,
+    description: ?[]const u8 = null,
+    preemptionPolicy: ?[]const u8 = null,
+};
+
 /// Type aliases for common resources
 pub const Pod = Resource(PodSpec);
 pub const Deployment = Resource(DeploymentSpec);
@@ -510,6 +546,29 @@ pub const EndpointSlice = Resource(EndpointSliceSpec);
 
 /// Event (cluster events)
 pub const Event = Resource(EventSpec);
+
+/// ReplicationController (legacy pod controller)
+pub const ReplicationController = Resource(ReplicationControllerSpec);
+
+/// PodTemplate (reusable pod templates)
+pub const PodTemplate = Resource(PodTemplateResourceSpec);
+
+/// ControllerRevision (workload history)
+pub const ControllerRevision = Resource(ControllerRevisionSpec);
+
+/// Lease (leader election and coordination)
+pub const Lease = Resource(LeaseSpec);
+
+/// PriorityClass (pod scheduling priority) - cluster-scoped
+pub const PriorityClass = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    value: i32,
+    globalDefault: ?bool = null,
+    description: ?[]const u8 = null,
+    preemptionPolicy: ?[]const u8 = null,
+};
 
 /// API error from Kubernetes
 pub const ApiError = struct {

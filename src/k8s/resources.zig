@@ -1132,3 +1132,92 @@ pub const Events = struct {
         };
     }
 };
+
+pub const ReplicationControllers = struct {
+    client: ResourceClient(types.ReplicationController),
+
+    pub fn init(k8s_client: *K8sClient) ReplicationControllers {
+        return .{
+            .client = ResourceClient(types.ReplicationController){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "replicationcontrollers",
+            },
+        };
+    }
+};
+
+pub const PodTemplates = struct {
+    client: ResourceClient(types.PodTemplate),
+
+    pub fn init(k8s_client: *K8sClient) PodTemplates {
+        return .{
+            .client = ResourceClient(types.PodTemplate){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "podtemplates",
+            },
+        };
+    }
+};
+
+pub const ControllerRevisions = struct {
+    client: ResourceClient(types.ControllerRevision),
+
+    pub fn init(k8s_client: *K8sClient) ControllerRevisions {
+        return .{
+            .client = ResourceClient(types.ControllerRevision){
+                .client = k8s_client,
+                .api_path = "/apis/apps/v1",
+                .resource = "controllerrevisions",
+            },
+        };
+    }
+};
+
+pub const Leases = struct {
+    client: ResourceClient(types.Lease),
+
+    pub fn init(k8s_client: *K8sClient) Leases {
+        return .{
+            .client = ResourceClient(types.Lease){
+                .client = k8s_client,
+                .api_path = "/apis/coordination.k8s.io/v1",
+                .resource = "leases",
+            },
+        };
+    }
+};
+
+pub const PriorityClasses = struct {
+    client: ResourceClient(types.PriorityClass),
+
+    pub fn init(k8s_client: *K8sClient) PriorityClasses {
+        return .{
+            .client = ResourceClient(types.PriorityClass){
+                .client = k8s_client,
+                .api_path = "/apis/scheduling.k8s.io/v1",
+                .resource = "priorityclasses",
+            },
+        };
+    }
+
+    /// List all PriorityClasses (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: PriorityClasses) !std.json.Parsed(types.List(types.PriorityClass)) {
+        const path = "/apis/scheduling.k8s.io/v1/priorityclasses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.PriorityClass),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};

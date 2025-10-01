@@ -59,6 +59,11 @@ pub const IngressClass = types.IngressClass;
 pub const Endpoints = types.Endpoints;
 pub const EndpointSlice = types.EndpointSlice;
 pub const Event = types.Event;
+pub const ReplicationController = types.ReplicationController;
+pub const PodTemplate = types.PodTemplate;
+pub const ControllerRevision = types.ControllerRevision;
+pub const Lease = types.Lease;
+pub const PriorityClass = types.PriorityClass;
 
 // RBAC helper types
 pub const PolicyRule = types.PolicyRule;
@@ -97,6 +102,11 @@ pub const IngressClasses = resources.IngressClasses;
 pub const EndpointsClient = resources.EndpointsClient;
 pub const EndpointSlices = resources.EndpointSlices;
 pub const Events = resources.Events;
+pub const ReplicationControllers = resources.ReplicationControllers;
+pub const PodTemplates = resources.PodTemplates;
+pub const ControllerRevisions = resources.ControllerRevisions;
+pub const Leases = resources.Leases;
+pub const PriorityClasses = resources.PriorityClasses;
 
 // Advanced features
 pub const retry = @import("k8s/retry.zig");
