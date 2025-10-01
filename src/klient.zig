@@ -259,6 +259,21 @@ pub const PortForwardOptions = port_forward_mod.PortForwardOptions;
 pub const PortMapping = port_forward_mod.PortMapping;
 pub const ForwardSession = port_forward_mod.ForwardSession;
 
+// Protobuf support (for high-performance scenarios)
+pub const protobuf = @import("k8s/protobuf.zig");
+pub const WireType = protobuf.WireType;
+pub const MessageEncoder = protobuf.MessageEncoder;
+pub const MessageDecoder = protobuf.MessageDecoder;
+
+pub const protobuf_k8s = @import("k8s/protobuf_k8s.zig");
+pub const encodeResource = protobuf_k8s.encodeResource;
+pub const decodeResource = protobuf_k8s.decodeResource;
+
+// Helper functions for WebSocket path building (re-exported from websocket_client.zig)
+pub const buildExecPath = websocket.buildExecPath;
+pub const buildAttachPath = websocket.buildAttachPath;
+pub const buildPortForwardPath = websocket.buildPortForwardPath;
+
 // Version information
 pub const version = .{
     .major = 0,

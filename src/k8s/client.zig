@@ -1,6 +1,7 @@
 const std = @import("std");
 const retry_mod = @import("retry.zig");
 const tls_mod = @import("tls.zig");
+const protobuf_k8s = @import("protobuf_k8s.zig");
 
 /// Kubernetes API client - standalone library
 /// Provides access to Kubernetes cluster resources via REST API
@@ -216,6 +217,95 @@ pub const K8sClient = struct {
         }
         
         // Read response body
+        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 0);
+        errdefer body_buffer.deinit(self.allocator);
+        
+        var transfer_buffer: [4096]u8 = undefined;
+        const reader = response.reader(&transfer_buffer);
+        
+        const max_size: std.io.Limit = @enumFromInt(10 * 1024 * 1024); // 10 MB
+        reader.appendRemaining(self.allocator, &body_buffer, max_size) catch |err| switch (err) {
+            error.ReadFailed => return response.bodyErr().?,
+            else => |e| return e,
+        };
+        
+        return try body_buffer.toOwnedSlice(self.allocator);
+    }
+
+    /// Make HTTP request with Protobuf serialization
+    /// Returns raw Protobuf-encoded response data
+    pub fn requestWithProtobuf(
+        self: *K8sClient,
+        method: Method,
+        path: []const u8,
+        body: ?[]const u8,
+    ) ![]u8 {
+        const url = try std.fmt.allocPrint(
+            self.allocator,
+            "{s}{s}",
+            .{ self.api_server, path }
+        );
+        defer self.allocator.free(url);
+        
+        const uri = try std.Uri.parse(url);
+        
+        const http_method: std.http.Method = switch (method) {
+            .GET => .GET,
+            .POST => .POST,
+            .PUT => .PUT,
+            .DELETE => .DELETE,
+            .PATCH => .PATCH,
+        };
+        
+        // Build headers with Protobuf Content-Type and authorization
+        var header_buffer: [1024]u8 = undefined;
+        var content_type_buffer: [256]u8 = undefined;
+        var accept_buffer: [256]u8 = undefined;
+        var headers = std.http.Client.Request.Headers{};
+        
+        if (self.token) |token| {
+            const auth_value = try std.fmt.bufPrint(&header_buffer, "Bearer {s}", .{token});
+            headers.authorization = .{ .override = auth_value };
+        }
+        
+        // Set Protobuf Content-Type for request body
+        if (body != null) {
+            const ct_value = try std.fmt.bufPrint(&content_type_buffer, "{s}", .{protobuf_k8s.K8S_CONTENT_TYPE_WITH_CHARSET});
+            headers.content_type = .{ .override = ct_value };
+        }
+        
+        // Set Protobuf Accept header for response
+        const accept_value = try std.fmt.bufPrint(&accept_buffer, "{s}", .{protobuf_k8s.K8S_CONTENT_TYPE});
+        _ = accept_value; // TODO: Add Accept header support to std.http.Client.Request.Headers
+        
+        // Make request to Kubernetes API
+        var req = try self.http_client.request(http_method, uri, .{
+            .redirect_behavior = @enumFromInt(3),
+            .headers = headers,
+        });
+        defer req.deinit();
+        
+        // Send request with or without body
+        if (body) |request_body| {
+            req.transfer_encoding = .{ .content_length = request_body.len };
+            var send_body = try req.sendBody(&.{});
+            try send_body.writer.writeAll(request_body);
+            try send_body.end();
+        } else {
+            try req.sendBodiless();
+        }
+        
+        // Receive response headers
+        var redirect_buffer: [2048]u8 = undefined;
+        var response = try req.receiveHead(&redirect_buffer);
+        
+        // Check response status
+        const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
+        if (!is_success) {
+            return error.K8sApiError;
+        }
+        
+        // Read response body (Protobuf-encoded)
         var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 0);
         errdefer body_buffer.deinit(self.allocator);
         

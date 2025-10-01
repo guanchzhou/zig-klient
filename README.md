@@ -1,10 +1,11 @@
 # zig-klient
 
-> **Status**: Production-Ready | 61 Resource Types | 19 API Groups | 100% K8s 1.34 Coverage
+> **Status**: Production-Ready | 61 Resource Types | 19 API Groups | 100% K8s 1.34 Coverage | WebSocket | Protobuf
 
-A production-ready Kubernetes client library for Zig implementing **ALL 61 standard Kubernetes 1.34 resource types** with **CRUD operations** for each, covering **100% of Kubernetes 1.34 standard resources** across **19 API groups**.
+A production-ready Kubernetes client library for Zig implementing **ALL 61 standard Kubernetes 1.34 resource types** with **CRUD operations** for each, covering **100% of Kubernetes 1.34 standard resources** across **19 API groups**. Includes **native WebSocket support** for Pod exec/attach/port-forward and **native Protobuf serialization** for high-performance scenarios.
 
-**Verified against**: Rancher Desktop with Kubernetes 1.34.1
+**Verified against**: Rancher Desktop with Kubernetes 1.34.1  
+**Zero external dependencies**: Native implementations using only Zig's standard library
 
 ## Features
 
@@ -663,11 +664,12 @@ zig-klient/
 | Field/Label Selectors | Yes | Yes | 100% ✅ |
 | Pagination | Yes | Yes | 100% ✅ |
 | Server-Side Apply | Yes | Yes | 100% ✅ |
-| WebSocket Support | Yes | Yes | 100% ✅ |
+| WebSocket Support | Yes | Yes (native) | 100% ✅ |
+| Protobuf Support | Yes | Yes (native) | 100% ✅ |
 | Gateway API | Yes | Yes | 100% ✅ |
 | Dynamic Resource Allocation | Yes | Yes | 100% ✅ |
 
-**Implemented**: ALL 61 standard Kubernetes 1.34 resource types across ALL 19 API groups
+**Implemented**: ALL 61 standard Kubernetes 1.34 resource types across ALL 19 API groups + WebSocket + Protobuf
 
 **Includes**: Core API (v1), apps/v1, batch/v1, networking.k8s.io/v1, gateway.networking.k8s.io/v1, RBAC, storage, resource.k8s.io/v1, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
 

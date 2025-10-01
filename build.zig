@@ -204,19 +204,19 @@ pub fn build(b: *std.Build) void {
     const websocket_test_step = b.step("test-websocket", "Run WebSocket unit tests");
     websocket_test_step.dependOn(&run_websocket_tests.step);
 
-    // WebSocket integration tests (requires rancher-desktop)
-    const websocket_integration_tests = b.addTest(.{
+    // WebSocket live tests (requires rancher-desktop)
+    const websocket_live_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/websocket_integration_test.zig"),
+            .root_source_file = b.path("tests/websocket_live_test.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    websocket_integration_tests.root_module.addImport("klient", klient_module);
+    websocket_live_tests.root_module.addImport("klient", klient_module);
 
-    const run_websocket_integration_tests = b.addRunArtifact(websocket_integration_tests);
-    const websocket_integration_test_step = b.step("test-websocket-integration", "Run WebSocket integration tests (requires rancher-desktop)");
-    websocket_integration_test_step.dependOn(&run_websocket_integration_tests.step);
+    const run_websocket_live_tests = b.addRunArtifact(websocket_live_tests);
+    const websocket_live_test_step = b.step("test-websocket-live", "Run WebSocket live tests against Rancher Desktop");
+    websocket_live_test_step.dependOn(&run_websocket_live_tests.step);
 
     // Gateway API tests (Kubernetes 1.34)
     const gateway_api_tests = b.addTest(.{
