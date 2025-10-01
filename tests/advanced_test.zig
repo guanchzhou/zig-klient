@@ -196,4 +196,3 @@ test "Binding - create structure" {
     try std.testing.expectEqualStrings("test-binding", binding.metadata.name);
     std.debug.print("✅ Binding create structure test passed\n", .{});
 }
-

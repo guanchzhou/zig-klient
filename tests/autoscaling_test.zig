@@ -150,4 +150,3 @@ test "LimitRange - create structure" {
     try std.testing.expectEqualStrings("test-limits", lr.metadata.name);
     std.debug.print("✅ LimitRange create structure test passed\n", .{});
 }
-

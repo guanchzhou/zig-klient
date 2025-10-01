@@ -326,6 +326,16 @@ pub const NetworkPolicySpec = struct {
     egress: ?[]std.json.Value = null,
 };
 
+/// IPAddress specification
+pub const IPAddressSpec = struct {
+    parentRef: std.json.Value,
+};
+
+/// ServiceCIDR specification
+pub const ServiceCIDRSpec = struct {
+    cidrs: ?[][]const u8 = null,
+};
+
 /// HorizontalPodAutoscaler specification
 pub const HorizontalPodAutoscalerSpec = struct {
     scaleTargetRef: ?std.json.Value = null,
@@ -618,6 +628,12 @@ pub const ClusterRoleBinding = struct {
 
 /// NetworkPolicy (network security)
 pub const NetworkPolicy = Resource(NetworkPolicySpec);
+
+/// IPAddress (IP address allocation)
+pub const IPAddress = Resource(IPAddressSpec);
+
+/// ServiceCIDR (service CIDR management)
+pub const ServiceCIDR = Resource(ServiceCIDRSpec);
 
 /// HorizontalPodAutoscaler (auto-scaling)
 pub const HorizontalPodAutoscaler = Resource(HorizontalPodAutoscalerSpec);

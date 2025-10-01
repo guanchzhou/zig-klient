@@ -141,4 +141,3 @@ test "CertificateSigningRequest - create structure" {
     try std.testing.expectEqualStrings("kubernetes.io/kube-apiserver-client", csr.spec.?.signerName);
     std.debug.print("✅ CertificateSigningRequest create structure test passed\n", .{});
 }
-

@@ -146,4 +146,3 @@ test "CSIStorageCapacity - create structure" {
     try std.testing.expectEqualStrings("fast-ssd", capacity.spec.?.storageClassName);
     std.debug.print("✅ CSIStorageCapacity create structure test passed\n", .{});
 }
-

@@ -969,6 +969,70 @@ pub const NetworkPolicies = struct {
     }
 };
 
+pub const IPAddresses = struct {
+    client: ResourceClient(types.IPAddress),
+
+    pub fn init(k8s_client: *K8sClient) IPAddresses {
+        return .{
+            .client = ResourceClient(types.IPAddress){
+                .client = k8s_client,
+                .api_path = "/apis/networking.k8s.io/v1",
+                .resource = "ipaddresses",
+            },
+        };
+    }
+
+    /// List all IPAddresses (cluster-scoped)
+    pub fn list(self: IPAddresses) !std.json.Parsed(types.List(types.IPAddress)) {
+        const path = "/apis/networking.k8s.io/v1/ipaddresses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.IPAddress),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const ServiceCIDRs = struct {
+    client: ResourceClient(types.ServiceCIDR),
+
+    pub fn init(k8s_client: *K8sClient) ServiceCIDRs {
+        return .{
+            .client = ResourceClient(types.ServiceCIDR){
+                .client = k8s_client,
+                .api_path = "/apis/networking.k8s.io/v1",
+                .resource = "servicecidrs",
+            },
+        };
+    }
+
+    /// List all ServiceCIDRs (cluster-scoped)
+    pub fn list(self: ServiceCIDRs) !std.json.Parsed(types.List(types.ServiceCIDR)) {
+        const path = "/apis/networking.k8s.io/v1/servicecidrs";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.ServiceCIDR),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
 pub const HorizontalPodAutoscalers = struct {
     client: ResourceClient(types.HorizontalPodAutoscaler),
 

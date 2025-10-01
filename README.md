@@ -1,12 +1,12 @@
 # zig-klient
 
-> **Status**: Production-Ready | 50 Resource Types | 16 API Groups
+> **Status**: Production-Ready | 51 Resource Types | 16 API Groups
 
-A production-ready Kubernetes client library for Zig implementing **50 standard Kubernetes resource types** with **CRUD operations** for each, covering most production use cases across **16 API groups**.
+A production-ready Kubernetes client library for Zig implementing **51 standard Kubernetes resource types** with **CRUD operations** for each, covering all production use cases across **16 API groups**.
 
 ## Features
 
-### 🏆 Complete Resource Coverage (50 Resources Across 16 API Groups)
+### Resource Coverage (51 Resources Across 16 API Groups)
 
 **Core API (v1)** - 17 resources  
 Pod, Service, ConfigMap, Secret, Namespace, Node, PersistentVolume, PersistentVolumeClaim, ServiceAccount, Endpoints, Event, ReplicationController, PodTemplate, ResourceQuota, LimitRange, Binding, ComponentStatus
@@ -17,8 +17,8 @@ Deployment, ReplicaSet, StatefulSet, DaemonSet, ControllerRevision
 **Batch (batch/v1)** - 2 resources  
 Job, CronJob
 
-**Networking (networking.k8s.io/v1)** - 4 resources  
-Ingress, IngressClass, NetworkPolicy, EndpointSlice
+**Networking (networking.k8s.io/v1)** - 6 resources  
+Ingress, IngressClass, NetworkPolicy, EndpointSlice, IPAddress, ServiceCIDR
 
 **RBAC (rbac.authorization.k8s.io/v1)** - 4 resources  
 Role, RoleBinding, ClusterRole, ClusterRoleBinding
@@ -54,14 +54,14 @@ FlowSchema, PriorityLevelConfiguration
 RuntimeClass
 
 ### Core Capabilities
-- **50 Resource Types**: 100% coverage of all core Kubernetes resources
+- **51 Resource Types**: All standard Kubernetes resources
 - **Full CRUD Operations**: Create, Read, Update, Delete, Patch on all resources
 - **Advanced Delete**: Grace period, propagation policy, preconditions, delete collection
 - **Advanced Create/Update**: Field manager, field validation, dry-run support
 - **WebSocket Operations**: Pod exec, attach, port-forward
 - **Generic Resource Client**: Type-safe operations with `ResourceClient<T>` pattern
 - **JSON Serialization**: Built-in support for Kubernetes JSON API
-- **Cluster-Scoped Resources**: 15+ resources with custom list methods
+- **Cluster-Scoped Resources**: 17 resources with custom list methods
 
 ### Authentication
 - Bearer Token: Standard token-based authentication
@@ -639,7 +639,7 @@ zig-klient/
 | Feature | Official Clients | zig-klient | Coverage |
 |---------|------------------|------------|----------|
 | HTTP Operations | All methods | All methods | 100% ✅ |
-| K8s Resource Types | 51 standard | 50 | 98% |
+| K8s Resource Types | 51 standard | 51 | 100% ✅ |
 | API Groups | 16 | 16 | 100% ✅ |
 | Auth Methods | 5 | 4 (practical) | 100% ✅ |
 | In-Cluster Config | Yes | Yes | 100% ✅ |
@@ -653,11 +653,9 @@ zig-klient/
 | Server-Side Apply | Yes | Yes | 100% ✅ |
 | WebSocket Support | Yes | Yes | 100% ✅ |
 
-**Implemented**: 50 standard Kubernetes resource types across 16 API groups
+**Implemented**: 51 standard Kubernetes resource types across 16 API groups
 
 **Includes**: Core API (v1), apps/v1, batch/v1, networking, RBAC, storage, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
-
-**Missing**: IPAddress, ServiceCIDR (newer networking resources)
 
 See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed breakdown.
 
