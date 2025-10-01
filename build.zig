@@ -218,6 +218,48 @@ pub fn build(b: *std.Build) void {
     const websocket_integration_test_step = b.step("test-websocket-integration", "Run WebSocket integration tests (requires rancher-desktop)");
     websocket_integration_test_step.dependOn(&run_websocket_integration_tests.step);
 
+    // Gateway API tests (Kubernetes 1.34)
+    const gateway_api_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/gateway_api_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    gateway_api_tests.root_module.addImport("klient", klient_module);
+
+    const run_gateway_api_tests = b.addRunArtifact(gateway_api_tests);
+    const gateway_api_test_step = b.step("test-gateway-api", "Run Gateway API tests (K8s 1.34)");
+    gateway_api_test_step.dependOn(&run_gateway_api_tests.step);
+
+    // Dynamic Resource Allocation tests (Kubernetes 1.34)
+    const dra_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/dra_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    dra_tests.root_module.addImport("klient", klient_module);
+
+    const run_dra_tests = b.addRunArtifact(dra_tests);
+    const dra_test_step = b.step("test-dra", "Run Dynamic Resource Allocation tests (K8s 1.34)");
+    dra_test_step.dependOn(&run_dra_tests.step);
+
+    // VolumeAttributesClass tests (Kubernetes 1.34)
+    const volume_attributes_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/volume_attributes_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    volume_attributes_tests.root_module.addImport("klient", klient_module);
+
+    const run_volume_attributes_tests = b.addRunArtifact(volume_attributes_tests);
+    const volume_attributes_test_step = b.step("test-volume-attributes", "Run VolumeAttributesClass tests (K8s 1.34)");
+    volume_attributes_test_step.dependOn(&run_volume_attributes_tests.step);
+
     // Run all unit tests
     const test_step = b.step("test", "Run all unit tests");
     test_step.dependOn(&run_retry_tests.step);
@@ -232,6 +274,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_admission_tests.step);
     test_step.dependOn(&run_advanced_resources_tests.step);
     test_step.dependOn(&run_websocket_tests.step);
+    test_step.dependOn(&run_gateway_api_tests.step);
+    test_step.dependOn(&run_dra_tests.step);
+    test_step.dependOn(&run_volume_attributes_tests.step);
 
     // === Integration Test Entrypoints ===
     // These are standalone executables that test zig-klient against a live cluster
