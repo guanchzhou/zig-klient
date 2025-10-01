@@ -326,6 +326,77 @@ pub const NetworkPolicySpec = struct {
     egress: ?[]std.json.Value = null,
 };
 
+/// HorizontalPodAutoscaler specification
+pub const HorizontalPodAutoscalerSpec = struct {
+    scaleTargetRef: ?std.json.Value = null,
+    minReplicas: ?i32 = null,
+    maxReplicas: i32,
+    metrics: ?[]std.json.Value = null,
+    behavior: ?std.json.Value = null,
+};
+
+/// StorageClass specification
+pub const StorageClassSpec = struct {
+    provisioner: []const u8,
+    parameters: ?std.json.Value = null,
+    reclaimPolicy: ?[]const u8 = null,
+    volumeBindingMode: ?[]const u8 = null,
+    allowVolumeExpansion: ?bool = null,
+    mountOptions: ?[][]const u8 = null,
+    allowedTopologies: ?[]std.json.Value = null,
+};
+
+/// ResourceQuota specification
+pub const ResourceQuotaSpec = struct {
+    hard: ?std.json.Value = null,
+    scopes: ?[][]const u8 = null,
+    scopeSelector: ?std.json.Value = null,
+};
+
+/// LimitRange specification
+pub const LimitRangeSpec = struct {
+    limits: []std.json.Value,
+};
+
+/// PodDisruptionBudget specification
+pub const PodDisruptionBudgetSpec = struct {
+    minAvailable: ?std.json.Value = null,
+    maxUnavailable: ?std.json.Value = null,
+    selector: ?std.json.Value = null,
+    unhealthyPodEvictionPolicy: ?[]const u8 = null,
+};
+
+/// IngressClass specification
+pub const IngressClassSpec = struct {
+    controller: []const u8,
+    parameters: ?std.json.Value = null,
+};
+
+/// Endpoints specification
+pub const EndpointsSpec = struct {
+    subsets: ?[]std.json.Value = null,
+};
+
+/// EndpointSlice specification (for efficient service discovery)
+pub const EndpointSliceSpec = struct {
+    addressType: []const u8,
+    endpoints: ?[]std.json.Value = null,
+    ports: ?[]std.json.Value = null,
+};
+
+/// Event specification (cluster events)
+pub const EventSpec = struct {
+    action: ?[]const u8 = null,
+    reason: ?[]const u8 = null,
+    message: ?[]const u8 = null,
+    type: ?[]const u8 = null,
+    eventTime: ?[]const u8 = null,
+    reportingController: ?[]const u8 = null,
+    reportingInstance: ?[]const u8 = null,
+    regarding: ?std.json.Value = null,
+    related: ?std.json.Value = null,
+};
+
 /// Type aliases for common resources
 pub const Pod = Resource(PodSpec);
 pub const Deployment = Resource(DeploymentSpec);
@@ -395,6 +466,50 @@ pub const ClusterRoleBinding = struct {
 
 /// NetworkPolicy (network security)
 pub const NetworkPolicy = Resource(NetworkPolicySpec);
+
+/// HorizontalPodAutoscaler (auto-scaling)
+pub const HorizontalPodAutoscaler = Resource(HorizontalPodAutoscalerSpec);
+
+/// StorageClass (storage configuration) - cluster-scoped
+pub const StorageClass = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    provisioner: []const u8,
+    parameters: ?std.json.Value = null,
+    reclaimPolicy: ?[]const u8 = null,
+    volumeBindingMode: ?[]const u8 = null,
+    allowVolumeExpansion: ?bool = null,
+    mountOptions: ?[][]const u8 = null,
+    allowedTopologies: ?[]std.json.Value = null,
+};
+
+/// ResourceQuota (resource limits)
+pub const ResourceQuota = Resource(ResourceQuotaSpec);
+
+/// LimitRange (resource constraints)
+pub const LimitRange = Resource(LimitRangeSpec);
+
+/// PodDisruptionBudget (availability)
+pub const PodDisruptionBudget = Resource(PodDisruptionBudgetSpec);
+
+/// IngressClass (ingress controller configuration) - cluster-scoped
+pub const IngressClass = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    controller: []const u8,
+    parameters: ?std.json.Value = null,
+};
+
+/// Endpoints (service endpoints)
+pub const Endpoints = Resource(EndpointsSpec);
+
+/// EndpointSlice (efficient service discovery)
+pub const EndpointSlice = Resource(EndpointSliceSpec);
+
+/// Event (cluster events)
+pub const Event = Resource(EventSpec);
 
 /// API error from Kubernetes
 pub const ApiError = struct {

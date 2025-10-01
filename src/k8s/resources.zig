@@ -968,3 +968,167 @@ pub const NetworkPolicies = struct {
         };
     }
 };
+
+pub const HorizontalPodAutoscalers = struct {
+    client: ResourceClient(types.HorizontalPodAutoscaler),
+
+    pub fn init(k8s_client: *K8sClient) HorizontalPodAutoscalers {
+        return .{
+            .client = ResourceClient(types.HorizontalPodAutoscaler){
+                .client = k8s_client,
+                .api_path = "/apis/autoscaling/v2",
+                .resource = "horizontalpodautoscalers",
+            },
+        };
+    }
+};
+
+pub const StorageClasses = struct {
+    client: ResourceClient(types.StorageClass),
+
+    pub fn init(k8s_client: *K8sClient) StorageClasses {
+        return .{
+            .client = ResourceClient(types.StorageClass){
+                .client = k8s_client,
+                .api_path = "/apis/storage.k8s.io/v1",
+                .resource = "storageclasses",
+            },
+        };
+    }
+
+    /// List all StorageClasses (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: StorageClasses) !std.json.Parsed(types.List(types.StorageClass)) {
+        const path = "/apis/storage.k8s.io/v1/storageclasses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.StorageClass),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const ResourceQuotas = struct {
+    client: ResourceClient(types.ResourceQuota),
+
+    pub fn init(k8s_client: *K8sClient) ResourceQuotas {
+        return .{
+            .client = ResourceClient(types.ResourceQuota){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "resourcequotas",
+            },
+        };
+    }
+};
+
+pub const LimitRanges = struct {
+    client: ResourceClient(types.LimitRange),
+
+    pub fn init(k8s_client: *K8sClient) LimitRanges {
+        return .{
+            .client = ResourceClient(types.LimitRange){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "limitranges",
+            },
+        };
+    }
+};
+
+pub const PodDisruptionBudgets = struct {
+    client: ResourceClient(types.PodDisruptionBudget),
+
+    pub fn init(k8s_client: *K8sClient) PodDisruptionBudgets {
+        return .{
+            .client = ResourceClient(types.PodDisruptionBudget){
+                .client = k8s_client,
+                .api_path = "/apis/policy/v1",
+                .resource = "poddisruptionbudgets",
+            },
+        };
+    }
+};
+
+pub const IngressClasses = struct {
+    client: ResourceClient(types.IngressClass),
+
+    pub fn init(k8s_client: *K8sClient) IngressClasses {
+        return .{
+            .client = ResourceClient(types.IngressClass){
+                .client = k8s_client,
+                .api_path = "/apis/networking.k8s.io/v1",
+                .resource = "ingressclasses",
+            },
+        };
+    }
+
+    /// List all IngressClasses (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: IngressClasses) !std.json.Parsed(types.List(types.IngressClass)) {
+        const path = "/apis/networking.k8s.io/v1/ingressclasses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.IngressClass),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const EndpointsClient = struct {
+    client: ResourceClient(types.Endpoints),
+
+    pub fn init(k8s_client: *K8sClient) EndpointsClient {
+        return .{
+            .client = ResourceClient(types.Endpoints){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "endpoints",
+            },
+        };
+    }
+};
+
+pub const EndpointSlices = struct {
+    client: ResourceClient(types.EndpointSlice),
+
+    pub fn init(k8s_client: *K8sClient) EndpointSlices {
+        return .{
+            .client = ResourceClient(types.EndpointSlice){
+                .client = k8s_client,
+                .api_path = "/apis/discovery.k8s.io/v1",
+                .resource = "endpointslices",
+            },
+        };
+    }
+};
+
+pub const Events = struct {
+    client: ResourceClient(types.Event),
+
+    pub fn init(k8s_client: *K8sClient) Events {
+        return .{
+            .client = ResourceClient(types.Event){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "events",
+            },
+        };
+    }
+};

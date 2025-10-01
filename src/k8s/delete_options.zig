@@ -94,21 +94,21 @@ pub const DeleteOptions = struct {
         // Simple concatenation without dynamic parts management
         var buffer = try std.ArrayList(u8).initCapacity(allocator, 256);
         defer buffer.deinit(allocator);
-        
+
         try buffer.appendSlice(allocator, "{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\"");
-        
+
         if (self.grace_period_seconds) |grace| {
             const part = try std.fmt.allocPrint(allocator, ",\"gracePeriodSeconds\":{d}", .{grace});
             defer allocator.free(part);
             try buffer.appendSlice(allocator, part);
         }
-        
+
         if (self.propagation_policy) |policy| {
             const part = try std.fmt.allocPrint(allocator, ",\"propagationPolicy\":\"{s}\"", .{policy});
             defer allocator.free(part);
             try buffer.appendSlice(allocator, part);
         }
-        
+
         if (self.preconditions) |precond| {
             try buffer.appendSlice(allocator, ",\"preconditions\":{");
             var first = true;
@@ -126,9 +126,9 @@ pub const DeleteOptions = struct {
             }
             try buffer.appendSlice(allocator, "}");
         }
-        
+
         try buffer.appendSlice(allocator, "}");
-        
+
         return try buffer.toOwnedSlice(allocator);
     }
 };
