@@ -723,15 +723,21 @@ Contributions are welcome! Please:
 - [x] 24+ test files (unit + integration)
 - [x] 100% integration test pass rate
 
-### In Progress 🚧
-- [x] WebSocket foundation (websocket.zig integration)
+### Optional Features 🔧
+
+**WebSocket Support** (for exec, attach, port-forward)
+- [x] WebSocket API interfaces implemented
 - [x] Pod exec API implementation
 - [x] Pod attach API implementation
 - [x] Port-forward API implementation
-- [ ] WebSocket live integration & testing
-- [ ] Protobuf protocol support (planned)
+- [x] Integration test framework ready
+- [ ] Requires external dependency: `websocket.zig` (optional, add when needed)
+- [ ] Live cluster testing (requires dependency)
+
+**Note**: WebSocket functionality is implemented but requires adding the `websocket.zig` dependency to `build.zig.zon` to use. This is intentionally optional to keep the library lightweight for users who don't need these features.
 
 ### Future Enhancements 🚀
-- [ ] Admission webhooks
-- [ ] Custom metrics APIs
-- [ ] Advanced scheduling features
+- [ ] Protobuf protocol support (for high-performance scenarios)
+- [ ] Admission webhooks (for custom controllers)
+- [ ] Custom metrics APIs (for advanced monitoring)
+- [ ] Advanced scheduling features (for specialized workloads)

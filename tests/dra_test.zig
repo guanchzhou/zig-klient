@@ -13,11 +13,11 @@ test "ResourceClaim - create structure" {
             .devices = null,
         },
     };
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", claim.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceClaim", claim.kind.?);
     try std.testing.expectEqualStrings("test-resource-claim", claim.metadata.name);
-    
+
     std.debug.print("✅ ResourceClaim create structure test passed\n", .{});
 }
 
@@ -33,7 +33,7 @@ test "ResourceClaim - JSON deserialization" {
         \\  "spec": {}
         \\}
     ;
-    
+
     const parsed = try std.json.parseFromSlice(
         klient.ResourceClaim,
         std.testing.allocator,
@@ -41,12 +41,12 @@ test "ResourceClaim - JSON deserialization" {
         .{ .ignore_unknown_fields = true },
     );
     defer parsed.deinit();
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceClaim", parsed.value.kind.?);
     try std.testing.expectEqualStrings("gpu-claim", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("ml-workloads", parsed.value.metadata.namespace.?);
-    
+
     std.debug.print("✅ ResourceClaim JSON deserialization test passed\n", .{});
 }
 
@@ -62,11 +62,11 @@ test "ResourceClaimTemplate - create structure" {
             .spec = .null,
         },
     };
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", template.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceClaimTemplate", template.kind.?);
     try std.testing.expectEqualStrings("test-claim-template", template.metadata.name);
-    
+
     std.debug.print("✅ ResourceClaimTemplate create structure test passed\n", .{});
 }
 
@@ -84,7 +84,7 @@ test "ResourceClaimTemplate - JSON deserialization" {
         \\  }
         \\}
     ;
-    
+
     const parsed = try std.json.parseFromSlice(
         klient.ResourceClaimTemplate,
         std.testing.allocator,
@@ -92,11 +92,11 @@ test "ResourceClaimTemplate - JSON deserialization" {
         .{ .ignore_unknown_fields = true },
     );
     defer parsed.deinit();
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceClaimTemplate", parsed.value.kind.?);
     try std.testing.expectEqualStrings("gpu-template", parsed.value.metadata.name);
-    
+
     std.debug.print("✅ ResourceClaimTemplate JSON deserialization test passed\n", .{});
 }
 
@@ -114,13 +114,13 @@ test "ResourceSlice - create structure" {
             .devices = null,
         },
     };
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", slice.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceSlice", slice.kind.?);
     try std.testing.expectEqualStrings("test-resource-slice", slice.metadata.name);
     try std.testing.expectEqualStrings("gpu.resource.k8s.io", slice.spec.?.driver);
     try std.testing.expectEqualStrings("node-1", slice.spec.?.nodeName.?);
-    
+
     std.debug.print("✅ ResourceSlice create structure test passed\n", .{});
 }
 
@@ -138,7 +138,7 @@ test "ResourceSlice - JSON deserialization" {
         \\  }
         \\}
     ;
-    
+
     const parsed = try std.json.parseFromSlice(
         klient.ResourceSlice,
         std.testing.allocator,
@@ -146,12 +146,12 @@ test "ResourceSlice - JSON deserialization" {
         .{ .ignore_unknown_fields = true },
     );
     defer parsed.deinit();
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceSlice", parsed.value.kind.?);
     try std.testing.expectEqualStrings("node-1-gpu-slice", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("gpu.example.com", parsed.value.spec.?.driver);
-    
+
     std.debug.print("✅ ResourceSlice JSON deserialization test passed\n", .{});
 }
 
@@ -168,11 +168,11 @@ test "DeviceClass - create structure" {
             .suitableNodes = null,
         },
     };
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", dc.apiVersion.?);
     try std.testing.expectEqualStrings("DeviceClass", dc.kind.?);
     try std.testing.expectEqualStrings("test-device-class", dc.metadata.name);
-    
+
     std.debug.print("✅ DeviceClass create structure test passed\n", .{});
 }
 
@@ -187,7 +187,7 @@ test "DeviceClass - JSON deserialization" {
         \\  "spec": {}
         \\}
     ;
-    
+
     const parsed = try std.json.parseFromSlice(
         klient.DeviceClass,
         std.testing.allocator,
@@ -195,11 +195,10 @@ test "DeviceClass - JSON deserialization" {
         .{ .ignore_unknown_fields = true },
     );
     defer parsed.deinit();
-    
+
     try std.testing.expectEqualStrings("resource.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("DeviceClass", parsed.value.kind.?);
     try std.testing.expectEqualStrings("nvidia-gpu", parsed.value.metadata.name);
-    
+
     std.debug.print("✅ DeviceClass JSON deserialization test passed\n", .{});
 }
-
