@@ -64,6 +64,12 @@ pub const PodTemplate = types.PodTemplate;
 pub const ControllerRevision = types.ControllerRevision;
 pub const Lease = types.Lease;
 pub const PriorityClass = types.PriorityClass;
+pub const Binding = types.Binding;
+pub const ComponentStatus = types.ComponentStatus;
+pub const VolumeAttachment = types.VolumeAttachment;
+pub const CSIDriver = types.CSIDriver;
+pub const CSINode = types.CSINode;
+pub const CSIStorageCapacity = types.CSIStorageCapacity;
 
 // RBAC helper types
 pub const PolicyRule = types.PolicyRule;
@@ -107,6 +113,12 @@ pub const PodTemplates = resources.PodTemplates;
 pub const ControllerRevisions = resources.ControllerRevisions;
 pub const Leases = resources.Leases;
 pub const PriorityClasses = resources.PriorityClasses;
+pub const Bindings = resources.Bindings;
+pub const ComponentStatuses = resources.ComponentStatuses;
+pub const VolumeAttachments = resources.VolumeAttachments;
+pub const CSIDrivers = resources.CSIDrivers;
+pub const CSINodes = resources.CSINodes;
+pub const CSIStorageCapacities = resources.CSIStorageCapacities;
 
 // Advanced features
 pub const retry = @import("k8s/retry.zig");

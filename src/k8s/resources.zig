@@ -1221,3 +1221,163 @@ pub const PriorityClasses = struct {
         return parsed;
     }
 };
+
+pub const Bindings = struct {
+    client: ResourceClient(types.Binding),
+
+    pub fn init(k8s_client: *K8sClient) Bindings {
+        return .{
+            .client = ResourceClient(types.Binding){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "bindings",
+            },
+        };
+    }
+};
+
+pub const ComponentStatuses = struct {
+    client: ResourceClient(types.ComponentStatus),
+
+    pub fn init(k8s_client: *K8sClient) ComponentStatuses {
+        return .{
+            .client = ResourceClient(types.ComponentStatus){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "componentstatuses",
+            },
+        };
+    }
+
+    /// List all ComponentStatuses (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: ComponentStatuses) !std.json.Parsed(types.List(types.ComponentStatus)) {
+        const path = "/api/v1/componentstatuses";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.ComponentStatus),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const VolumeAttachments = struct {
+    client: ResourceClient(types.VolumeAttachment),
+
+    pub fn init(k8s_client: *K8sClient) VolumeAttachments {
+        return .{
+            .client = ResourceClient(types.VolumeAttachment){
+                .client = k8s_client,
+                .api_path = "/apis/storage.k8s.io/v1",
+                .resource = "volumeattachments",
+            },
+        };
+    }
+
+    /// List all VolumeAttachments (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: VolumeAttachments) !std.json.Parsed(types.List(types.VolumeAttachment)) {
+        const path = "/apis/storage.k8s.io/v1/volumeattachments";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.VolumeAttachment),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const CSIDrivers = struct {
+    client: ResourceClient(types.CSIDriver),
+
+    pub fn init(k8s_client: *K8sClient) CSIDrivers {
+        return .{
+            .client = ResourceClient(types.CSIDriver){
+                .client = k8s_client,
+                .api_path = "/apis/storage.k8s.io/v1",
+                .resource = "csidrivers",
+            },
+        };
+    }
+
+    /// List all CSIDrivers (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: CSIDrivers) !std.json.Parsed(types.List(types.CSIDriver)) {
+        const path = "/apis/storage.k8s.io/v1/csidrivers";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.CSIDriver),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const CSINodes = struct {
+    client: ResourceClient(types.CSINode),
+
+    pub fn init(k8s_client: *K8sClient) CSINodes {
+        return .{
+            .client = ResourceClient(types.CSINode){
+                .client = k8s_client,
+                .api_path = "/apis/storage.k8s.io/v1",
+                .resource = "csinodes",
+            },
+        };
+    }
+
+    /// List all CSINodes (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: CSINodes) !std.json.Parsed(types.List(types.CSINode)) {
+        const path = "/apis/storage.k8s.io/v1/csinodes";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.CSINode),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const CSIStorageCapacities = struct {
+    client: ResourceClient(types.CSIStorageCapacity),
+
+    pub fn init(k8s_client: *K8sClient) CSIStorageCapacities {
+        return .{
+            .client = ResourceClient(types.CSIStorageCapacity){
+                .client = k8s_client,
+                .api_path = "/apis/storage.k8s.io/v1",
+                .resource = "csistoragecapacities",
+            },
+        };
+    }
+};

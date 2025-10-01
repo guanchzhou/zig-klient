@@ -433,6 +433,48 @@ pub const PriorityClassSpec = struct {
     preemptionPolicy: ?[]const u8 = null,
 };
 
+/// Binding specification (pod-to-node binding)
+pub const BindingSpec = struct {
+    target: std.json.Value,
+};
+
+/// ComponentStatus specification (cluster component health) - cluster-scoped
+pub const ComponentStatusSpec = struct {
+    conditions: ?[]std.json.Value = null,
+};
+
+/// VolumeAttachment specification (storage attachment)
+pub const VolumeAttachmentSpec = struct {
+    attacher: []const u8,
+    source: std.json.Value,
+    nodeName: []const u8,
+};
+
+/// CSIDriver specification (CSI driver info) - cluster-scoped
+pub const CSIDriverSpec = struct {
+    attachRequired: ?bool = null,
+    podInfoOnMount: ?bool = null,
+    volumeLifecycleModes: ?[][]const u8 = null,
+    storageCapacity: ?bool = null,
+    fsGroupPolicy: ?[]const u8 = null,
+    tokenRequests: ?[]std.json.Value = null,
+    requiresRepublish: ?bool = null,
+    seLinuxMount: ?bool = null,
+};
+
+/// CSINode specification (CSI node info) - cluster-scoped
+pub const CSINodeSpec = struct {
+    drivers: []std.json.Value,
+};
+
+/// CSIStorageCapacity specification
+pub const CSIStorageCapacitySpec = struct {
+    storageClassName: []const u8,
+    capacity: ?[]const u8 = null,
+    maximumVolumeSize: ?[]const u8 = null,
+    nodeTopology: ?std.json.Value = null,
+};
+
 /// Type aliases for common resources
 pub const Pod = Resource(PodSpec);
 pub const Deployment = Resource(DeploymentSpec);
@@ -569,6 +611,39 @@ pub const PriorityClass = struct {
     description: ?[]const u8 = null,
     preemptionPolicy: ?[]const u8 = null,
 };
+
+/// Binding (pod-to-node binding)
+pub const Binding = Resource(BindingSpec);
+
+/// ComponentStatus (cluster component health) - cluster-scoped
+pub const ComponentStatus = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    conditions: ?[]std.json.Value = null,
+};
+
+/// VolumeAttachment (storage attachment) - cluster-scoped
+pub const VolumeAttachment = Resource(VolumeAttachmentSpec);
+
+/// CSIDriver (CSI driver info) - cluster-scoped
+pub const CSIDriver = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    spec: CSIDriverSpec,
+};
+
+/// CSINode (CSI node info) - cluster-scoped
+pub const CSINode = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    spec: CSINodeSpec,
+};
+
+/// CSIStorageCapacity (CSI storage capacity)
+pub const CSIStorageCapacity = Resource(CSIStorageCapacitySpec);
 
 /// API error from Kubernetes
 pub const ApiError = struct {
