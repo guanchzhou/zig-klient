@@ -1,11 +1,9 @@
 # zig-klient
 
-> **Status**: Production-Ready | 61 Resource Types | 19 API Groups | 100% K8s 1.34 Coverage | WebSocket | Protobuf
+A Kubernetes client library for Zig, implementing all 61 standard Kubernetes 1.34 resource types with full CRUD operations across 19 API groups. Includes native WebSocket support for Pod exec/attach/port-forward and Protobuf serialization via the zig-protobuf library.
 
-A production-ready Kubernetes client library for Zig implementing **ALL 61 standard Kubernetes 1.34 resource types** with **CRUD operations** for each, covering **100% of Kubernetes 1.34 standard resources** across **19 API groups**. Includes **native WebSocket support** for Pod exec/attach/port-forward and **native Protobuf serialization** for high-performance scenarios.
-
-**Verified against**: Rancher Desktop with Kubernetes 1.34.1  
-**Minimal dependencies**: Native WebSocket + [zig-protobuf](https://github.com/Arwalk/zig-protobuf) for production-grade Protobuf support
+**Tested against**: Rancher Desktop with Kubernetes 1.34.1  
+**Dependencies**: zig-yaml (YAML parsing), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) (Protocol Buffers)
 
 ## Features
 
@@ -93,11 +91,11 @@ RuntimeClass
 - **Server-Side Apply**: Declarative resource management with field ownership
 
 ### Quality
-- 86 Passing Tests: Comprehensive test coverage (unit + integration)
-- Memory Safe: Proper allocator usage throughout
-- Type Safe: Compile-time guarantees with Zig's type system
-- Minimal Dependencies: Only zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
-- Production Ready: Battle-tested with 100% Kubernetes 1.34 coverage
+- 92 passing tests with comprehensive coverage
+- Memory safe with explicit allocator management
+- Type safe with Zig's compile-time type system
+- Two dependencies: zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
+- Tested against Kubernetes 1.34.1
 
 ## Installation
 
@@ -651,25 +649,25 @@ zig-klient/
 
 | Feature | Kubernetes 1.34 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
-| HTTP Operations | All methods | All methods | 100% ✅ |
-| K8s Resource Types | 61 standard | 61 | 100% ✅ |
-| API Groups | 19 | 19 | 100% ✅ |
-| Auth Methods | 5 | 4 (practical) | 100% ✅ |
-| In-Cluster Config | Yes | Yes | 100% ✅ |
-| Delete Options | Yes | Yes | 100% ✅ |
-| Create/Update Options | Yes | Yes | 100% ✅ |
-| Delete Collection | Yes | Yes | 100% ✅ |
-| Retry Logic | Basic | Advanced | 150% 🚀 |
-| Watch API | Yes | Yes | 100% ✅ |
-| Field/Label Selectors | Yes | Yes | 100% ✅ |
-| Pagination | Yes | Yes | 100% ✅ |
-| Server-Side Apply | Yes | Yes | 100% ✅ |
-| WebSocket Support | Yes | Yes (native) | 100% ✅ |
-| Protobuf Support | Yes | Yes (native) | 100% ✅ |
-| Gateway API | Yes | Yes | 100% ✅ |
-| Dynamic Resource Allocation | Yes | Yes | 100% ✅ |
+| HTTP Operations | All methods | All methods | 100% |
+| K8s Resource Types | 61 standard | 61 | 100% |
+| API Groups | 19 | 19 | 100% |
+| Auth Methods | 5 | 4 | 100% |
+| In-Cluster Config | Yes | Yes | Yes |
+| Delete Options | Yes | Yes | Yes |
+| Create/Update Options | Yes | Yes | Yes |
+| Delete Collection | Yes | Yes | Yes |
+| Retry Logic | Basic | Advanced | Yes |
+| Watch API | Yes | Yes | Yes |
+| Field/Label Selectors | Yes | Yes | Yes |
+| Pagination | Yes | Yes | Yes |
+| Server-Side Apply | Yes | Yes | Yes |
+| WebSocket Support | Yes | Yes (native) | Yes |
+| Protobuf Support | Yes | Yes (zig-protobuf) | Yes |
+| Gateway API | Yes | Yes | Yes |
+| Dynamic Resource Allocation | Yes | Yes | Yes |
 
-**Implemented**: ALL 61 standard Kubernetes 1.34 resource types across ALL 19 API groups + WebSocket + Protobuf
+**Coverage**: 61 Kubernetes 1.34 resource types across 19 API groups, WebSocket, and Protobuf
 
 **Includes**: Core API (v1), apps/v1, batch/v1, networking.k8s.io/v1, gateway.networking.k8s.io/v1, RBAC, storage, resource.k8s.io/v1, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
 
@@ -702,7 +700,7 @@ Contributions are welcome! Please:
 
 ## Roadmap
 
-### Implemented ✅ (100% Core Feature Parity)
+### Implemented
 - [x] Core resource types (15 total - including Ingress)
 - [x] All HTTP methods (GET, POST, PUT, DELETE, PATCH)
 - [x] Bearer token auth
@@ -738,8 +736,8 @@ Contributions are welcome! Please:
 
 **Note**: WebSocket functionality is implemented but requires adding the `websocket.zig` dependency to `build.zig.zon` to use. This is intentionally optional to keep the library lightweight for users who don't need these features.
 
-### Future Enhancements 🚀
-- [ ] Protobuf protocol support (for high-performance scenarios)
+### Future Enhancements
+- [ ] Protobuf protocol support enhancements
 - [ ] Admission webhooks (for custom controllers)
 - [ ] Custom metrics APIs (for advanced monitoring)
 - [ ] Advanced scheduling features (for specialized workloads)
