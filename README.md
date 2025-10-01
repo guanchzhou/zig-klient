@@ -1,8 +1,8 @@
 # zig-klient
 
-> **Status**: 🏆 Production-Ready | 50 Resource Types | 100% Core Coverage | 16 API Groups
+> **Status**: Production-Ready | 50 Resource Types | 16 API Groups
 
-A production-ready Kubernetes client library for Zig implementing **ALL 50 core Kubernetes resource types** with **100% CRUD operations** for each, covering **100% of core Kubernetes functionality** across **16 API groups**.
+A production-ready Kubernetes client library for Zig implementing **50 standard Kubernetes resource types** with **CRUD operations** for each, covering most production use cases across **16 API groups**.
 
 ## Features
 
@@ -82,11 +82,11 @@ RuntimeClass
 - **Server-Side Apply**: Declarative resource management with field ownership
 
 ### Quality
-- 68+ Passing Tests: Comprehensive test coverage (unit + integration + e2e)
+- 65 Passing Tests: Test coverage (unit + integration)
 - Memory Safe: Proper allocator usage throughout
 - Type Safe: Compile-time guarantees with Zig's type system
 - Zero Dependencies: Only zig-yaml for YAML parsing
-- Production Ready: Battle-tested with 100% core resource coverage
+- Production Ready: Battle-tested with most common resource types
 
 ## Installation
 
@@ -639,9 +639,8 @@ zig-klient/
 | Feature | Official Clients | zig-klient | Coverage |
 |---------|------------------|------------|----------|
 | HTTP Operations | All methods | All methods | 100% ✅ |
-| **Core K8s Resource Types** | **50** | **50** | **100%** 🏆 |
-| **API Groups** | **16** | **16** | **100%** 🏆 |
-| **Use Case Coverage** | 100% | **100%** | **100%** 🏆 |
+| K8s Resource Types | 51 standard | 50 | 98% |
+| API Groups | 16 | 16 | 100% ✅ |
 | Auth Methods | 5 | 4 (practical) | 100% ✅ |
 | In-Cluster Config | Yes | Yes | 100% ✅ |
 | Delete Options | Yes | Yes | 100% ✅ |
@@ -654,11 +653,11 @@ zig-klient/
 | Server-Side Apply | Yes | Yes | 100% ✅ |
 | WebSocket Support | Yes | Yes | 100% ✅ |
 
-**🏆 Complete Implementation**: ALL 50 core Kubernetes resource types across 16 API groups
+**Implemented**: 50 standard Kubernetes resource types across 16 API groups
 
 **Includes**: Core API (v1), apps/v1, batch/v1, networking, RBAC, storage, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
 
-**Coverage**: 100% of production Kubernetes functionality - workloads, networking, storage, security, auto-scaling, admission control, certificates, API management, and more!
+**Missing**: IPAddress, ServiceCIDR (newer networking resources)
 
 See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed breakdown.
 
