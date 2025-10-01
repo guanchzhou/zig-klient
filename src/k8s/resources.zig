@@ -846,3 +846,111 @@ pub const Ingresses = struct {
         };
     }
 };
+
+pub const ServiceAccounts = struct {
+    client: ResourceClient(types.ServiceAccount),
+
+    pub fn init(k8s_client: *K8sClient) ServiceAccounts {
+        return .{
+            .client = ResourceClient(types.ServiceAccount){
+                .client = k8s_client,
+                .api_path = "/api/v1",
+                .resource = "serviceaccounts",
+            },
+        };
+    }
+};
+
+pub const Roles = struct {
+    client: ResourceClient(types.Role),
+
+    pub fn init(k8s_client: *K8sClient) Roles {
+        return .{
+            .client = ResourceClient(types.Role){
+                .client = k8s_client,
+                .api_path = "/apis/rbac.authorization.k8s.io/v1",
+                .resource = "roles",
+            },
+        };
+    }
+};
+
+pub const RoleBindings = struct {
+    client: ResourceClient(types.RoleBinding),
+
+    pub fn init(k8s_client: *K8sClient) RoleBindings {
+        return .{
+            .client = ResourceClient(types.RoleBinding){
+                .client = k8s_client,
+                .api_path = "/apis/rbac.authorization.k8s.io/v1",
+                .resource = "rolebindings",
+            },
+        };
+    }
+};
+
+pub const ClusterRoles = struct {
+    client: ResourceClient(types.ClusterRole),
+
+    pub fn init(k8s_client: *K8sClient) ClusterRoles {
+        return .{
+            .client = ResourceClient(types.ClusterRole){
+                .client = k8s_client,
+                .api_path = "/apis/rbac.authorization.k8s.io/v1",
+                .resource = "clusterroles",
+            },
+        };
+    }
+
+    /// List all ClusterRoles (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: ClusterRoles) !std.json.Parsed(types.List(types.ClusterRole)) {
+        const path = "/apis/rbac.authorization.k8s.io/v1/clusterroles";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.ClusterRole),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};
+
+pub const ClusterRoleBindings = struct {
+    client: ResourceClient(types.ClusterRoleBinding),
+
+    pub fn init(k8s_client: *K8sClient) ClusterRoleBindings {
+        return .{
+            .client = ResourceClient(types.ClusterRoleBinding){
+                .client = k8s_client,
+                .api_path = "/apis/rbac.authorization.k8s.io/v1",
+                .resource = "clusterrolebindings",
+            },
+        };
+    }
+
+    /// List all ClusterRoleBindings (cluster-scoped)
+    /// NOTE: Caller must call deinit() on the returned Parsed object
+    pub fn list(self: ClusterRoleBindings) !std.json.Parsed(types.List(types.ClusterRoleBinding)) {
+        const path = "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+
+        const parsed = try std.json.parseFromSlice(
+            types.List(types.ClusterRoleBinding),
+            self.client.client.allocator,
+            body,
+            .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            },
+        );
+        return parsed;
+    }
+};

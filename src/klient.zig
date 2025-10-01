@@ -44,6 +44,16 @@ pub const Job = types.Job;
 pub const CronJob = types.CronJob;
 pub const PersistentVolume = types.PersistentVolume;
 pub const PersistentVolumeClaim = types.PersistentVolumeClaim;
+pub const ServiceAccount = types.ServiceAccount;
+pub const Role = types.Role;
+pub const RoleBinding = types.RoleBinding;
+pub const ClusterRole = types.ClusterRole;
+pub const ClusterRoleBinding = types.ClusterRoleBinding;
+
+// RBAC helper types
+pub const PolicyRule = types.PolicyRule;
+pub const RoleRef = types.RoleRef;
+pub const Subject = types.Subject;
 
 // Resource clients
 pub const resources = @import("k8s/resources.zig");
@@ -62,6 +72,11 @@ pub const CronJobs = resources.CronJobs;
 pub const PersistentVolumes = resources.PersistentVolumes;
 pub const PersistentVolumeClaims = resources.PersistentVolumeClaims;
 pub const Ingresses = resources.Ingresses;
+pub const ServiceAccounts = resources.ServiceAccounts;
+pub const Roles = resources.Roles;
+pub const RoleBindings = resources.RoleBindings;
+pub const ClusterRoles = resources.ClusterRoles;
+pub const ClusterRoleBindings = resources.ClusterRoleBindings;
 
 // Advanced features
 pub const retry = @import("k8s/retry.zig");

@@ -106,6 +106,34 @@ pub fn build(b: *std.Build) void {
     const delete_options_test_step = b.step("test-delete-options", "Run delete/create/update options tests");
     delete_options_test_step.dependOn(&run_delete_options_tests.step);
 
+    // ServiceAccount tests
+    const serviceaccount_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/serviceaccount_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    serviceaccount_tests.root_module.addImport("klient", klient_module);
+
+    const run_serviceaccount_tests = b.addRunArtifact(serviceaccount_tests);
+    const serviceaccount_test_step = b.step("test-serviceaccount", "Run ServiceAccount tests");
+    serviceaccount_test_step.dependOn(&run_serviceaccount_tests.step);
+
+    // RBAC tests (Role, RoleBinding, ClusterRole, ClusterRoleBinding)
+    const rbac_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/rbac_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    rbac_tests.root_module.addImport("klient", klient_module);
+
+    const run_rbac_tests = b.addRunArtifact(rbac_tests);
+    const rbac_test_step = b.step("test-rbac", "Run RBAC tests (Role, RoleBinding, ClusterRole, ClusterRoleBinding)");
+    rbac_test_step.dependOn(&run_rbac_tests.step);
+
     // WebSocket tests
     const websocket_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -142,6 +170,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_incluster_tests.step);
     test_step.dependOn(&run_list_options_tests.step);
     test_step.dependOn(&run_delete_options_tests.step);
+    test_step.dependOn(&run_serviceaccount_tests.step);
+    test_step.dependOn(&run_rbac_tests.step);
     test_step.dependOn(&run_websocket_tests.step);
 
     // === Integration Test Entrypoints ===
