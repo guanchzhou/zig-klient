@@ -21,12 +21,20 @@ pub const K8sClient = struct {
     // Temp CA file path - must be deleted in deinit()
     temp_ca_path: ?[]const u8 = null,
 
-    /// Structured Kubernetes API error
+    /// Structured Kubernetes API error (owns its string memory)
     pub const ApiError = struct {
         status: ?[]const u8 = null,
         message: ?[]const u8 = null,
         reason: ?[]const u8 = null,
         code: ?i64 = null,
+
+        /// Free owned string memory
+        pub fn deinit(self: *ApiError, allocator: std.mem.Allocator) void {
+            if (self.status) |s| allocator.free(s);
+            if (self.message) |s| allocator.free(s);
+            if (self.reason) |s| allocator.free(s);
+            self.* = .{};
+        }
     };
 
     pub const Config = struct {
@@ -97,6 +105,7 @@ pub const K8sClient = struct {
     }
 
     pub fn deinit(self: *K8sClient) void {
+        self.clearLastApiError();
         self.allocator.free(self.api_server);
         if (self.token) |t| self.allocator.free(t);
         self.allocator.free(self.namespace);
@@ -106,6 +115,14 @@ pub const K8sClient = struct {
         if (self.temp_ca_path) |path| {
             std.fs.deleteFileAbsolute(path) catch {};
             self.allocator.free(path);
+        }
+    }
+
+    /// Free previous API error strings before storing a new one
+    fn clearLastApiError(self: *K8sClient) void {
+        if (self.last_api_error) |*err| {
+            err.deinit(self.allocator);
+            self.last_api_error = null;
         }
     }
 
@@ -165,23 +182,17 @@ pub const K8sClient = struct {
         };
     }
 
-    /// HTTP methods enum for type safety
-    pub const Method = enum {
-        GET,
-        POST,
-        PUT,
-        DELETE,
-        PATCH,
-    };
+    /// HTTP method alias for convenience
+    pub const Method = std.http.Method;
 
     /// Make HTTP request to Kubernetes API with automatic retries
-    pub fn request(self: *K8sClient, method: Method, path: []const u8, body: ?[]const u8) ![]u8 {
+    pub fn request(self: *K8sClient, method: std.http.Method, path: []const u8, body: ?[]const u8) ![]u8 {
         return self.requestWithContentType(method, path, body, "application/json");
     }
 
     /// Make HTTP request with retries (use this for production code)
     /// Retries on transport errors and retryable HTTP status codes (429, 500, 502, 503, 504)
-    pub fn requestWithRetry(self: *K8sClient, method: Method, path: []const u8, body: ?[]const u8) ![]u8 {
+    pub fn requestWithRetry(self: *K8sClient, method: std.http.Method, path: []const u8, body: ?[]const u8) ![]u8 {
         var retry_ctx = retry_mod.RetryContext.init(self.retry_config);
 
         while (true) {
@@ -211,27 +222,19 @@ pub const K8sClient = struct {
     /// Make HTTP request with custom Content-Type
     pub fn requestWithContentType(
         self: *K8sClient,
-        method: Method,
+        method: std.http.Method,
         path: []const u8,
         body: ?[]const u8,
         content_type: []const u8,
     ) ![]u8 {
-        const url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.api_server, path });
-        defer self.allocator.free(url);
+        // Stack-allocated URL buffer (K8s API URLs are bounded in length)
+        var url_buf: [4096]u8 = undefined;
+        const url = try std.fmt.bufPrint(&url_buf, "{s}{s}", .{ self.api_server, path });
 
         const uri = try std.Uri.parse(url);
 
-        const http_method: std.http.Method = switch (method) {
-            .GET => .GET,
-            .POST => .POST,
-            .PUT => .PUT,
-            .DELETE => .DELETE,
-            .PATCH => .PATCH,
-        };
-
         // Build headers with authorization
-        var header_buffer: [1024]u8 = undefined;
-        var content_type_buffer: [256]u8 = undefined;
+        var header_buffer: [4096]u8 = undefined;
         var headers = std.http.Client.Request.Headers{};
 
         if (self.token) |token| {
@@ -240,12 +243,11 @@ pub const K8sClient = struct {
         }
 
         if (body != null) {
-            const ct_value = try std.fmt.bufPrint(&content_type_buffer, "{s}", .{content_type});
-            headers.content_type = .{ .override = ct_value };
+            headers.content_type = .{ .override = content_type };
         }
 
         // Make request to Kubernetes API
-        var req = try self.http_client.request(http_method, uri, .{
+        var req = try self.http_client.request(method, uri, .{
             .redirect_behavior = @enumFromInt(3),
             .headers = headers,
         });
@@ -268,16 +270,18 @@ pub const K8sClient = struct {
         // Check response status
         const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
         if (!is_success) {
-            // Read and parse K8s API error response
+            // Read and parse K8s API error response (with decompression)
             var error_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
             defer error_buffer.deinit(self.allocator);
 
             var err_transfer_buffer: [16384]u8 = undefined;
-            const err_reader = response.reader(&err_transfer_buffer);
+            var err_decompress: std.http.Decompress = undefined;
+            var err_decompress_buffer: [32768]u8 = undefined;
+            const err_reader = response.readerDecompressing(&err_transfer_buffer, &err_decompress, &err_decompress_buffer);
             err_reader.appendRemaining(self.allocator, &error_buffer, .{ .max = 65536 }) catch {};
 
             // Try to parse structured K8s API error
-            self.last_api_error = null;
+            self.clearLastApiError();
             if (error_buffer.items.len > 0) {
                 const parsed_err = std.json.parseFromSlice(std.json.Value, self.allocator, error_buffer.items, .{
                     .ignore_unknown_fields = true,
@@ -285,15 +289,16 @@ pub const K8sClient = struct {
                 if (parsed_err) |pe| {
                     defer pe.deinit();
                     const obj = pe.value.object;
+                    // Dupe strings so they survive pe.deinit()
                     self.last_api_error = .{
                         .status = if (obj.get("status")) |v| blk: {
-                            if (v == .string) break :blk v.string else break :blk null;
+                            if (v == .string) break :blk self.allocator.dupe(u8, v.string) catch null else break :blk null;
                         } else null,
                         .message = if (obj.get("message")) |v| blk: {
-                            if (v == .string) break :blk v.string else break :blk null;
+                            if (v == .string) break :blk self.allocator.dupe(u8, v.string) catch null else break :blk null;
                         } else null,
                         .reason = if (obj.get("reason")) |v| blk: {
-                            if (v == .string) break :blk v.string else break :blk null;
+                            if (v == .string) break :blk self.allocator.dupe(u8, v.string) catch null else break :blk null;
                         } else null,
                         .code = if (obj.get("code")) |v| blk: {
                             if (v == .integer) break :blk v.integer else break :blk null;
@@ -305,12 +310,14 @@ pub const K8sClient = struct {
             return error.K8sApiError;
         }
 
-        // Read response body with pre-allocated buffer and size limit
+        // Read response body with automatic gzip/deflate decompression
         var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 8192);
         errdefer body_buffer.deinit(self.allocator);
 
         var transfer_buffer: [16384]u8 = undefined;
-        const reader = response.reader(&transfer_buffer);
+        var decompress: std.http.Decompress = undefined;
+        var decompress_buffer: [32768]u8 = undefined;
+        const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 
         reader.appendRemaining(self.allocator, &body_buffer, .{ .max = self.max_response_size }) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
@@ -324,26 +331,18 @@ pub const K8sClient = struct {
     /// Returns raw Protobuf-encoded response data
     pub fn requestWithProtobuf(
         self: *K8sClient,
-        method: Method,
+        method: std.http.Method,
         path: []const u8,
         body: ?[]const u8,
     ) ![]u8 {
-        const url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.api_server, path });
-        defer self.allocator.free(url);
+        // Stack-allocated URL buffer
+        var url_buf: [4096]u8 = undefined;
+        const url = try std.fmt.bufPrint(&url_buf, "{s}{s}", .{ self.api_server, path });
 
         const uri = try std.Uri.parse(url);
 
-        const http_method: std.http.Method = switch (method) {
-            .GET => .GET,
-            .POST => .POST,
-            .PUT => .PUT,
-            .DELETE => .DELETE,
-            .PATCH => .PATCH,
-        };
-
         // Build headers with Protobuf Content-Type and authorization
-        var header_buffer: [1024]u8 = undefined;
-        var content_type_buffer: [256]u8 = undefined;
+        var header_buffer: [4096]u8 = undefined;
         var headers = std.http.Client.Request.Headers{};
 
         if (self.token) |token| {
@@ -353,12 +352,11 @@ pub const K8sClient = struct {
 
         // Set Protobuf Content-Type for request body
         if (body != null) {
-            const ct_value = try std.fmt.bufPrint(&content_type_buffer, "application/vnd.kubernetes.protobuf;charset=utf-8", .{});
-            headers.content_type = .{ .override = ct_value };
+            headers.content_type = .{ .override = "application/vnd.kubernetes.protobuf;charset=utf-8" };
         }
 
         // Make request to Kubernetes API with Protobuf Accept header
-        var req = try self.http_client.request(http_method, uri, .{
+        var req = try self.http_client.request(method, uri, .{
             .redirect_behavior = @enumFromInt(3),
             .headers = headers,
             .extra_headers = &.{
@@ -384,16 +382,19 @@ pub const K8sClient = struct {
         // Check response status
         const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
         if (!is_success) {
+            self.clearLastApiError();
             self.last_api_error = .{ .code = @intFromEnum(response.head.status) };
             return error.K8sApiError;
         }
 
-        // Read response body (Protobuf-encoded) with size limit
+        // Read response body (Protobuf-encoded) with decompression and size limit
         var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 8192);
         errdefer body_buffer.deinit(self.allocator);
 
         var transfer_buffer: [16384]u8 = undefined;
-        const reader = response.reader(&transfer_buffer);
+        var decompress: std.http.Decompress = undefined;
+        var decompress_buffer: [32768]u8 = undefined;
+        const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 
         reader.appendRemaining(self.allocator, &body_buffer, .{ .max = self.max_response_size }) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
@@ -409,7 +410,7 @@ pub const K8sClient = struct {
         defer parsed.deinit();
 
         const items = parsed.value.object.get("items").?.array;
-        var pods = try std.ArrayList(Pod).initCapacity(self.allocator, 0);
+        var pods = try std.ArrayList(Pod).initCapacity(self.allocator, items.items.len);
 
         for (items.items) |item| {
             const metadata = item.object.get("metadata").?.object;

@@ -35,82 +35,58 @@ pub const ListOptions = struct {
     /// Send initial events in watch
     send_initial_events: bool = false,
 
-    /// Build query string from options
+    /// Build query string from options (single allocation)
     pub fn buildQueryString(self: ListOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
-        defer {
-            for (query_parts.items) |part| {
-                allocator.free(part);
+        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
+        errdefer buf.deinit(allocator);
+        const writer = buf.writer(allocator);
+
+        var first = true;
+        inline for (.{
+            .{ "fieldSelector", self.field_selector },
+            .{ "labelSelector", self.label_selector },
+            .{ "continue", self.continue_token },
+            .{ "resourceVersion", self.resource_version },
+            .{ "resourceVersionMatch", self.resource_version_match },
+        }) |entry| {
+            if (entry[1]) |val| {
+                if (!first) try writer.writeByte('&');
+                try writer.print("{s}={s}", .{ entry[0], val });
+                first = false;
             }
-            query_parts.deinit(allocator);
         }
 
-        // Field selector
-        if (self.field_selector) |fs| {
-            const part = try std.fmt.allocPrint(allocator, "fieldSelector={s}", .{fs});
-            try query_parts.append(allocator, part);
-        }
-
-        // Label selector
-        if (self.label_selector) |ls| {
-            const part = try std.fmt.allocPrint(allocator, "labelSelector={s}", .{ls});
-            try query_parts.append(allocator, part);
-        }
-
-        // Limit
         if (self.limit) |limit| {
-            const part = try std.fmt.allocPrint(allocator, "limit={d}", .{limit});
-            try query_parts.append(allocator, part);
+            if (!first) try writer.writeByte('&');
+            try writer.print("limit={d}", .{limit});
+            first = false;
         }
 
-        // Continue token
-        if (self.continue_token) |ct| {
-            const part = try std.fmt.allocPrint(allocator, "continue={s}", .{ct});
-            try query_parts.append(allocator, part);
-        }
-
-        // Resource version
-        if (self.resource_version) |rv| {
-            const part = try std.fmt.allocPrint(allocator, "resourceVersion={s}", .{rv});
-            try query_parts.append(allocator, part);
-        }
-
-        // Resource version match
-        if (self.resource_version_match) |rvm| {
-            const part = try std.fmt.allocPrint(allocator, "resourceVersionMatch={s}", .{rvm});
-            try query_parts.append(allocator, part);
-        }
-
-        // Timeout
         if (self.timeout_seconds) |timeout| {
-            const part = try std.fmt.allocPrint(allocator, "timeoutSeconds={d}", .{timeout});
-            try query_parts.append(allocator, part);
+            if (!first) try writer.writeByte('&');
+            try writer.print("timeoutSeconds={d}", .{timeout});
+            first = false;
         }
 
-        // Pretty
         if (self.pretty) {
-            const part = try std.fmt.allocPrint(allocator, "pretty=true", .{});
-            try query_parts.append(allocator, part);
+            if (!first) try writer.writeByte('&');
+            try writer.writeAll("pretty=true");
+            first = false;
         }
 
-        // Allow watch bookmarks
         if (self.allow_watch_bookmarks) {
-            const part = try std.fmt.allocPrint(allocator, "allowWatchBookmarks=true", .{});
-            try query_parts.append(allocator, part);
+            if (!first) try writer.writeByte('&');
+            try writer.writeAll("allowWatchBookmarks=true");
+            first = false;
         }
 
-        // Send initial events
         if (self.send_initial_events) {
-            const part = try std.fmt.allocPrint(allocator, "sendInitialEvents=true", .{});
-            try query_parts.append(allocator, part);
+            if (!first) try writer.writeByte('&');
+            try writer.writeAll("sendInitialEvents=true");
+            first = false;
         }
 
-        if (query_parts.items.len == 0) {
-            return try allocator.dupe(u8, "");
-        }
-
-        // Join with &
-        return try std.mem.join(allocator, "&", query_parts.items);
+        return try buf.toOwnedSlice(allocator);
     }
 
     /// URL encode a string for query parameters

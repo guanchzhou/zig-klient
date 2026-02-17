@@ -13,33 +13,23 @@ pub const ApplyOptions = struct {
     /// Options: "", "All", "None"
     dry_run: ?[]const u8 = null,
 
-    /// Build query string from options
+    /// Build query string from options (single allocation)
     pub fn buildQueryString(self: ApplyOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var query_parts = std.ArrayList([]const u8).init(allocator);
-        defer {
-            for (query_parts.items) |part| {
-                allocator.free(part);
-            }
-            query_parts.deinit();
-        }
+        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
+        errdefer buf.deinit(allocator);
+        const writer = buf.writer(allocator);
 
-        // Field manager is required
-        const fm_part = try std.fmt.allocPrint(allocator, "fieldManager={s}", .{self.field_manager});
-        try query_parts.append(fm_part);
+        try writer.print("fieldManager={s}", .{self.field_manager});
 
-        // Force
         if (self.force) {
-            const force_part = try std.fmt.allocPrint(allocator, "force=true", .{});
-            try query_parts.append(force_part);
+            try writer.writeAll("&force=true");
         }
 
-        // Dry run
         if (self.dry_run) |dr| {
-            const dr_part = try std.fmt.allocPrint(allocator, "dryRun={s}", .{dr});
-            try query_parts.append(dr_part);
+            try writer.print("&dryRun={s}", .{dr});
         }
 
-        return try std.mem.join(allocator, "&", query_parts.items);
+        return try buf.toOwnedSlice(allocator);
     }
 };
 
@@ -54,39 +44,30 @@ pub const PatchOptions = struct {
     /// Dry run mode
     dry_run: ?[]const u8 = null,
 
-    /// Build query string from options
+    /// Build query string from options (single allocation)
     pub fn buildQueryString(self: PatchOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var query_parts = std.ArrayList([]const u8).init(allocator);
-        defer {
-            for (query_parts.items) |part| {
-                allocator.free(part);
-            }
-            query_parts.deinit();
-        }
+        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
+        errdefer buf.deinit(allocator);
+        const writer = buf.writer(allocator);
 
-        // Field manager
+        var first = true;
         if (self.field_manager) |fm| {
-            const fm_part = try std.fmt.allocPrint(allocator, "fieldManager={s}", .{fm});
-            try query_parts.append(fm_part);
+            try writer.print("fieldManager={s}", .{fm});
+            first = false;
         }
 
-        // Force
         if (self.force) {
-            const force_part = try std.fmt.allocPrint(allocator, "force=true", .{});
-            try query_parts.append(force_part);
+            if (!first) try writer.writeByte('&');
+            try writer.writeAll("force=true");
+            first = false;
         }
 
-        // Dry run
         if (self.dry_run) |dr| {
-            const dr_part = try std.fmt.allocPrint(allocator, "dryRun={s}", .{dr});
-            try query_parts.append(dr_part);
+            if (!first) try writer.writeByte('&');
+            try writer.print("dryRun={s}", .{dr});
         }
 
-        if (query_parts.items.len == 0) {
-            return try allocator.dupe(u8, "");
-        }
-
-        return try std.mem.join(allocator, "&", query_parts.items);
+        return try buf.toOwnedSlice(allocator);
     }
 };
 
