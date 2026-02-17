@@ -25,12 +25,13 @@ pub fn main() !void {
     // Get current pod
     std.debug.print("🔍 Getting current pod...\n", .{});
     const pods_client = klient.Pods.init(&client);
-    const current_pod = pods_client.client.get(pod_name, test_namespace) catch |err| {
+    const current_parsed = pods_client.client.get(pod_name, test_namespace) catch |err| {
         std.debug.print("❌ Failed to get pod: {}\n", .{err});
         std.debug.print("\n💡 Tip: Run test_create_pod.zig first to create the pod\n", .{});
         return err;
     };
-    defer allocator.free(current_pod);
+    defer current_parsed.deinit();
+    const current_pod = current_parsed.value;
 
     std.debug.print("✅ Current pod retrieved\n", .{});
     std.debug.print("   Current labels:\n", .{});
@@ -72,20 +73,29 @@ pub fn main() !void {
         \\}
     ;
 
+    // Parse the updated manifest into a Pod to pass to updateWithOptions
+    const updated_resource = try std.json.parseFromSlice(
+        klient.Pod,
+        allocator,
+        updated_manifest,
+        .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
+    );
+    defer updated_resource.deinit();
+
     const update_options = klient.UpdateOptions{
         .field_manager = "zig-klient-test",
     };
 
-    const updated_pod = pods_client.client.updateWithOptions(
-        pod_name,
+    const updated_parsed = pods_client.client.updateWithOptions(
+        updated_resource.value,
         test_namespace,
-        updated_manifest,
         update_options,
     ) catch |err| {
         std.debug.print("❌ Failed to update pod: {}\n", .{err});
         return err;
     };
-    defer allocator.free(updated_pod);
+    defer updated_parsed.deinit();
+    const updated_pod = updated_parsed.value;
 
     std.debug.print("✅ Pod updated successfully!\n", .{});
     std.debug.print("   Updated labels:\n", .{});

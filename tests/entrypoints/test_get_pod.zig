@@ -26,12 +26,13 @@ pub fn main() !void {
     std.debug.print("🔍 Getting pod '{s}' in namespace '{s}'...\n", .{ pod_name, test_namespace });
 
     const pods_client = klient.Pods.init(&client);
-    const pod = pods_client.client.get(pod_name, test_namespace) catch |err| {
+    const parsed = pods_client.client.get(pod_name, test_namespace) catch |err| {
         std.debug.print("❌ Failed to get pod: {}\n", .{err});
         std.debug.print("\n💡 Tip: Run test_create_pod.zig first to create the pod\n", .{});
         return err;
     };
-    defer allocator.free(pod);
+    defer parsed.deinit();
+    const pod = parsed.value;
 
     std.debug.print("✅ Pod found!\n\n", .{});
 

@@ -47,10 +47,10 @@ pub fn main() !void {
     std.time.sleep(6 * std.time.ns_per_s);
 
     const verify_result = pods_client.client.get(pod_name, test_namespace);
-    if (verify_result) |pod| {
-        defer allocator.free(pod);
+    if (verify_result) |parsed| {
+        defer parsed.deinit();
         std.debug.print("⚠️  Pod still exists (may be terminating)\n", .{});
-        if (pod.status) |status| {
+        if (parsed.value.status) |status| {
             if (status.phase) |phase| {
                 std.debug.print("   Current phase: {s}\n", .{phase});
             }

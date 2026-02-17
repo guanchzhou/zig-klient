@@ -142,7 +142,8 @@ pub fn ResourceClient(comptime T: type) type {
         }
 
         /// Get a specific resource by name
-        pub fn get(self: Self, name: []const u8, namespace: ?[]const u8) !T {
+        /// NOTE: Caller must call deinit() on the returned Parsed object
+        pub fn get(self: Self, name: []const u8, namespace: ?[]const u8) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
             const path = try std.fmt.allocPrint(
                 self.client.allocator,
@@ -158,13 +159,17 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
 
         /// Create a new resource
-        pub fn create(self: Self, resource: T, namespace: ?[]const u8) !T {
+        /// NOTE: Caller must call deinit() on the returned Parsed object
+        pub fn create(self: Self, resource: T, namespace: ?[]const u8) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
             const path = try std.fmt.allocPrint(
                 self.client.allocator,
@@ -174,10 +179,10 @@ pub fn ResourceClient(comptime T: type) type {
             defer self.client.allocator.free(path);
 
             // Serialize resource to JSON
-            var json_buffer = std.ArrayList(u8).init(self.client.allocator);
-            defer json_buffer.deinit();
+            var json_buffer = try std.ArrayList(u8).initCapacity(self.client.allocator, 0);
+            defer json_buffer.deinit(self.client.allocator);
 
-            try std.json.stringify(resource, .{}, json_buffer.writer());
+            try std.json.stringify(resource, .{}, json_buffer.writer(self.client.allocator));
 
             const body = try self.client.request(.POST, path, json_buffer.items);
             defer self.client.allocator.free(body);
@@ -186,18 +191,22 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
 
         /// Create a new resource with options (field manager, field validation, dry-run)
+        /// NOTE: Caller must call deinit() on the returned Parsed object
         pub fn createWithOptions(
             self: Self,
             resource: T,
             namespace: ?[]const u8,
             options: delete_opts.CreateOptions,
-        ) !T {
+        ) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
 
             // Build query string
@@ -220,10 +229,10 @@ pub fn ResourceClient(comptime T: type) type {
             defer self.client.allocator.free(path);
 
             // Serialize resource to JSON
-            var json_buffer = std.ArrayList(u8).init(self.client.allocator);
-            defer json_buffer.deinit();
+            var json_buffer = try std.ArrayList(u8).initCapacity(self.client.allocator, 0);
+            defer json_buffer.deinit(self.client.allocator);
 
-            try std.json.stringify(resource, .{}, json_buffer.writer());
+            try std.json.stringify(resource, .{}, json_buffer.writer(self.client.allocator));
 
             const body = try self.client.request(.POST, path, json_buffer.items);
             defer self.client.allocator.free(body);
@@ -232,13 +241,17 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
 
         /// Update an existing resource (replace)
-        pub fn update(self: Self, resource: T, namespace: ?[]const u8) !T {
+        /// NOTE: Caller must call deinit() on the returned Parsed object
+        pub fn update(self: Self, resource: T, namespace: ?[]const u8) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
             const path = try std.fmt.allocPrint(
                 self.client.allocator,
@@ -248,10 +261,10 @@ pub fn ResourceClient(comptime T: type) type {
             defer self.client.allocator.free(path);
 
             // Serialize resource to JSON
-            var json_buffer = std.ArrayList(u8).init(self.client.allocator);
-            defer json_buffer.deinit();
+            var json_buffer = try std.ArrayList(u8).initCapacity(self.client.allocator, 0);
+            defer json_buffer.deinit(self.client.allocator);
 
-            try std.json.stringify(resource, .{}, json_buffer.writer());
+            try std.json.stringify(resource, .{}, json_buffer.writer(self.client.allocator));
 
             const body = try self.client.request(.PUT, path, json_buffer.items);
             defer self.client.allocator.free(body);
@@ -260,18 +273,22 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
 
         /// Update an existing resource with options (field manager, field validation, dry-run)
+        /// NOTE: Caller must call deinit() on the returned Parsed object
         pub fn updateWithOptions(
             self: Self,
             resource: T,
             namespace: ?[]const u8,
             options: delete_opts.UpdateOptions,
-        ) !T {
+        ) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
 
             // Build query string
@@ -294,10 +311,10 @@ pub fn ResourceClient(comptime T: type) type {
             defer self.client.allocator.free(path);
 
             // Serialize resource to JSON
-            var json_buffer = std.ArrayList(u8).init(self.client.allocator);
-            defer json_buffer.deinit();
+            var json_buffer = try std.ArrayList(u8).initCapacity(self.client.allocator, 0);
+            defer json_buffer.deinit(self.client.allocator);
 
-            try std.json.stringify(resource, .{}, json_buffer.writer());
+            try std.json.stringify(resource, .{}, json_buffer.writer(self.client.allocator));
 
             const body = try self.client.request(.PUT, path, json_buffer.items);
             defer self.client.allocator.free(body);
@@ -306,9 +323,12 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
 
         /// Delete a resource
@@ -382,20 +402,20 @@ pub fn ResourceClient(comptime T: type) type {
             defer self.client.allocator.free(delete_query);
 
             // Combine query strings
-            var combined_query = std.ArrayList(u8).init(self.client.allocator);
-            defer combined_query.deinit();
+            var combined_query = try std.ArrayList(u8).initCapacity(self.client.allocator, 0);
+            defer combined_query.deinit(self.client.allocator);
 
             if (list_query.len > 0) {
-                try combined_query.appendSlice(list_query);
+                try combined_query.appendSlice(self.client.allocator, list_query);
             }
             if (delete_query.len > 0) {
                 if (combined_query.items.len > 0) {
-                    try combined_query.append('&');
+                    try combined_query.append(self.client.allocator, '&');
                 }
-                try combined_query.appendSlice(delete_query);
+                try combined_query.appendSlice(self.client.allocator, delete_query);
             }
 
-            const query_string = try combined_query.toOwnedSlice();
+            const query_string = try combined_query.toOwnedSlice(self.client.allocator);
             defer self.client.allocator.free(query_string);
 
             // Build path
@@ -418,7 +438,8 @@ pub fn ResourceClient(comptime T: type) type {
         }
 
         /// Patch a resource (strategic merge patch)
-        pub fn patch(self: Self, name: []const u8, patch_data: []const u8, namespace: ?[]const u8) !T {
+        /// NOTE: Caller must call deinit() on the returned Parsed object
+        pub fn patch(self: Self, name: []const u8, patch_data: []const u8, namespace: ?[]const u8) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
             const path = try std.fmt.allocPrint(
                 self.client.allocator,
@@ -439,19 +460,23 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
 
         /// Patch a resource with custom content type
+        /// NOTE: Caller must call deinit() on the returned Parsed object
         pub fn patchWithType(
             self: Self,
             name: []const u8,
             patch_data: []const u8,
             namespace: ?[]const u8,
             patch_type: apply_mod.PatchType,
-        ) !T {
+        ) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
             const path = try std.fmt.allocPrint(
                 self.client.allocator,
@@ -472,19 +497,23 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
 
         /// Server-side apply a resource
+        /// NOTE: Caller must call deinit() on the returned Parsed object
         pub fn apply(
             self: Self,
             name: []const u8,
             resource_json: []const u8,
             namespace: ?[]const u8,
             options: apply_mod.ApplyOptions,
-        ) !T {
+        ) !std.json.Parsed(T) {
             const ns = namespace orelse self.client.namespace;
 
             // Build query string
@@ -511,9 +540,12 @@ pub fn ResourceClient(comptime T: type) type {
                 T,
                 self.client.allocator,
                 body,
-                .{ .ignore_unknown_fields = true },
+                .{
+                    .ignore_unknown_fields = true,
+                    .allocate = .alloc_always,
+                },
             );
-            return parsed.value;
+            return parsed;
         }
     };
 }
@@ -559,9 +591,9 @@ pub const Pods = struct {
         const allocator = self.client.client.allocator;
 
         // Build query string from options
-        var query = std.ArrayList(u8).init(allocator);
-        defer query.deinit();
-        const writer = query.writer();
+        var query = try std.ArrayList(u8).initCapacity(allocator, 0);
+        defer query.deinit(allocator);
+        const writer = query.writer(allocator);
 
         var has_param = false;
         if (options.container) |container| {
@@ -657,7 +689,8 @@ pub const Deployments = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 
     /// Rollout restart a deployment (triggers rolling update by patching annotation)
@@ -670,7 +703,8 @@ pub const Deployments = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 
     /// Update container image in a deployment
@@ -683,7 +717,8 @@ pub const Deployments = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 };
 
@@ -853,7 +888,8 @@ pub const ReplicaSets = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 };
 
@@ -879,7 +915,8 @@ pub const StatefulSets = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 
     /// Rollout restart a statefulset
@@ -892,7 +929,8 @@ pub const StatefulSets = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 };
 
@@ -919,7 +957,8 @@ pub const DaemonSets = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 };
 
@@ -959,7 +998,8 @@ pub const CronJobs = struct {
         );
         defer self.client.client.allocator.free(patch_json);
 
-        _ = try self.client.patch(name, patch_json, namespace);
+        const result = try self.client.patch(name, patch_json, namespace);
+        result.deinit();
     }
 };
 

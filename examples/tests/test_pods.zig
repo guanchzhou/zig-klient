@@ -30,8 +30,9 @@ pub fn main() !void {
     // Test get (if pods exist)
     if (ns_pods.value.items.len > 0) {
         const pod_name = ns_pods.value.items[0].metadata.name;
-        const pod = try pods_client.client.get(pod_name, "kube-system");
-        std.debug.print("✓ Pods.get(name, namespace) - Retrieved: {s}\n", .{pod.metadata.name});
+        const parsed = try pods_client.client.get(pod_name, "kube-system");
+        defer parsed.deinit();
+        std.debug.print("✓ Pods.get(name, namespace) - Retrieved: {s}\n", .{parsed.value.metadata.name});
     }
 
     std.debug.print("\n✓ All Pods tests passed!\n\n", .{});

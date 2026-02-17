@@ -127,9 +127,9 @@ fn runCreatePod(client: *klient.K8sClient) !void {
 
 fn runGetPod(client: *klient.K8sClient) !void {
     const pods_client = klient.Pods.init(client);
-    const pod = try pods_client.client.get("zig-klient-test", "default");
-    _ = pod;
-    std.debug.print("  ✅ PASSED - Got pod\n", .{});
+    const parsed = try pods_client.client.get("zig-klient-test", "default");
+    defer parsed.deinit();
+    std.debug.print("  ✅ PASSED - Got pod: {s}\n", .{parsed.value.metadata.name});
 }
 
 fn runDeletePod(client: *klient.K8sClient) !void {

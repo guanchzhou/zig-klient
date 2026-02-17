@@ -91,20 +91,20 @@ pub const ListOptions = struct {
 
     /// URL encode a string for query parameters
     fn urlEncode(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-        var result = std.ArrayList(u8).init(allocator);
-        defer result.deinit();
+        var result = try std.ArrayList(u8).initCapacity(allocator, input.len);
+        errdefer result.deinit(allocator);
 
         for (input) |c| {
             if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
-                try result.append(c);
+                try result.append(allocator, c);
             } else if (c == ' ') {
-                try result.append('+');
+                try result.append(allocator, '+');
             } else {
-                try result.writer().print("%{X:0>2}", .{c});
+                try result.writer(allocator).print("%{X:0>2}", .{c});
             }
         }
 
-        return try result.toOwnedSlice();
+        return try result.toOwnedSlice(allocator);
     }
 };
 

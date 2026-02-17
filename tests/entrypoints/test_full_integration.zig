@@ -24,67 +24,61 @@ pub fn main() !void {
     var test_passed: usize = 0;
     var test_failed: usize = 0;
 
-    // Test 1: Create Namespace
+    // Test 1: Create Namespace (using raw request since Namespace is cluster-scoped)
     std.debug.print("🧪 Test 1/7: Create Namespace\n", .{});
     {
-        const namespaces_client = klient.Namespaces.init(&client);
         const ns_manifest =
-            \\{
-            \\  "apiVersion": "v1",
-            \\  "kind": "Namespace",
-            \\  "metadata": {
-            \\    "name": "zig-klient-integration"
-            \\  }
-            \\}
+            \\{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"zig-klient-integration"}}
         ;
-        const ns = namespaces_client.client.createFromJson(ns_manifest, null) catch |err| {
-            if (err == error.AlreadyExists) {
-                std.debug.print("  ⚠️  Namespace exists (continuing)\n", .{});
-                test_passed += 1;
+        const result = client.request(.POST, "/api/v1/namespaces", ns_manifest) catch |err| {
+            if (err == error.K8sApiError) {
+                if (client.last_api_error) |api_err| {
+                    if (api_err.code != null and api_err.code.? == 409) {
+                        std.debug.print("  ⚠️  Namespace exists (continuing)\n", .{});
+                        test_passed += 1;
+                    } else {
+                        std.debug.print("  ❌ FAILED: {}\n", .{err});
+                        if (api_err.message) |msg| std.debug.print("     K8s: {s}\n", .{msg});
+                        test_failed += 1;
+                    }
+                } else {
+                    std.debug.print("  ❌ FAILED: {}\n", .{err});
+                    test_failed += 1;
+                }
             } else {
                 std.debug.print("  ❌ FAILED: {}\n", .{err});
                 test_failed += 1;
             }
             null;
         };
-        if (ns) |n| {
-            defer allocator.free(n);
+        if (result) |r| {
+            allocator.free(r);
             std.debug.print("  ✅ PASSED\n", .{});
             test_passed += 1;
         }
     }
     std.debug.print("\n", .{});
 
-    // Test 2: Create Pod
+    // Test 2: Create Pod (using raw request)
     std.debug.print("🧪 Test 2/7: Create Pod\n", .{});
     {
-        const pods_client = klient.Pods.init(&client);
         const pod_manifest =
-            \\{
-            \\  "apiVersion": "v1",
-            \\  "kind": "Pod",
-            \\  "metadata": {
-            \\    "name": "integration-test-pod",
-            \\    "namespace": "zig-klient-integration",
-            \\    "labels": { "test": "integration", "version": "v1" }
-            \\  },
-            \\  "spec": {
-            \\    "containers": [{
-            \\      "name": "nginx",
-            \\      "image": "nginx:alpine",
-            \\      "ports": [{"containerPort": 80}]
-            \\    }]
-            \\  }
-            \\}
+            \\{"apiVersion":"v1","kind":"Pod","metadata":{"name":"integration-test-pod","namespace":"zig-klient-integration","labels":{"test":"integration","version":"v1"}},"spec":{"containers":[{"name":"nginx","image":"nginx:alpine","ports":[{"containerPort":80}]}]}}
         ;
-        const pod = pods_client.client.createFromJson(pod_manifest, test_namespace) catch |err| {
+        const path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/pods", .{test_namespace});
+        defer allocator.free(path);
+
+        const result = client.request(.POST, path, pod_manifest) catch |err| {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
+            if (client.last_api_error) |api_err| {
+                if (api_err.message) |msg| std.debug.print("     K8s: {s}\n", .{msg});
+            }
             test_failed += 1;
             null;
         };
-        if (pod) |p| {
-            defer allocator.free(p);
-            std.debug.print("  ✅ PASSED - Pod: {s}\n", .{p.metadata.name});
+        if (result) |r| {
+            allocator.free(r);
+            std.debug.print("  ✅ PASSED - Pod created\n", .{});
             test_passed += 1;
         }
     }
@@ -94,15 +88,15 @@ pub fn main() !void {
     std.debug.print("🧪 Test 3/7: Get Pod\n", .{});
     {
         const pods_client = klient.Pods.init(&client);
-        const pod = pods_client.client.get(pod_name, test_namespace) catch |err| {
+        const parsed = pods_client.client.get(pod_name, test_namespace) catch |err| {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
             test_failed += 1;
             null;
         };
-        if (pod) |p| {
-            defer allocator.free(p);
-            std.debug.print("  ✅ PASSED - Found: {s}\n", .{p.metadata.name});
-            if (p.status) |status| {
+        if (parsed) |p| {
+            defer p.deinit();
+            std.debug.print("  ✅ PASSED - Found: {s}\n", .{p.value.metadata.name});
+            if (p.value.status) |status| {
                 if (status.phase) |phase| {
                     std.debug.print("     Phase: {s}\n", .{phase});
                 }
@@ -116,23 +110,25 @@ pub fn main() !void {
     std.debug.print("🧪 Test 4/7: List Pods\n", .{});
     {
         const pods_client = klient.Pods.init(&client);
-        const label_selector = try klient.LabelSelector.init(allocator);
+        var label_selector = try klient.LabelSelector.init(allocator);
         defer label_selector.deinit();
         try label_selector.addEquals("test", "integration");
 
-        const list_options = klient.ListOptions{
-            .label_selector = try label_selector.toString(),
-        };
-        defer if (list_options.label_selector) |ls| allocator.free(ls);
+        const label_str = try label_selector.build();
+        defer allocator.free(label_str);
 
-        const pods = pods_client.client.list(test_namespace, list_options) catch |err| {
+        const list_options = klient.ListOptions{
+            .label_selector = label_str,
+        };
+
+        const pods = pods_client.client.listWithOptions(test_namespace, list_options) catch |err| {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
             test_failed += 1;
             null;
         };
         if (pods) |p| {
-            defer allocator.free(p);
-            std.debug.print("  ✅ PASSED - Found {d} pod(s)\n", .{p.len});
+            defer p.deinit();
+            std.debug.print("  ✅ PASSED - Found {d} pod(s)\n", .{p.value.items.len});
             test_passed += 1;
         }
     }
@@ -143,26 +139,15 @@ pub fn main() !void {
     {
         const pods_client = klient.Pods.init(&client);
         const patch_json =
-            \\{
-            \\  "metadata": {
-            \\    "labels": {
-            \\      "test": "integration",
-            \\      "version": "v2",
-            \\      "patched": "true"
-            \\    }
-            \\  }
-            \\}
+            \\{"metadata":{"labels":{"test":"integration","version":"v2","patched":"true"}}}
         ;
-        const patch_options = klient.PatchOptions{
-            .patch_type = .strategic_merge,
-        };
-        const patched = pods_client.client.patch(pod_name, test_namespace, patch_json, patch_options) catch |err| {
+        const patched = pods_client.client.patch(pod_name, patch_json, test_namespace) catch |err| {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
             test_failed += 1;
             null;
         };
         if (patched) |p| {
-            defer allocator.free(p);
+            defer p.deinit();
             std.debug.print("  ✅ PASSED - Patched successfully\n", .{});
             test_passed += 1;
         }

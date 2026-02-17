@@ -330,6 +330,7 @@ const create_opts = klient.CreateOptions{
 
 var pods = klient.Pods.init(&client);
 const pod = try pods.client.createWithOptions(my_pod, null, create_opts);
+defer pod.deinit();
 
 // Update with field ownership tracking
 const update_opts = klient.UpdateOptions{
@@ -338,6 +339,7 @@ const update_opts = klient.UpdateOptions{
 };
 
 const updated = try deployments.client.updateWithOptions(deployment, null, update_opts);
+defer updated.deinit();
 ```
 
 ### List with Filtering and Pagination
@@ -543,7 +545,7 @@ const applied = try deployments.client.apply(
     "default",
     apply_options,
 );
-// Use the applied deployment...
+defer applied.deinit();
 ```
 
 ### JSON Patch
@@ -564,7 +566,7 @@ const patched = try deployments.client.patchWithType(
     "default",
     klient.PatchType.json,
 );
-// Use the patched deployment...
+defer patched.deinit();
 ```
 
 ## Resource Operations
@@ -575,22 +577,31 @@ All resource types support the same operations:
 // Pods
 var pods = klient.Pods.init(&client);
 
-// List operations (return std.json.Parsed - must call .deinit())
+// List operations (return std.json.Parsed - caller must call .deinit())
 const pod_list = try pods.client.list("namespace");
 defer pod_list.deinit();
 
 const all_pods = try pods.client.listAll();
 defer all_pods.deinit();
 
-// Get operation
-const pod = try pods.client.get("namespace", "pod-name");
+// Get operation (returns Parsed(T) - caller must call .deinit())
+const pod = try pods.client.get("pod-name", "namespace");
 defer pod.deinit();
+std.debug.print("Pod: {s}\n", .{pod.value.metadata.name});
 
-// Create/Update/Delete/Patch operations
+// Create/Update (return Parsed(T) - caller must call .deinit())
 const created = try pods.client.create(pod_spec, "namespace");
-const updated = try pods.client.update(pod_spec, "namespace", "pod-name");
-const deleted = try pods.client.delete("namespace", "pod-name");
-const patched = try pods.client.patch("namespace", "pod-name", patch_json, "application/json-patch+json");
+defer created.deinit();
+
+const updated = try pods.client.update(updated_spec, "namespace");
+defer updated.deinit();
+
+// Delete (returns void)
+try pods.client.delete("namespace", "pod-name", null);
+
+// Patch (returns Parsed(T) - caller must call .deinit())
+const patched = try pods.client.patch("pod-name", patch_json, "namespace");
+defer patched.deinit();
 
 // Pod-specific: Get logs
 const logs = try pods.logs("pod-name", "namespace");
@@ -628,18 +639,8 @@ cd examples/tests
 
 ## Documentation
 
-### Core Documentation
-- **[FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md)** - 100% feature parity achievement
-- [IMPLEMENTATION.md](docs/IMPLEMENTATION.md) - Complete implementation details
-- [COMPARISON.md](docs/COMPARISON.md) - Feature comparison with C client
-- [ROADMAP.md](docs/ROADMAP.md) - Current status and future enhancements
-- [PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) - Project organization
-
-### Testing Documentation
-- **[tests/comprehensive/README.md](tests/comprehensive/README.md)** - How to run comprehensive tests
-- [COMPREHENSIVE_TEST_PLAN.md](docs/COMPREHENSIVE_TEST_PLAN.md) - Complete test strategy (389 tests)
-- [TESTING.md](docs/TESTING.md) - Unit testing guide
-- [INTEGRATION_TESTS.md](docs/INTEGRATION_TESTS.md) - Integration test results
+- [TESTING.md](docs/TESTING.md) - Testing guide (unit and integration tests)
+- [tests/comprehensive/README.md](tests/comprehensive/README.md) - Comprehensive test suite
 
 ## Architecture
 

@@ -74,9 +74,10 @@ pub fn main() !void {
         defer pods_parsed.deinit();
         if (pods_parsed.value.items.len > 0) {
             const pod_name = pods_parsed.value.items[0].metadata.name;
-            if (pods_client.client.get(pod_name, "kube-system")) |pod| {
+            if (pods_client.client.get(pod_name, "kube-system")) |parsed| {
+                defer parsed.deinit();
                 testPassed("Pods.get(name, namespace)");
-                std.debug.print("    Retrieved: {s}\n", .{pod.metadata.name});
+                std.debug.print("    Retrieved: {s}\n", .{parsed.value.metadata.name});
             } else |err| {
                 testFailed("Pods.get(name, namespace)", err);
             }

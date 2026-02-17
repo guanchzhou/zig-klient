@@ -50,7 +50,7 @@ test "WebSocket - Pod Exec (echo command)" {
 
     // Create pod
     const pods_client = klient.Pods.init(&k8s_client);
-    const created_pod = try pods_client.client.create("default", pod.value);
+    const created_pod = try pods_client.client.create(pod.value, "default");
     defer created_pod.deinit();
 
     // Wait for pod to be ready
@@ -152,7 +152,7 @@ test "WebSocket - Pod Attach" {
     defer pod.deinit();
 
     const pods_client = klient.Pods.init(&k8s_client);
-    const created_pod = try pods_client.client.create("default", pod.value);
+    const created_pod = try pods_client.client.create(pod.value, "default");
     defer created_pod.deinit();
 
     // Wait for pod to be running
@@ -251,7 +251,7 @@ test "WebSocket - Port Forward" {
     defer pod.deinit();
 
     const pods_client = klient.Pods.init(&k8s_client);
-    const created_pod = try pods_client.client.create("default", pod.value);
+    const created_pod = try pods_client.client.create(pod.value, "default");
     defer created_pod.deinit();
 
     // Wait for pod to be ready
