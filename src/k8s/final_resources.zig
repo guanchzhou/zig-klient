@@ -1,4 +1,4 @@
-// Final 9 resource clients for 100% coverage
+// Final resource clients for 100% coverage (K8s 1.35)
 const std = @import("std");
 const types = @import("types.zig");
 const K8sClient = @import("client.zig").K8sClient;
@@ -198,6 +198,29 @@ pub const RuntimeClasses = struct {
         const body = try self.client.client.request(.GET, path, null);
         defer self.client.client.allocator.free(body);
         const parsed = try std.json.parseFromSlice(types.List(types.RuntimeClass), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
+        return parsed;
+    }
+};
+
+// K8s 1.35: StorageVersionMigration (storagemigration.k8s.io/v1beta1)
+pub const StorageVersionMigrations = struct {
+    client: ResourceClient(types.StorageVersionMigration),
+
+    pub fn init(k8s_client: *K8sClient) StorageVersionMigrations {
+        return .{
+            .client = ResourceClient(types.StorageVersionMigration){
+                .client = k8s_client,
+                .api_path = "/apis/storagemigration.k8s.io/v1beta1",
+                .resource = "storageversionmigrations",
+            },
+        };
+    }
+
+    pub fn list(self: StorageVersionMigrations) !std.json.Parsed(types.List(types.StorageVersionMigration)) {
+        const path = "/apis/storagemigration.k8s.io/v1beta1/storageversionmigrations";
+        const body = try self.client.client.request(.GET, path, null);
+        defer self.client.client.allocator.free(body);
+        const parsed = try std.json.parseFromSlice(types.List(types.StorageVersionMigration), self.client.client.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         return parsed;
     }
 };

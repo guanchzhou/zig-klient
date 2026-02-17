@@ -363,20 +363,11 @@ pub fn build(b: *std.Build) void {
     }
 
     // Comprehensive integration tests (require Kubernetes cluster)
-    // These are built as separate executables to run against live cluster
-    const comprehensive_step = b.step("test-comprehensive", "Build comprehensive tests (requires rancher-desktop)");
-
-    // Note: Comprehensive tests require manual execution against Rancher Desktop
-    // Build targets commented out due to zig-yaml compatibility issues with Zig 0.15.1
-    // To run comprehensive tests:
-    // 1. cd tests/comprehensive
-    // 2. ./run_all.sh
-    //
-    // The test files are ready and documented in:
-    // - tests/comprehensive/crud_all_resources_test.zig
-    // - tests/comprehensive/performance_10k_test.zig
-    // - tests/comprehensive/test_helpers.zig
-    _ = comprehensive_step; // Suppress unused variable warning
+    // These require manual execution against Rancher Desktop:
+    //   1. cd tests/comprehensive
+    //   2. ./run_all.sh
+    // Test files: crud_all_resources_test.zig, performance_10k_test.zig, test_helpers.zig
+    _ = b.step("test-comprehensive", "Build comprehensive tests (requires rancher-desktop)");
 }
 
 // Export the module for use as a dependency

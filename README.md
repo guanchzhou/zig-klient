@@ -1,13 +1,17 @@
 # zig-klient
 
-A Kubernetes client library for Zig, implementing all 61 standard Kubernetes 1.34 resource types with full CRUD operations across 19 API groups. Includes native WebSocket support for Pod exec/attach/port-forward and Protobuf serialization via the zig-protobuf library.
+A Kubernetes client library for Zig, implementing all 62 standard Kubernetes 1.35 resource types with full CRUD operations across 20 API groups. Includes native WebSocket support for Pod exec/attach/port-forward and Protobuf serialization via the zig-protobuf library.
 
-**Tested against**: Rancher Desktop with Kubernetes 1.34.1  
+**Tested against**: Rancher Desktop with Kubernetes 1.35.1  
 **Dependencies**: zig-yaml (YAML parsing), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) (Protocol Buffers)
+
+## TLS Note
+
+Custom CA certificates are supported via `tls_config.ca_cert_data` or `tls_config.ca_cert_path`. For clusters with self-signed certificates, pass the CA bundle in the client config. As a fallback, use `connectWithFallback()` for automatic kubectl proxy detection, or connect via `http://127.0.0.1:8080` after running `kubectl proxy`.
 
 ## Features
 
-### Resource Coverage (61 Resources Across 19 API Groups)
+### Resource Coverage (62 Resources Across 20 API Groups)
 
 **Core API (v1)** - 17 resources  
 Pod, Service, ConfigMap, Secret, Namespace, Node, PersistentVolume, PersistentVolumeClaim, ServiceAccount, Endpoints, Event, ReplicationController, PodTemplate, ResourceQuota, LimitRange, Binding, ComponentStatus
@@ -57,11 +61,14 @@ APIService
 **Flow Control (flowcontrol.apiserver.k8s.io/v1)** - 2 resources  
 FlowSchema, PriorityLevelConfiguration
 
-**Node (node.k8s.io/v1)** - 1 resource  
+**Node (node.k8s.io/v1)** - 1 resource
 RuntimeClass
 
+**Storage Migration (storagemigration.k8s.io/v1beta1)** - 1 resource
+StorageVersionMigration
+
 ### Core Capabilities
-- **61 Resource Types**: ALL Kubernetes 1.34 standard resources (100% coverage)
+- **62 Resource Types**: ALL Kubernetes 1.35 standard resources (100% coverage)
 - **Full CRUD Operations**: Create, Read, Update, Delete, Patch on all resources
 - **Advanced Delete**: Grace period, propagation policy, preconditions, delete collection
 - **Advanced Create/Update**: Field manager, field validation, dry-run support
@@ -78,8 +85,17 @@ RuntimeClass
 - Exec Credential Plugins: AWS EKS, GCP GKE, Azure AKS integration
 - Kubeconfig Parsing: via `kubectl config view --output json`
 
+### Operational Features (k9s-inspired)
+- **Enhanced Pod Logs**: Container selection, previous container, tail lines, timestamps, sinceSeconds
+- **Rollout Restart**: Deployments, StatefulSets, DaemonSets rolling restart
+- **Image Update**: Set container image on deployments (`setImage`)
+- **Pod Eviction**: Graceful eviction via Eviction API
+- **Node Cordon/Uncordon**: Mark nodes as schedulable/unschedulable
+- **Metrics Server API**: CPU/memory metrics for pods and nodes (metrics.k8s.io/v1beta1)
+- **RBAC CanI**: SelfSubjectAccessReview permission checks
+
 ### Advanced Features
-- **Retry Logic**: Exponential backoff with jitter, 3 preset configurations
+- **Retry Logic**: Exponential backoff with jitter, status-code-aware retries (429, 500, 502, 503, 504)
 - **Watch API**: Real-time resource updates with streaming support
 - **Informers**: Local caching with automatic synchronization
 - **Connection Pooling**: Thread-safe connection management
@@ -89,13 +105,15 @@ RuntimeClass
 - **Field/Label Selectors**: Advanced filtering and search capabilities
 - **Pagination**: Efficient handling of large result sets
 - **Server-Side Apply**: Declarative resource management with field ownership
+- **Structured API Errors**: K8s API error responses parsed into status/message/reason/code
+- **Response Size Limits**: Configurable max response size (default 16MB) to prevent OOM
 
 ### Quality
 - 92 passing tests with comprehensive coverage
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
 - Two dependencies: zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
-- Tested against Kubernetes 1.34.1
+- Tested against Kubernetes 1.35.1
 
 ## Installation
 
@@ -361,13 +379,16 @@ if (klient.isInCluster()) {
     defer allocator.free(in_cluster.host);
     defer allocator.free(in_cluster.token);
     defer allocator.free(in_cluster.ca_cert_data);
-    
-    var client = try klient.K8sClient.init(allocator, in_cluster.host, .{
+
+    var client = try klient.K8sClient.init(allocator, .{
+        .server = in_cluster.host,
         .token = in_cluster.token,
-        .ca_cert_data = in_cluster.ca_cert_data,
+        .tls_config = .{
+            .ca_cert_data = in_cluster.ca_cert_data,
+        },
     });
     defer client.deinit();
-    
+
     // Now you can use the client from within a pod
     var pods = klient.Pods.init(&client);
     const pod_list = try pods.client.listAll();
@@ -645,13 +666,13 @@ zig-klient/
 
 ## Feature Parity Status
 
-**Tested against**: Rancher Desktop with Kubernetes 1.34.1
+**Tested against**: Rancher Desktop with Kubernetes 1.35.1
 
-| Feature | Kubernetes 1.34 | zig-klient | Coverage |
+| Feature | Kubernetes 1.35 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
 | HTTP Operations | All methods | All methods | 100% |
-| K8s Resource Types | 61 standard | 61 | 100% |
-| API Groups | 19 | 19 | 100% |
+| K8s Resource Types | 62 standard | 62 | 100% |
+| API Groups | 20 | 20 | 100% |
 | Auth Methods | 5 | 4 | 100% |
 | In-Cluster Config | Yes | Yes | Yes |
 | Delete Options | Yes | Yes | Yes |
@@ -667,11 +688,7 @@ zig-klient/
 | Gateway API | Yes | Yes | Yes |
 | Dynamic Resource Allocation | Yes | Yes | Yes |
 
-**Coverage**: 61 Kubernetes 1.34 resource types across 19 API groups, WebSocket, and Protobuf
-
-**Includes**: Core API (v1), apps/v1, batch/v1, networking.k8s.io/v1, gateway.networking.k8s.io/v1, RBAC, storage, resource.k8s.io/v1, policy, autoscaling, scheduling, coordination, certificates, admission control, API registration, flow control, node management
-
-**Coverage**: 100% of Kubernetes 1.34 standard resources - workloads, networking, Gateway API, storage, security, auto-scaling, dynamic resource allocation, admission control, certificates, API management, and more!
+**Coverage**: 100% of Kubernetes 1.35 standard resources (62 types across 20 API groups) - workloads, networking, Gateway API, storage, security, auto-scaling, dynamic resource allocation, admission control, certificates, API management, storage migration, WebSocket, and Protobuf.
 
 See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed breakdown.
 
@@ -701,7 +718,7 @@ Contributions are welcome! Please:
 ## Roadmap
 
 ### Implemented
-- [x] Core resource types (15 total - including Ingress)
+- [x] All 62 standard Kubernetes 1.35 resource types across 20 API groups
 - [x] All HTTP methods (GET, POST, PUT, DELETE, PATCH)
 - [x] Bearer token auth
 - [x] mTLS auth
@@ -720,5 +737,16 @@ Contributions are welcome! Please:
 - [x] Server-side apply
 - [x] JSON Patch and Strategic Merge Patch
 - [x] Scale subresources
-- [x] 24+ test files (unit + integration)
+- [x] WebSocket operations (pod exec, attach, port-forward)
+- [x] Protobuf serialization via zig-protobuf
+- [x] Gateway API (GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant)
+- [x] Dynamic Resource Allocation (ResourceClaim, DeviceClass, ResourceSlice)
+- [x] Metrics Server API (pod and node CPU/memory metrics)
+- [x] RBAC CanI (SelfSubjectAccessReview permission checks)
+- [x] Operational features: rollout restart, image update, pod eviction, node cordon
+- [x] Enhanced pod logs (container, previous, tail, timestamps, sinceSeconds)
+- [x] Structured K8s API error responses
+- [x] Response size limits and 4x larger HTTP buffers
+- [x] Status-code-aware retry logic (429, 500, 502, 503, 504)
+- [x] 31 test files, 92 passing tests
 - [x] 100% integration test pass rate

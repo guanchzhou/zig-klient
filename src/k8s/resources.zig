@@ -532,17 +532,106 @@ pub const Pods = struct {
         };
     }
 
-    /// Get pod logs
+    /// Log retrieval options (matches kubectl logs flags)
+    pub const LogOptions = struct {
+        /// Container name (required for multi-container pods)
+        container: ?[]const u8 = null,
+        /// Return previous terminated container logs
+        previous: bool = false,
+        /// Number of lines from the end to show
+        tail_lines: ?i64 = null,
+        /// Relative time in seconds before the current time to start showing logs
+        since_seconds: ?i64 = null,
+        /// Include RFC3339 timestamps at the beginning of every line
+        timestamps: bool = false,
+        /// Maximum bytes of logs to return
+        limit_bytes: ?i64 = null,
+    };
+
+    /// Get pod logs with default options
     pub fn logs(self: Pods, name: []const u8, namespace: ?[]const u8) ![]const u8 {
+        return self.logsWithOptions(name, namespace, .{});
+    }
+
+    /// Get pod logs with options (container, previous, tail, timestamps, etc.)
+    pub fn logsWithOptions(self: Pods, name: []const u8, namespace: ?[]const u8, options: LogOptions) ![]const u8 {
+        const ns = namespace orelse self.client.client.namespace;
+        const allocator = self.client.client.allocator;
+
+        // Build query string from options
+        var query = std.ArrayList(u8).init(allocator);
+        defer query.deinit();
+        const writer = query.writer();
+
+        var has_param = false;
+        if (options.container) |container| {
+            try writer.print("container={s}", .{container});
+            has_param = true;
+        }
+        if (options.previous) {
+            if (has_param) try writer.writeByte('&');
+            try writer.writeAll("previous=true");
+            has_param = true;
+        }
+        if (options.tail_lines) |tail| {
+            if (has_param) try writer.writeByte('&');
+            try writer.print("tailLines={d}", .{tail});
+            has_param = true;
+        }
+        if (options.since_seconds) |since| {
+            if (has_param) try writer.writeByte('&');
+            try writer.print("sinceSeconds={d}", .{since});
+            has_param = true;
+        }
+        if (options.timestamps) {
+            if (has_param) try writer.writeByte('&');
+            try writer.writeAll("timestamps=true");
+            has_param = true;
+        }
+        if (options.limit_bytes) |limit| {
+            if (has_param) try writer.writeByte('&');
+            try writer.print("limitBytes={d}", .{limit});
+            has_param = true;
+        }
+
+        const path = if (query.items.len > 0)
+            try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/pods/{s}/log?{s}", .{ ns, name, query.items })
+        else
+            try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/pods/{s}/log", .{ ns, name });
+        defer allocator.free(path);
+
+        return try self.client.client.request(.GET, path, null);
+    }
+
+    /// Evict a pod (graceful deletion via Eviction API)
+    pub fn evict(self: Pods, name: []const u8, namespace: ?[]const u8) !void {
         const ns = namespace orelse self.client.client.namespace;
         const path = try std.fmt.allocPrint(
             self.client.client.allocator,
-            "/api/v1/namespaces/{s}/pods/{s}/log",
+            "/api/v1/namespaces/{s}/pods/{s}/eviction",
             .{ ns, name },
         );
         defer self.client.client.allocator.free(path);
 
-        return try self.client.client.request(.GET, path, null);
+        const eviction_body =
+            \\{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"
+        ++ name ++
+            \\","namespace":"
+        ++ ns ++
+            \\"}}
+        ;
+        _ = eviction_body;
+
+        // Build eviction JSON dynamically
+        const body = try std.fmt.allocPrint(
+            self.client.client.allocator,
+            "{{\"apiVersion\":\"policy/v1\",\"kind\":\"Eviction\",\"metadata\":{{\"name\":\"{s}\",\"namespace\":\"{s}\"}}}}",
+            .{ name, ns },
+        );
+        defer self.client.client.allocator.free(body);
+
+        const response = try self.client.client.request(.POST, path, body);
+        self.client.client.allocator.free(response);
     }
 };
 
@@ -565,6 +654,32 @@ pub const Deployments = struct {
             self.client.client.allocator,
             "{{\"spec\":{{\"replicas\":{d}}}}}",
             .{replicas},
+        );
+        defer self.client.client.allocator.free(patch_json);
+
+        _ = try self.client.patch(name, patch_json, namespace);
+    }
+
+    /// Rollout restart a deployment (triggers rolling update by patching annotation)
+    pub fn rolloutRestart(self: Deployments, name: []const u8, namespace: ?[]const u8) !void {
+        const now = std.time.timestamp();
+        const patch_json = try std.fmt.allocPrint(
+            self.client.client.allocator,
+            "{{\"spec\":{{\"template\":{{\"metadata\":{{\"annotations\":{{\"kubectl.kubernetes.io/restartedAt\":\"{d}\"}}}}}}}}}}",
+            .{now},
+        );
+        defer self.client.client.allocator.free(patch_json);
+
+        _ = try self.client.patch(name, patch_json, namespace);
+    }
+
+    /// Update container image in a deployment
+    pub fn setImage(self: Deployments, name: []const u8, container_name: []const u8, image: []const u8, namespace: ?[]const u8) !void {
+        // Use strategic merge patch to update just the container image
+        const patch_json = try std.fmt.allocPrint(
+            self.client.client.allocator,
+            "{{\"spec\":{{\"template\":{{\"spec\":{{\"containers\":[{{\"name\":\"{s}\",\"image\":\"{s}\"}}]}}}}}}}}",
+            .{ container_name, image },
         );
         defer self.client.client.allocator.free(patch_json);
 
@@ -678,6 +793,42 @@ pub const Nodes = struct {
         );
         return parsed;
     }
+
+    /// Cordon a node (mark as unschedulable)
+    pub fn cordon(self: Nodes, name: []const u8) !void {
+        const path = try std.fmt.allocPrint(
+            self.client.client.allocator,
+            "/api/v1/nodes/{s}",
+            .{name},
+        );
+        defer self.client.client.allocator.free(path);
+
+        const response = try self.client.client.requestWithContentType(
+            .PATCH,
+            path,
+            "{\"spec\":{\"unschedulable\":true}}",
+            "application/strategic-merge-patch+json",
+        );
+        self.client.client.allocator.free(response);
+    }
+
+    /// Uncordon a node (mark as schedulable)
+    pub fn uncordon(self: Nodes, name: []const u8) !void {
+        const path = try std.fmt.allocPrint(
+            self.client.client.allocator,
+            "/api/v1/nodes/{s}",
+            .{name},
+        );
+        defer self.client.client.allocator.free(path);
+
+        const response = try self.client.client.requestWithContentType(
+            .PATCH,
+            path,
+            "{\"spec\":{\"unschedulable\":false}}",
+            "application/strategic-merge-patch+json",
+        );
+        self.client.client.allocator.free(response);
+    }
 };
 
 pub const ReplicaSets = struct {
@@ -730,6 +881,19 @@ pub const StatefulSets = struct {
 
         _ = try self.client.patch(name, patch_json, namespace);
     }
+
+    /// Rollout restart a statefulset
+    pub fn rolloutRestart(self: StatefulSets, name: []const u8, namespace: ?[]const u8) !void {
+        const now = std.time.timestamp();
+        const patch_json = try std.fmt.allocPrint(
+            self.client.client.allocator,
+            "{{\"spec\":{{\"template\":{{\"metadata\":{{\"annotations\":{{\"kubectl.kubernetes.io/restartedAt\":\"{d}\"}}}}}}}}}}",
+            .{now},
+        );
+        defer self.client.client.allocator.free(patch_json);
+
+        _ = try self.client.patch(name, patch_json, namespace);
+    }
 };
 
 pub const DaemonSets = struct {
@@ -743,6 +907,19 @@ pub const DaemonSets = struct {
                 .resource = "daemonsets",
             },
         };
+    }
+
+    /// Rollout restart a daemonset
+    pub fn rolloutRestart(self: DaemonSets, name: []const u8, namespace: ?[]const u8) !void {
+        const now = std.time.timestamp();
+        const patch_json = try std.fmt.allocPrint(
+            self.client.client.allocator,
+            "{{\"spec\":{{\"template\":{{\"metadata\":{{\"annotations\":{{\"kubectl.kubernetes.io/restartedAt\":\"{d}\"}}}}}}}}}}",
+            .{now},
+        );
+        defer self.client.client.allocator.free(patch_json);
+
+        _ = try self.client.patch(name, patch_json, namespace);
     }
 };
 

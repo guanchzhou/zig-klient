@@ -1,12 +1,14 @@
 /// Zig Kubernetes Client Library
 ///
-/// A production-ready Kubernetes client library for Zig, providing:
-/// - Full CRUD operations on 14+ resource types
+/// A Kubernetes client library for Zig, providing:
+/// - Full CRUD operations on all 62 standard Kubernetes 1.35 resource types
 /// - Bearer token, mTLS, and exec credential authentication
 /// - Retry logic with exponential backoff
 /// - Watch API for real-time resource updates
 /// - Thread-safe connection pooling
 /// - Custom Resource Definitions (CRD) support
+/// - WebSocket operations (exec, attach, port-forward)
+/// - Protobuf serialization via zig-protobuf
 ///
 /// Example usage:
 /// ```zig
@@ -24,8 +26,20 @@
 /// ```
 const std = @import("std");
 
+/// Configure standard library options
+/// Set log level to .err to suppress debug output from zig-yaml dependency
+pub const std_options = .{
+    .log_level = .err,
+};
+
 // Core K8s client
 pub const K8sClient = @import("k8s/client.zig").K8sClient;
+
+// Proxy fallback for TLS limitations
+pub const proxy_fallback = @import("k8s/proxy_fallback.zig");
+pub const connectWithFallback = proxy_fallback.connectWithFallback;
+pub const isProxyRunning = proxy_fallback.isProxyRunning;
+pub const getProxyUrl = proxy_fallback.getProxyUrl;
 
 // Type definitions
 pub const types = @import("k8s/types.zig");
@@ -91,6 +105,7 @@ pub const ResourceClaimTemplate = types.ResourceClaimTemplate;
 pub const ResourceSlice = types.ResourceSlice;
 pub const DeviceClass = types.DeviceClass;
 pub const VolumeAttributesClass = types.VolumeAttributesClass;
+pub const StorageVersionMigration = types.StorageVersionMigration;
 
 // RBAC helper types
 pub const PolicyRule = types.PolicyRule;
@@ -101,6 +116,7 @@ pub const Subject = types.Subject;
 pub const resources = @import("k8s/resources.zig");
 const final_resources = @import("k8s/final_resources.zig");
 pub const Pods = resources.Pods;
+pub const LogOptions = resources.Pods.LogOptions;
 pub const Deployments = resources.Deployments;
 pub const Services = resources.Services;
 pub const ConfigMaps = resources.ConfigMaps;
@@ -152,6 +168,7 @@ pub const APIServices = final_resources.APIServices;
 pub const FlowSchemas = final_resources.FlowSchemas;
 pub const PriorityLevelConfigurations = final_resources.PriorityLevelConfigurations;
 pub const RuntimeClasses = final_resources.RuntimeClasses;
+pub const StorageVersionMigrations = final_resources.StorageVersionMigrations;
 pub const GatewayClasses = resources.GatewayClasses;
 pub const Gateways = resources.Gateways;
 pub const HTTPRoutes = resources.HTTPRoutes;
@@ -270,6 +287,17 @@ pub const ProtobufJson = protobuf.json;
 pub const buildExecPath = websocket.buildExecPath;
 pub const buildAttachPath = websocket.buildAttachPath;
 pub const buildPortForwardPath = websocket.buildPortForwardPath;
+
+// Metrics Server API (metrics.k8s.io/v1beta1) - CPU/memory resource metrics
+pub const metrics = @import("k8s/metrics.zig");
+pub const MetricsClient = metrics.MetricsClient;
+pub const PodMetrics = metrics.PodMetrics;
+pub const NodeMetrics = metrics.NodeMetrics;
+pub const ContainerMetrics = metrics.ContainerMetrics;
+
+// RBAC authorization checks (SelfSubjectAccessReview)
+pub const auth = @import("k8s/auth.zig");
+pub const AccessReview = auth.AccessReview;
 
 // Version information
 pub const version = .{

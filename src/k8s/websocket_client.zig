@@ -22,7 +22,11 @@ pub const WebSocketClient = struct {
             .api_server = try allocator.dupe(u8, api_server),
             .token = if (token) |t| try allocator.dupe(u8, t) else null,
             .ca_cert_data = if (ca_cert_data) |ca| try allocator.dupe(u8, ca) else null,
-            .http_client = std.http.Client{ .allocator = allocator },
+            .http_client = std.http.Client{
+                .allocator = allocator,
+                .read_buffer_size = 4096,
+                .write_buffer_size = 4096,
+            },
         };
     }
 
@@ -90,7 +94,7 @@ pub const WebSocketClient = struct {
         // Calculate expected accept value
         var hasher = crypto.hash.Sha1.init(.{});
         hasher.update(&ws_key);
-        hasher.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"); // Magic GUID
+        hasher.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"); // RFC 6455 Section 4.2.2 magic GUID
         var hash: [20]u8 = undefined;
         hasher.final(&hash);
         var expected_accept: [28]u8 = undefined;
@@ -155,18 +159,20 @@ pub const WebSocketConnection = struct {
         const header_byte1 = fin | @intFromEnum(opcode);
         try self.write_buffer.append(self.allocator, header_byte1);
 
-        // Payload length and masking
+        // Payload length and masking (RFC 6455 Section 5.2 - network byte order / big-endian)
         const mask_bit: u8 = 0x80; // Client must mask
         if (payload.len < 126) {
             const len_byte = @as(u8, @intCast(payload.len)) | mask_bit;
             try self.write_buffer.append(self.allocator, len_byte);
         } else if (payload.len <= 65535) {
             try self.write_buffer.append(self.allocator, 126 | mask_bit);
-            const len_bytes = std.mem.toBytes(@as(u16, @intCast(payload.len)));
+            var len_bytes: [2]u8 = undefined;
+            std.mem.writeInt(u16, &len_bytes, @intCast(payload.len), .big);
             try self.write_buffer.appendSlice(self.allocator, &len_bytes);
         } else {
             try self.write_buffer.append(self.allocator, 127 | mask_bit);
-            const len_bytes = std.mem.toBytes(@as(u64, @intCast(payload.len)));
+            var len_bytes: [8]u8 = undefined;
+            std.mem.writeInt(u64, &len_bytes, @intCast(payload.len), .big);
             try self.write_buffer.appendSlice(self.allocator, &len_bytes);
         }
 
@@ -221,10 +227,14 @@ pub const WebSocketConnection = struct {
             _ = try self.stream.read(&masking_key);
         }
 
-        // Read payload
+        // Read payload (loop to handle partial reads)
         try self.read_buffer.resize(self.allocator, payload_len);
-        const payload_bytes_read = try self.stream.read(self.read_buffer.items);
-        if (payload_bytes_read < payload_len) return error.IncompleteFrame;
+        var total_read: usize = 0;
+        while (total_read < payload_len) {
+            const bytes = try self.stream.read(self.read_buffer.items[total_read..]);
+            if (bytes == 0) return error.ConnectionClosed;
+            total_read += bytes;
+        }
 
         // Unmask payload (if masked)
         if (masked) {

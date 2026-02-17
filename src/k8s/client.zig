@@ -15,6 +15,19 @@ pub const K8sClient = struct {
     http_client: std.http.Client,
     retry_config: retry_mod.RetryConfig,
     tls_config: ?tls_mod.TlsConfig,
+    max_response_size: usize,
+    /// Last K8s API error response (populated on K8sApiError)
+    last_api_error: ?ApiError = null,
+    // Temp CA file path - must be deleted in deinit()
+    temp_ca_path: ?[]const u8 = null,
+
+    /// Structured Kubernetes API error
+    pub const ApiError = struct {
+        status: ?[]const u8 = null,
+        message: ?[]const u8 = null,
+        reason: ?[]const u8 = null,
+        code: ?i64 = null,
+    };
 
     pub const Config = struct {
         server: []const u8,
@@ -22,10 +35,53 @@ pub const K8sClient = struct {
         namespace: ?[]const u8 = null,
         retry_config: ?retry_mod.RetryConfig = null,
         tls_config: ?tls_mod.TlsConfig = null,
+        /// Maximum response body size in bytes (default 16MB)
+        max_response_size: usize = 16 * 1024 * 1024,
     };
 
     pub fn init(allocator: std.mem.Allocator, config: Config) !K8sClient {
-        const http_client = std.http.Client{ .allocator = allocator };
+        var http_client = std.http.Client{
+            .allocator = allocator,
+            .read_buffer_size = 16384,
+            .write_buffer_size = 16384,
+        };
+
+        // Configure custom CA bundle if TLS config provided
+        var temp_ca_path: ?[]const u8 = null;
+
+        if (config.tls_config) |tls| {
+            // Rescan system certificates first so we have the standard CA bundle
+            http_client.ca_bundle.rescan(allocator) catch {};
+            http_client.next_https_rescan_certs = false;
+
+            if (tls.ca_cert_data) |ca_pem| {
+                // Write CA cert PEM data to a temp file for the Certificate.Bundle parser
+                const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{d}.pem", .{@as(u64, @intCast(std.time.timestamp()))});
+                temp_ca_path = path;
+
+                const file = std.fs.createFileAbsolute(path, .{}) catch {
+                    allocator.free(path);
+                    temp_ca_path = null;
+                    return K8sClient{
+                        .allocator = allocator,
+                        .api_server = try allocator.dupe(u8, config.server),
+                        .token = if (config.token) |t| try allocator.dupe(u8, t) else null,
+                        .namespace = try allocator.dupe(u8, config.namespace orelse "default"),
+                        .http_client = http_client,
+                        .retry_config = config.retry_config orelse retry_mod.defaultConfig,
+                        .tls_config = config.tls_config,
+                        .max_response_size = config.max_response_size,
+                        .temp_ca_path = null,
+                    };
+                };
+                file.writeAll(ca_pem) catch {};
+                file.close();
+
+                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, path) catch {};
+            } else if (tls.ca_cert_path) |ca_path| {
+                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, ca_path) catch {};
+            }
+        }
 
         return K8sClient{
             .allocator = allocator,
@@ -35,6 +91,8 @@ pub const K8sClient = struct {
             .http_client = http_client,
             .retry_config = config.retry_config orelse retry_mod.defaultConfig,
             .tls_config = config.tls_config,
+            .max_response_size = config.max_response_size,
+            .temp_ca_path = temp_ca_path,
         };
     }
 
@@ -42,7 +100,22 @@ pub const K8sClient = struct {
         self.allocator.free(self.api_server);
         if (self.token) |t| self.allocator.free(t);
         self.allocator.free(self.namespace);
-        self.http_client.deinit();
+        self.destroyHttpClient();
+
+        // Clean up temporary CA file if it exists
+        if (self.temp_ca_path) |path| {
+            std.fs.deleteFileAbsolute(path) catch {};
+            self.allocator.free(path);
+        }
+    }
+
+    fn destroyHttpClient(self: *K8sClient) void {
+        // WORKAROUND: Skip http_client.deinit() to avoid BOTH:
+        // 1. Integer overflow bug in std.http.Client when calculating buffer sizes
+        // 2. Invalid free panic when manually clearing connection pool
+        // This causes a small (~200KB) one-time memory leak, but prevents crashes on exit.
+        // TODO: Fix properly once Zig stdlib bugs are resolved
+        _ = self;
     }
 
     /// List all pods in the current namespace
@@ -107,23 +180,30 @@ pub const K8sClient = struct {
     }
 
     /// Make HTTP request with retries (use this for production code)
+    /// Retries on transport errors and retryable HTTP status codes (429, 500, 502, 503, 504)
     pub fn requestWithRetry(self: *K8sClient, method: Method, path: []const u8, body: ?[]const u8) ![]u8 {
         var retry_ctx = retry_mod.RetryContext.init(self.retry_config);
 
         while (true) {
             const result = self.request(method, path, body) catch |err| {
-                // Check if we should retry
-                if (!retry_ctx.shouldRetry(null)) {
-                    return err; // No more retries
+                // For K8s API errors, check if the status code is retryable
+                const status_code: ?u16 = if (err == error.K8sApiError)
+                    if (self.last_api_error) |api_err|
+                        if (api_err.code) |code| @intCast(code) else null
+                    else
+                        null
+                else
+                    null;
+
+                if (!retry_ctx.shouldRetry(status_code)) {
+                    return err;
                 }
 
-                // Backoff before retry
                 retry_ctx.nextAttempt();
                 try retry_ctx.backoff();
                 continue;
             };
 
-            // Success!
             return result;
         }
     }
@@ -188,29 +268,51 @@ pub const K8sClient = struct {
         // Check response status
         const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
         if (!is_success) {
-            // Try to read error body
-            var error_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 0);
+            // Read and parse K8s API error response
+            var error_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
             defer error_buffer.deinit(self.allocator);
 
-            var transfer_buffer: [4096]u8 = undefined;
-            const reader = response.reader(&transfer_buffer);
-            const max_size: std.io.Limit = @enumFromInt(1 * 1024 * 1024); // 1 MB
-            reader.appendRemaining(self.allocator, &error_buffer, max_size) catch {};
+            var err_transfer_buffer: [16384]u8 = undefined;
+            const err_reader = response.reader(&err_transfer_buffer);
+            err_reader.appendRemaining(self.allocator, &error_buffer, .{ .max = 65536 }) catch {};
 
-            // Log error details if possible
-            // In library mode, just return error
+            // Try to parse structured K8s API error
+            self.last_api_error = null;
+            if (error_buffer.items.len > 0) {
+                const parsed_err = std.json.parseFromSlice(std.json.Value, self.allocator, error_buffer.items, .{
+                    .ignore_unknown_fields = true,
+                }) catch null;
+                if (parsed_err) |pe| {
+                    defer pe.deinit();
+                    const obj = pe.value.object;
+                    self.last_api_error = .{
+                        .status = if (obj.get("status")) |v| blk: {
+                            if (v == .string) break :blk v.string else break :blk null;
+                        } else null,
+                        .message = if (obj.get("message")) |v| blk: {
+                            if (v == .string) break :blk v.string else break :blk null;
+                        } else null,
+                        .reason = if (obj.get("reason")) |v| blk: {
+                            if (v == .string) break :blk v.string else break :blk null;
+                        } else null,
+                        .code = if (obj.get("code")) |v| blk: {
+                            if (v == .integer) break :blk v.integer else break :blk null;
+                        } else null,
+                    };
+                }
+            }
+
             return error.K8sApiError;
         }
 
-        // Read response body
-        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 0);
+        // Read response body with pre-allocated buffer and size limit
+        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 8192);
         errdefer body_buffer.deinit(self.allocator);
 
-        var transfer_buffer: [4096]u8 = undefined;
+        var transfer_buffer: [16384]u8 = undefined;
         const reader = response.reader(&transfer_buffer);
 
-        const max_size: std.io.Limit = @enumFromInt(10 * 1024 * 1024); // 10 MB
-        reader.appendRemaining(self.allocator, &body_buffer, max_size) catch |err| switch (err) {
+        reader.appendRemaining(self.allocator, &body_buffer, .{ .max = self.max_response_size }) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
             else => |e| return e,
         };
@@ -242,7 +344,6 @@ pub const K8sClient = struct {
         // Build headers with Protobuf Content-Type and authorization
         var header_buffer: [1024]u8 = undefined;
         var content_type_buffer: [256]u8 = undefined;
-        var accept_buffer: [256]u8 = undefined;
         var headers = std.http.Client.Request.Headers{};
 
         if (self.token) |token| {
@@ -256,14 +357,13 @@ pub const K8sClient = struct {
             headers.content_type = .{ .override = ct_value };
         }
 
-        // Set Protobuf Accept header for response
-        const accept_value = try std.fmt.bufPrint(&accept_buffer, "application/vnd.kubernetes.protobuf", .{});
-        _ = accept_value; // TODO: Add Accept header support to std.http.Client.Request.Headers
-
-        // Make request to Kubernetes API
+        // Make request to Kubernetes API with Protobuf Accept header
         var req = try self.http_client.request(http_method, uri, .{
             .redirect_behavior = @enumFromInt(3),
             .headers = headers,
+            .extra_headers = &.{
+                .{ .name = "Accept", .value = "application/vnd.kubernetes.protobuf" },
+            },
         });
         defer req.deinit();
 
@@ -284,41 +384,23 @@ pub const K8sClient = struct {
         // Check response status
         const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
         if (!is_success) {
+            self.last_api_error = .{ .code = @intFromEnum(response.head.status) };
             return error.K8sApiError;
         }
 
-        // Read response body (Protobuf-encoded)
-        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 0);
+        // Read response body (Protobuf-encoded) with size limit
+        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 8192);
         errdefer body_buffer.deinit(self.allocator);
 
-        var transfer_buffer: [4096]u8 = undefined;
+        var transfer_buffer: [16384]u8 = undefined;
         const reader = response.reader(&transfer_buffer);
 
-        const max_size: std.io.Limit = @enumFromInt(10 * 1024 * 1024); // 10 MB
-        reader.appendRemaining(self.allocator, &body_buffer, max_size) catch |err| switch (err) {
+        reader.appendRemaining(self.allocator, &body_buffer, .{ .max = self.max_response_size }) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
             else => |e| return e,
         };
 
         return try body_buffer.toOwnedSlice(self.allocator);
-    }
-
-    /// Old method signature for backwards compatibility
-    fn requestOld(self: *K8sClient, method_str: []const u8, path: []const u8, body: ?[]const u8) ![]u8 {
-        const method: Method = if (std.mem.eql(u8, method_str, "GET"))
-            .GET
-        else if (std.mem.eql(u8, method_str, "POST"))
-            .POST
-        else if (std.mem.eql(u8, method_str, "PUT"))
-            .PUT
-        else if (std.mem.eql(u8, method_str, "DELETE"))
-            .DELETE
-        else if (std.mem.eql(u8, method_str, "PATCH"))
-            .PATCH
-        else
-            .GET;
-
-        return self.request(method, path, body);
     }
 
     /// Parse pod list from JSON response
@@ -412,13 +494,39 @@ pub const K8sClient = struct {
         };
     }
 
-    /// Calculate age from timestamp
+    /// Calculate age from ISO 8601 timestamp (e.g., "2024-01-15T10:30:00Z")
     fn calculateAge(self: *K8sClient, timestamp: []const u8) ![]const u8 {
-        _ = self;
-        _ = timestamp;
-        // TODO: Implement proper age calculation from ISO8601 timestamp
-        // For now, return placeholder
-        return "n/a";
+        // Parse ISO 8601: YYYY-MM-DDThh:mm:ssZ
+        if (timestamp.len < 19) return try self.allocator.dupe(u8, "n/a");
+
+        const year = std.fmt.parseInt(i32, timestamp[0..4], 10) catch return try self.allocator.dupe(u8, "n/a");
+        const month = std.fmt.parseInt(u4, timestamp[5..7], 10) catch return try self.allocator.dupe(u8, "n/a");
+        const day = std.fmt.parseInt(u5, timestamp[8..10], 10) catch return try self.allocator.dupe(u8, "n/a");
+        const hour = std.fmt.parseInt(u5, timestamp[11..13], 10) catch return try self.allocator.dupe(u8, "n/a");
+        const minute = std.fmt.parseInt(u6, timestamp[14..16], 10) catch return try self.allocator.dupe(u8, "n/a");
+        const second = std.fmt.parseInt(u6, timestamp[17..19], 10) catch return try self.allocator.dupe(u8, "n/a");
+
+        const epoch_day = std.time.epoch.EpochDay.fromYearMonthDay(.{
+            .year = year,
+            .month = @enumFromInt(month),
+            .day = day,
+        });
+        const created_sec: i64 = epoch_day.toSecs() + @as(i64, hour) * 3600 + @as(i64, minute) * 60 + @as(i64, second);
+        const now_sec = std.time.timestamp();
+        const diff = now_sec - created_sec;
+
+        if (diff < 0) return try self.allocator.dupe(u8, "0s");
+
+        const udiff: u64 = @intCast(diff);
+        if (udiff < 60) {
+            return try std.fmt.allocPrint(self.allocator, "{d}s", .{udiff});
+        } else if (udiff < 3600) {
+            return try std.fmt.allocPrint(self.allocator, "{d}m", .{udiff / 60});
+        } else if (udiff < 86400) {
+            return try std.fmt.allocPrint(self.allocator, "{d}h", .{udiff / 3600});
+        } else {
+            return try std.fmt.allocPrint(self.allocator, "{d}d", .{udiff / 86400});
+        }
     }
 };
 

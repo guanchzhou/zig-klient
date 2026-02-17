@@ -252,6 +252,8 @@ pub const JobSpec = struct {
     backoffLimit: ?i32 = null,
     activeDeadlineSeconds: ?i64 = null,
     ttlSecondsAfterFinished: ?i32 = null,
+    managedBy: ?[]const u8 = null, // K8s 1.35 GA: external controller (e.g., Kueue)
+    podReplacementPolicy: ?[]const u8 = null, // K8s 1.34 GA: Failed or TerminatingOrFailed
 };
 
 /// CronJob specification
@@ -864,6 +866,14 @@ pub const ResourceClaim = Resource(ResourceClaimSpec);
 pub const ResourceClaimTemplate = Resource(ResourceClaimTemplateSpec);
 pub const ResourceSlice = Resource(ResourceSliceSpec);
 pub const DeviceClass = Resource(DeviceClassSpec);
+
+/// StorageVersionMigration specification (storagemigration.k8s.io/v1beta1) - K8s 1.35
+pub const StorageVersionMigrationSpec = struct {
+    resource: std.json.Value,
+};
+
+/// StorageVersionMigration (cluster-scoped)
+pub const StorageVersionMigration = Resource(StorageVersionMigrationSpec);
 
 /// API error from Kubernetes
 pub const ApiError = struct {
