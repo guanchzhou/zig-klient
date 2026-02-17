@@ -41,8 +41,12 @@ pub fn main() !void {
         for (pods, 0..) |pod, i| {
             std.debug.print("  {}. Name: {s}\n", .{ i + 1, pod.metadata.name });
             if (pod.status) |status| {
-                if (status.phase) |phase| {
-                    std.debug.print("     Phase: {s}\n", .{phase});
+                if (status == .object) {
+                    if (status.object.get("phase")) |phase| {
+                        if (phase == .string) {
+                            std.debug.print("     Phase: {s}\n", .{phase.string});
+                        }
+                    }
                 }
             }
         }

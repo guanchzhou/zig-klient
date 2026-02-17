@@ -278,7 +278,7 @@ pub const K8sClient = struct {
             var err_decompress: std.http.Decompress = undefined;
             var err_decompress_buffer: [32768]u8 = undefined;
             const err_reader = response.readerDecompressing(&err_transfer_buffer, &err_decompress, &err_decompress_buffer);
-            err_reader.appendRemaining(self.allocator, &error_buffer, .{ .max = 65536 }) catch {};
+            err_reader.appendRemaining(self.allocator, &error_buffer, .limited(65536)) catch {};
 
             // Try to parse structured K8s API error
             self.clearLastApiError();
@@ -319,7 +319,7 @@ pub const K8sClient = struct {
         var decompress_buffer: [32768]u8 = undefined;
         const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 
-        reader.appendRemaining(self.allocator, &body_buffer, .{ .max = self.max_response_size }) catch |err| switch (err) {
+        reader.appendRemaining(self.allocator, &body_buffer, .limited(self.max_response_size)) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
             else => |e| return e,
         };
@@ -396,7 +396,7 @@ pub const K8sClient = struct {
         var decompress_buffer: [32768]u8 = undefined;
         const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 
-        reader.appendRemaining(self.allocator, &body_buffer, .{ .max = self.max_response_size }) catch |err| switch (err) {
+        reader.appendRemaining(self.allocator, &body_buffer, .limited(self.max_response_size)) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
             else => |e| return e,
         };

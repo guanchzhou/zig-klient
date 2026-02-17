@@ -319,6 +319,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-delete-pod", .source = "tests/entrypoints/test_delete_pod.zig", .description = "Delete pod and cleanup" },
         .{ .name = "test-watch-pods", .source = "tests/entrypoints/test_watch_pods.zig", .description = "Watch for pod events" },
         .{ .name = "test-full-integration", .source = "tests/entrypoints/test_full_integration.zig", .description = "Run all operations end-to-end" },
+        .{ .name = "test-via-proxy", .source = "tests/entrypoints/test_via_proxy.zig", .description = "Integration test via kubectl proxy (no TLS)" },
     };
 
     // Build all test entrypoints
