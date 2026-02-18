@@ -1,5 +1,6 @@
 const std = @import("std");
 const klient = @import("klient");
+const helpers = @import("helpers.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,7 +13,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("🔌 Initializing Kubernetes client...\n", .{});
-    var client = klient.K8sClient.initFromKubeconfig(allocator) catch |err| {
+    var client = helpers.initClientFromKubeconfig(allocator) catch |err| {
         std.debug.print("❌ Failed to initialize client: {}\n", .{err});
         return err;
     };
@@ -44,15 +45,19 @@ pub fn main() !void {
 
     // Wait a moment and verify deletion
     std.debug.print("⏳ Waiting for pod to be deleted...\n", .{});
-    std.time.sleep(6 * std.time.ns_per_s);
+    std.Thread.sleep(6 * std.time.ns_per_s);
 
     const verify_result = pods_client.client.get(pod_name, test_namespace);
     if (verify_result) |parsed| {
         defer parsed.deinit();
         std.debug.print("⚠️  Pod still exists (may be terminating)\n", .{});
         if (parsed.value.status) |status| {
-            if (status.phase) |phase| {
-                std.debug.print("   Current phase: {s}\n", .{phase});
+            if (status == .object) {
+                if (status.object.get("phase")) |phase| {
+                    if (phase == .string) {
+                        std.debug.print("   Current phase: {s}\n", .{phase.string});
+                    }
+                }
             }
         }
     } else |err| {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const klient = @import("klient");
+const helpers = @import("helpers.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,7 +13,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("🔌 Initializing Kubernetes client...\n", .{});
-    var client = klient.K8sClient.initFromKubeconfig(allocator) catch |err| {
+    var client = helpers.initClientFromKubeconfig(allocator) catch |err| {
         std.debug.print("❌ Failed to initialize client: {}\n", .{err});
         return err;
     };
@@ -36,9 +37,13 @@ pub fn main() !void {
     std.debug.print("✅ Current pod retrieved\n", .{});
     std.debug.print("   Current labels:\n", .{});
     if (current_pod.metadata.labels) |labels| {
-        var it = labels.iterator();
-        while (it.next()) |entry| {
-            std.debug.print("     {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.*.string });
+        if (labels == .object) {
+            var it = labels.object.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.* == .string) {
+                    std.debug.print("     {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.*.string });
+                }
+            }
         }
     }
 
@@ -100,9 +105,13 @@ pub fn main() !void {
     std.debug.print("✅ Pod updated successfully!\n", .{});
     std.debug.print("   Updated labels:\n", .{});
     if (updated_pod.metadata.labels) |labels| {
-        var it = labels.iterator();
-        while (it.next()) |entry| {
-            std.debug.print("     {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.*.string });
+        if (labels == .object) {
+            var it = labels.object.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.* == .string) {
+                    std.debug.print("     {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.*.string });
+                }
+            }
         }
     }
 

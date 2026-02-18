@@ -92,9 +92,10 @@ pub fn Watcher(comptime T: type) type {
             self: *Self,
             callback: *const fn (*WatchEvent(T)) anyerror!void,
         ) !void {
-            return self.watchImpl(void, {}, struct {
-                fn cb(_: void, event: *WatchEvent(T)) anyerror!void {
-                    return callback(event);
+            const Cb = *const fn (*WatchEvent(T)) anyerror!void;
+            return self.watchImpl(Cb, callback, struct {
+                fn cb(cb_fn: Cb, event: *WatchEvent(T)) anyerror!void {
+                    return cb_fn(event);
                 }
             }.cb);
         }
@@ -151,18 +152,20 @@ pub fn Watcher(comptime T: type) type {
                 return error.WatchFailed;
             }
 
-            var transfer_buffer: [4096]u8 = undefined;
-            const reader = response.reader(&transfer_buffer);
+            var transfer_buffer: [256 * 1024]u8 = undefined;
+            var reader = response.reader(&transfer_buffer);
 
-            var line_buffer: [256 * 1024]u8 = undefined;
             while (true) {
-                const line = reader.readUntilDelimiterOrEof(&line_buffer, '\n') catch |err| {
-                    if (err == error.ReadFailed) {
-                        if (response.bodyErr()) |body_err| {
-                            return body_err;
-                        }
+                const line = reader.takeDelimiter('\n') catch |err| {
+                    switch (err) {
+                        error.ReadFailed => {
+                            if (response.bodyErr()) |body_err| {
+                                return body_err;
+                            }
+                            return error.WatchFailed;
+                        },
+                        error.StreamTooLong => return error.WatchFailed,
                     }
-                    return err;
                 } orelse break;
 
                 if (line.len == 0) continue;

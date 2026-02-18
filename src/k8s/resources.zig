@@ -47,10 +47,7 @@ pub fn ResourceClient(comptime T: type) type {
 
         /// Serialize a Zig value to a JSON byte slice. Caller must free the result.
         fn serializeJson(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
-            var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-            errdefer buf.deinit(allocator);
-            try std.json.stringify(value, .{}, buf.writer(allocator));
-            return try buf.toOwnedSlice(allocator);
+            return try std.json.Stringify.valueAlloc(allocator, value, .{});
         }
 
         fn buildCollectionPath(self: Self, namespace: ?[]const u8) ![]const u8 {

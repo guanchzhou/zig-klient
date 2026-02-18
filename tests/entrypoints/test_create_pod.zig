@@ -1,5 +1,6 @@
 const std = @import("std");
 const klient = @import("klient");
+const helpers = @import("helpers.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,7 +13,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("🔌 Initializing Kubernetes client...\n", .{});
-    var client = klient.K8sClient.initFromKubeconfig(allocator) catch |err| {
+    var client = helpers.initClientFromKubeconfig(allocator) catch |err| {
         std.debug.print("❌ Failed to initialize client: {}\n", .{err});
         return err;
     };
@@ -27,7 +28,7 @@ pub fn main() !void {
         \\{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"zig-klient-test","labels":{"created-by":"zig-klient-test"}}}
     ;
 
-    const ns_result = client.request(.POST, "/api/v1/namespaces", ns_manifest) catch |err| {
+    const ns_result = client.request(.POST, "/api/v1/namespaces", ns_manifest) catch |err| blk: {
         if (err == error.K8sApiError) {
             if (client.last_api_error) |api_err| {
                 if (api_err.code != null and api_err.code.? == 409) {
@@ -41,7 +42,7 @@ pub fn main() !void {
             std.debug.print("❌ Failed to create namespace: {}\n", .{err});
             return err;
         }
-        null;
+        break :blk null;
     };
     if (ns_result) |r| allocator.free(r);
     std.debug.print("✅ Namespace ready\n\n", .{});
@@ -73,8 +74,12 @@ pub fn main() !void {
     std.debug.print("   Namespace: {s}\n", .{pod.metadata.namespace orelse "default"});
 
     if (pod.status) |status| {
-        if (status.phase) |phase| {
-            std.debug.print("   Phase: {s}\n", .{phase});
+        if (status == .object) {
+            if (status.object.get("phase")) |phase| {
+                if (phase == .string) {
+                    std.debug.print("   Phase: {s}\n", .{phase.string});
+                }
+            }
         }
     }
 

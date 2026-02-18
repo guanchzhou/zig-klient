@@ -1,5 +1,6 @@
 const std = @import("std");
 const klient = @import("klient");
+const helpers = @import("helpers.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -10,7 +11,7 @@ pub fn main() !void {
     std.debug.print("  FULL INTEGRATION TEST (zig-klient)\n", .{});
     std.debug.print("═══════════════════════════════════════════════════════════\n\n", .{});
 
-    var client = klient.K8sClient.initFromKubeconfig(allocator) catch |err| {
+    var client = helpers.initClientFromKubeconfig(allocator) catch |err| {
         std.debug.print("❌ Failed to initialize client: {}\n", .{err});
         return err;
     };
@@ -30,7 +31,7 @@ pub fn main() !void {
         const ns_manifest =
             \\{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"zig-klient-integration"}}
         ;
-        const result = client.request(.POST, "/api/v1/namespaces", ns_manifest) catch |err| {
+        const result = client.request(.POST, "/api/v1/namespaces", ns_manifest) catch |err| blk: {
             if (err == error.K8sApiError) {
                 if (client.last_api_error) |api_err| {
                     if (api_err.code != null and api_err.code.? == 409) {
@@ -49,7 +50,7 @@ pub fn main() !void {
                 std.debug.print("  ❌ FAILED: {}\n", .{err});
                 test_failed += 1;
             }
-            null;
+            break :blk null;
         };
         if (result) |r| {
             allocator.free(r);
@@ -68,13 +69,13 @@ pub fn main() !void {
         const path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/pods", .{test_namespace});
         defer allocator.free(path);
 
-        const result = client.request(.POST, path, pod_manifest) catch |err| {
+        const result = client.request(.POST, path, pod_manifest) catch |err| blk: {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
             if (client.last_api_error) |api_err| {
                 if (api_err.message) |msg| std.debug.print("     K8s: {s}\n", .{msg});
             }
             test_failed += 1;
-            null;
+            break :blk null;
         };
         if (result) |r| {
             allocator.free(r);
@@ -88,17 +89,21 @@ pub fn main() !void {
     std.debug.print("🧪 Test 3/7: Get Pod\n", .{});
     {
         const pods_client = klient.Pods.init(&client);
-        const parsed = pods_client.client.get(pod_name, test_namespace) catch |err| {
+        const parsed = pods_client.client.get(pod_name, test_namespace) catch |err| blk: {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
             test_failed += 1;
-            null;
+            break :blk null;
         };
         if (parsed) |p| {
             defer p.deinit();
             std.debug.print("  ✅ PASSED - Found: {s}\n", .{p.value.metadata.name});
             if (p.value.status) |status| {
-                if (status.phase) |phase| {
-                    std.debug.print("     Phase: {s}\n", .{phase});
+                if (status == .object) {
+                    if (status.object.get("phase")) |phase| {
+                        if (phase == .string) {
+                            std.debug.print("     Phase: {s}\n", .{phase.string});
+                        }
+                    }
                 }
             }
             test_passed += 1;
@@ -121,10 +126,10 @@ pub fn main() !void {
             .label_selector = label_str,
         };
 
-        const pods = pods_client.client.listWithOptions(test_namespace, list_options) catch |err| {
+        const pods = pods_client.client.listWithOptions(test_namespace, list_options) catch |err| blk: {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
             test_failed += 1;
-            null;
+            break :blk null;
         };
         if (pods) |p| {
             defer p.deinit();
@@ -141,10 +146,10 @@ pub fn main() !void {
         const patch_json =
             \\{"metadata":{"labels":{"test":"integration","version":"v2","patched":"true"}}}
         ;
-        const patched = pods_client.client.patch(pod_name, patch_json, test_namespace) catch |err| {
+        const patched = pods_client.client.patch(pod_name, patch_json, test_namespace) catch |err| blk: {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
             test_failed += 1;
-            null;
+            break :blk null;
         };
         if (patched) |p| {
             defer p.deinit();

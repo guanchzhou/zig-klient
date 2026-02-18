@@ -1,5 +1,6 @@
 const std = @import("std");
 const klient = @import("klient");
+const helpers = @import("helpers.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,7 +13,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("🔌 Initializing Kubernetes client...\n", .{});
-    var client = klient.K8sClient.initFromKubeconfig(allocator) catch |err| {
+    var client = helpers.initClientFromKubeconfig(allocator) catch |err| {
         std.debug.print("❌ Failed to initialize client: {}\n", .{err});
         return err;
     };
@@ -46,38 +47,55 @@ pub fn main() !void {
     }
 
     if (pod.metadata.labels) |labels| {
-        std.debug.print("  Labels:\n", .{});
-        var it = labels.iterator();
-        while (it.next()) |entry| {
-            std.debug.print("    {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.*.string });
+        if (labels == .object) {
+            std.debug.print("  Labels:\n", .{});
+            var it = labels.object.iterator();
+            while (it.next()) |entry| {
+                if (entry.value_ptr.* == .string) {
+                    std.debug.print("    {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.*.string });
+                }
+            }
         }
     }
 
     if (pod.status) |status| {
-        std.debug.print("\n  Status:\n", .{});
+        if (status == .object) {
+            std.debug.print("\n  Status:\n", .{});
 
-        if (status.phase) |phase| {
-            std.debug.print("    Phase: {s}\n", .{phase});
-        }
+            if (status.object.get("phase")) |phase| {
+                if (phase == .string) {
+                    std.debug.print("    Phase: {s}\n", .{phase.string});
+                }
+            }
 
-        if (status.podIP) |ip| {
-            std.debug.print("    Pod IP: {s}\n", .{ip});
-        }
+            if (status.object.get("podIP")) |ip| {
+                if (ip == .string) {
+                    std.debug.print("    Pod IP: {s}\n", .{ip.string});
+                }
+            }
 
-        if (status.hostIP) |ip| {
-            std.debug.print("    Host IP: {s}\n", .{ip});
-        }
+            if (status.object.get("hostIP")) |ip| {
+                if (ip == .string) {
+                    std.debug.print("    Host IP: {s}\n", .{ip.string});
+                }
+            }
 
-        if (status.startTime) |start_time| {
-            std.debug.print("    Start Time: {s}\n", .{start_time});
-        }
+            if (status.object.get("startTime")) |start_time| {
+                if (start_time == .string) {
+                    std.debug.print("    Start Time: {s}\n", .{start_time.string});
+                }
+            }
 
-        if (status.conditions) |conditions| {
-            std.debug.print("    Conditions:\n", .{});
-            for (conditions) |condition| {
-                if (condition.type) |ctype| {
-                    const status_str = if (condition.status) |s| s else "Unknown";
-                    std.debug.print("      {s}: {s}\n", .{ ctype, status_str });
+            if (status.object.get("conditions")) |conditions| {
+                if (conditions == .array) {
+                    std.debug.print("    Conditions:\n", .{});
+                    for (conditions.array.items) |condition| {
+                        if (condition == .object) {
+                            const ctype = if (condition.object.get("type")) |t| (if (t == .string) t.string else "Unknown") else "Unknown";
+                            const status_str = if (condition.object.get("status")) |s| (if (s == .string) s.string else "Unknown") else "Unknown";
+                            std.debug.print("      {s}: {s}\n", .{ ctype, status_str });
+                        }
+                    }
                 }
             }
         }
@@ -87,8 +105,8 @@ pub fn main() !void {
         if (spec.containers) |containers| {
             std.debug.print("\n  Containers:\n", .{});
             for (containers, 0..) |container, i| {
-                std.debug.print("    {}. Name: {s}\n", .{ i + 1, container.name });
-                std.debug.print("       Image: {s}\n", .{container.image});
+                std.debug.print("    {}. Name: {s}\n", .{ i + 1, container.name orelse "unknown" });
+                std.debug.print("       Image: {s}\n", .{container.image orelse "unknown"});
             }
         }
     }
