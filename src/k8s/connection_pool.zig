@@ -161,7 +161,10 @@ const PooledConnection = struct {
     }
     
     fn deinit(self: *PooledConnection) void {
-        self.client.deinit();
+        // WORKAROUND (Zig 0.15.x): Skip http_client.deinit() to avoid
+        // integer overflow / invalid free panics in std.http.Client.
+        // Same workaround as K8sClient.destroyHttpClient().
+        // self.client.deinit();
         self.client.allocator.free(self.server);
     }
 };

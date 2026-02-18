@@ -128,11 +128,13 @@ pub const K8sClient = struct {
     }
 
     fn destroyHttpClient(self: *K8sClient) void {
-        // WORKAROUND: Skip http_client.deinit() to avoid BOTH:
-        // 1. Integer overflow bug in std.http.Client when calculating buffer sizes
-        // 2. Invalid free panic when manually clearing connection pool
-        // This causes a small (~200KB) one-time memory leak, but prevents crashes on exit.
-        // TODO: Fix properly once Zig stdlib bugs are resolved
+        // WORKAROUND (Zig 0.15.x): Skip http_client.deinit() to avoid:
+        //   1. Integer overflow in std.http.Client buffer size calculations
+        //   2. Invalid free panic when clearing the connection pool
+        // Trade-off: ~200KB one-time leak per client, but no crash on exit.
+        // When upgrading Zig, test removing this workaround:
+        //   self.http_client.deinit();
+        // If it no longer crashes, delete this function body.
         _ = self;
     }
 
