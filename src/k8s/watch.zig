@@ -325,6 +325,7 @@ pub fn Informer(comptime T: type) type {
             defer self.mutex.unlock();
 
             var result_list = std.ArrayList(T).init(self.cache.allocator);
+            errdefer result_list.deinit();
 
             var it = self.cache.valueIterator();
             while (it.next()) |value| {

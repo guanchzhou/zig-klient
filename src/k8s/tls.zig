@@ -20,14 +20,21 @@ pub fn loadFromFiles(
     ca_path: ?[]const u8,
 ) !TlsConfig {
     var config = TlsConfig{};
+    errdefer {
+        if (config.client_cert_data) |d| allocator.free(d);
+        if (config.client_cert_path) |p| allocator.free(p);
+        if (config.client_key_data) |d| allocator.free(d);
+        if (config.client_key_path) |p| allocator.free(p);
+        if (config.ca_cert_data) |d| allocator.free(d);
+        if (config.ca_cert_path) |p| allocator.free(p);
+    }
 
     // Load client certificate
     if (cert_path) |path| {
         const cert_file = try std.fs.cwd().openFile(path, .{});
         defer cert_file.close();
 
-        const cert_data = try cert_file.readToEndAlloc(allocator, 1024 * 1024);
-        config.client_cert_data = cert_data;
+        config.client_cert_data = try cert_file.readToEndAlloc(allocator, 1024 * 1024);
         config.client_cert_path = try allocator.dupe(u8, path);
     }
 
@@ -36,8 +43,7 @@ pub fn loadFromFiles(
         const key_file = try std.fs.cwd().openFile(path, .{});
         defer key_file.close();
 
-        const key_data = try key_file.readToEndAlloc(allocator, 1024 * 1024);
-        config.client_key_data = key_data;
+        config.client_key_data = try key_file.readToEndAlloc(allocator, 1024 * 1024);
         config.client_key_path = try allocator.dupe(u8, path);
     }
 
@@ -46,8 +52,7 @@ pub fn loadFromFiles(
         const ca_file = try std.fs.cwd().openFile(path, .{});
         defer ca_file.close();
 
-        const ca_data = try ca_file.readToEndAlloc(allocator, 1024 * 1024);
-        config.ca_cert_data = ca_data;
+        config.ca_cert_data = try ca_file.readToEndAlloc(allocator, 1024 * 1024);
         config.ca_cert_path = try allocator.dupe(u8, path);
     }
 

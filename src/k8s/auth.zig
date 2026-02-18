@@ -74,9 +74,13 @@ pub const AccessReview = struct {
         );
         defer parsed.deinit();
 
-        if (parsed.value.object.get("status")) |status| {
-            if (status.object.get("allowed")) |allowed| {
-                return allowed.bool;
+        if (parsed.value == .object) {
+            if (parsed.value.object.get("status")) |status| {
+                if (status == .object) {
+                    if (status.object.get("allowed")) |allowed| {
+                        if (allowed == .bool) return allowed.bool;
+                    }
+                }
             }
         }
 

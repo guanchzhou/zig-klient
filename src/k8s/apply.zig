@@ -173,12 +173,12 @@ pub const StrategicMergePatch = struct {
 
     /// Build the patch JSON
     pub fn build(self: *StrategicMergePatch) ![]const u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        defer result.deinit();
+        var result = try std.ArrayList(u8).initCapacity(self.allocator, 0);
+        errdefer result.deinit(self.allocator);
 
-        try std.json.stringify(self.patches, .{}, result.writer());
+        try std.json.stringify(self.patches, .{}, result.writer(self.allocator));
 
-        return try result.toOwnedSlice();
+        return try result.toOwnedSlice(self.allocator);
     }
 };
 
@@ -260,11 +260,11 @@ pub const JsonPatch = struct {
 
     /// Build the patch JSON
     pub fn build(self: *JsonPatch) ![]const u8 {
-        var result = std.ArrayList(u8).init(self.allocator);
-        defer result.deinit();
+        var result = try std.ArrayList(u8).initCapacity(self.allocator, 0);
+        errdefer result.deinit(self.allocator);
 
-        try std.json.stringify(self.operations.items, .{}, result.writer());
+        try std.json.stringify(self.operations.items, .{}, result.writer(self.allocator));
 
-        return try result.toOwnedSlice();
+        return try result.toOwnedSlice(self.allocator);
     }
 };
