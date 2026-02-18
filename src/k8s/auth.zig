@@ -1,8 +1,8 @@
 const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
 
-/// SelfSubjectAccessReview - check if the current user can perform an action
-/// Equivalent to `kubectl auth can-i`
+/// SelfSubjectAccessReview - check if the current user can perform an action.
+/// Equivalent to `kubectl auth can-i`.
 pub const AccessReview = struct {
     client: *K8sClient,
 
@@ -10,8 +10,29 @@ pub const AccessReview = struct {
         return .{ .client = k8s_client };
     }
 
-    /// Check if the current user can perform an action on a resource
-    /// Returns true if the action is allowed
+    // Internal types for JSON serialization (uses std.json.stringify for
+    // proper escaping instead of hand-built format strings).
+
+    const ResourceAttributes = struct {
+        verb: []const u8,
+        group: ?[]const u8 = null,
+        resource: []const u8,
+        namespace: ?[]const u8 = null,
+        name: ?[]const u8 = null,
+    };
+
+    const ReviewSpec = struct {
+        resourceAttributes: ResourceAttributes,
+    };
+
+    const ReviewRequest = struct {
+        apiVersion: []const u8 = "authorization.k8s.io/v1",
+        kind: []const u8 = "SelfSubjectAccessReview",
+        spec: ReviewSpec,
+    };
+
+    /// Check if the current user can perform an action on a resource.
+    /// Returns true if the action is allowed.
     pub fn canI(
         self: AccessReview,
         verb: []const u8,
@@ -22,45 +43,29 @@ pub const AccessReview = struct {
     ) !bool {
         const allocator = self.client.allocator;
 
-        // Build the SelfSubjectAccessReview JSON body
-        var body = std.ArrayList(u8).init(allocator);
-        defer body.deinit();
-        const writer = body.writer();
+        const review = ReviewRequest{
+            .spec = .{
+                .resourceAttributes = .{
+                    .verb = verb,
+                    .group = if (group.len > 0) group else null,
+                    .resource = resource,
+                    .namespace = namespace,
+                    .name = name,
+                },
+            },
+        };
 
-        try writer.writeAll("{\"apiVersion\":\"authorization.k8s.io/v1\",\"kind\":\"SelfSubjectAccessReview\",\"spec\":{\"resourceAttributes\":{");
-
-        var has_field = false;
-        try writer.print("\"verb\":\"{s}\"", .{verb});
-        has_field = true;
-
-        if (group.len > 0) {
-            if (has_field) try writer.writeByte(',');
-            try writer.print("\"group\":\"{s}\"", .{group});
-        }
-
-        if (has_field) try writer.writeByte(',');
-        try writer.print("\"resource\":\"{s}\"", .{resource});
-
-        if (namespace) |ns| {
-            try writer.writeByte(',');
-            try writer.print("\"namespace\":\"{s}\"", .{ns});
-        }
-
-        if (name) |n| {
-            try writer.writeByte(',');
-            try writer.print("\"name\":\"{s}\"", .{n});
-        }
-
-        try writer.writeAll("}}}");
+        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
+        defer buf.deinit(allocator);
+        try std.json.stringify(review, .{}, buf.writer(allocator));
 
         const response = try self.client.request(
             .POST,
             "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-            body.items,
+            buf.items,
         );
         defer allocator.free(response);
 
-        // Parse response to check if allowed
         const parsed = try std.json.parseFromSlice(
             std.json.Value,
             allocator,

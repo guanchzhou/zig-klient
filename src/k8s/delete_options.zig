@@ -1,4 +1,5 @@
 const std = @import("std");
+const QueryWriter = @import("query.zig").QueryWriter;
 
 /// Options for delete operations
 pub const DeleteOptions = struct {
@@ -25,30 +26,16 @@ pub const DeleteOptions = struct {
         uid: ?[]const u8 = null,
     };
 
-    /// Build query string from options (single allocation)
+    /// Build query string from options
     pub fn buildQueryString(self: DeleteOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        errdefer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var qw = try QueryWriter.init(allocator);
+        errdefer qw.deinit();
 
-        var first = true;
-        if (self.grace_period_seconds) |grace| {
-            try writer.print("gracePeriodSeconds={d}", .{grace});
-            first = false;
-        }
+        try qw.addOptionalInt("gracePeriodSeconds", self.grace_period_seconds);
+        try qw.addOptionalString("propagationPolicy", self.propagation_policy);
+        try qw.addOptionalString("dryRun", self.dry_run);
 
-        if (self.propagation_policy) |policy| {
-            if (!first) try writer.writeByte('&');
-            try writer.print("propagationPolicy={s}", .{policy});
-            first = false;
-        }
-
-        if (self.dry_run) |dr| {
-            if (!first) try writer.writeByte('&');
-            try writer.print("dryRun={s}", .{dr});
-        }
-
-        return try buf.toOwnedSlice(allocator);
+        return try qw.toOwnedSlice();
     }
 
     /// Build delete options body (for POST to deletecollection)
@@ -102,31 +89,17 @@ pub const CreateOptions = struct {
     /// Pretty print output
     pretty: bool = false,
 
-    /// Build query string from options (single allocation)
+    /// Build query string from options
     pub fn buildQueryString(self: CreateOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        errdefer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var qw = try QueryWriter.init(allocator);
+        errdefer qw.deinit();
 
-        var first = true;
-        inline for (.{
-            .{ "fieldManager", self.field_manager },
-            .{ "fieldValidation", self.field_validation },
-            .{ "dryRun", self.dry_run },
-        }) |entry| {
-            if (entry[1]) |val| {
-                if (!first) try writer.writeByte('&');
-                try writer.print("{s}={s}", .{ entry[0], val });
-                first = false;
-            }
-        }
+        try qw.addOptionalString("fieldManager", self.field_manager);
+        try qw.addOptionalString("fieldValidation", self.field_validation);
+        try qw.addOptionalString("dryRun", self.dry_run);
+        try qw.addBoolFlag("pretty", self.pretty);
 
-        if (self.pretty) {
-            if (!first) try writer.writeByte('&');
-            try writer.writeAll("pretty=true");
-        }
-
-        return try buf.toOwnedSlice(allocator);
+        return try qw.toOwnedSlice();
     }
 };
 
@@ -144,31 +117,17 @@ pub const UpdateOptions = struct {
     /// Pretty print output
     pretty: bool = false,
 
-    /// Build query string from options (single allocation)
+    /// Build query string from options
     pub fn buildQueryString(self: UpdateOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        errdefer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var qw = try QueryWriter.init(allocator);
+        errdefer qw.deinit();
 
-        var first = true;
-        inline for (.{
-            .{ "fieldManager", self.field_manager },
-            .{ "fieldValidation", self.field_validation },
-            .{ "dryRun", self.dry_run },
-        }) |entry| {
-            if (entry[1]) |val| {
-                if (!first) try writer.writeByte('&');
-                try writer.print("{s}={s}", .{ entry[0], val });
-                first = false;
-            }
-        }
+        try qw.addOptionalString("fieldManager", self.field_manager);
+        try qw.addOptionalString("fieldValidation", self.field_validation);
+        try qw.addOptionalString("dryRun", self.dry_run);
+        try qw.addBoolFlag("pretty", self.pretty);
 
-        if (self.pretty) {
-            if (!first) try writer.writeByte('&');
-            try writer.writeAll("pretty=true");
-        }
-
-        return try buf.toOwnedSlice(allocator);
+        return try qw.toOwnedSlice();
     }
 };
 

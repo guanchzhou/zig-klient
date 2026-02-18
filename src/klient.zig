@@ -41,7 +41,8 @@ pub const connectWithFallback = proxy_fallback.connectWithFallback;
 pub const isProxyRunning = proxy_fallback.isProxyRunning;
 pub const getProxyUrl = proxy_fallback.getProxyUrl;
 
-// Type definitions
+// Type definitions — re-exported at top level for convenience (klient.Pod, klient.Service, etc.)
+// For organized access by API group, use klient.types.core, klient.types.apps, etc.
 pub const types = @import("k8s/types.zig");
 pub const ObjectMeta = types.ObjectMeta;
 pub const Pod = types.Pod;
@@ -112,9 +113,10 @@ pub const PolicyRule = types.PolicyRule;
 pub const RoleRef = types.RoleRef;
 pub const Subject = types.Subject;
 
-// Resource clients
+// Resource clients — all unified in resources.zig (no more final_resources.zig)
 pub const resources = @import("k8s/resources.zig");
-const final_resources = @import("k8s/final_resources.zig");
+pub const ResourceClient = resources.ResourceClient;
+pub const SimpleResource = resources.SimpleResource;
 pub const Pods = resources.Pods;
 pub const LogOptions = resources.Pods.LogOptions;
 pub const Deployments = resources.Deployments;
@@ -159,16 +161,16 @@ pub const VolumeAttachments = resources.VolumeAttachments;
 pub const CSIDrivers = resources.CSIDrivers;
 pub const CSINodes = resources.CSINodes;
 pub const CSIStorageCapacities = resources.CSIStorageCapacities;
-pub const CertificateSigningRequests = final_resources.CertificateSigningRequests;
-pub const ValidatingWebhookConfigurations = final_resources.ValidatingWebhookConfigurations;
-pub const MutatingWebhookConfigurations = final_resources.MutatingWebhookConfigurations;
-pub const ValidatingAdmissionPolicies = final_resources.ValidatingAdmissionPolicies;
-pub const ValidatingAdmissionPolicyBindings = final_resources.ValidatingAdmissionPolicyBindings;
-pub const APIServices = final_resources.APIServices;
-pub const FlowSchemas = final_resources.FlowSchemas;
-pub const PriorityLevelConfigurations = final_resources.PriorityLevelConfigurations;
-pub const RuntimeClasses = final_resources.RuntimeClasses;
-pub const StorageVersionMigrations = final_resources.StorageVersionMigrations;
+pub const CertificateSigningRequests = resources.CertificateSigningRequests;
+pub const ValidatingWebhookConfigurations = resources.ValidatingWebhookConfigurations;
+pub const MutatingWebhookConfigurations = resources.MutatingWebhookConfigurations;
+pub const ValidatingAdmissionPolicies = resources.ValidatingAdmissionPolicies;
+pub const ValidatingAdmissionPolicyBindings = resources.ValidatingAdmissionPolicyBindings;
+pub const APIServices = resources.APIServices;
+pub const FlowSchemas = resources.FlowSchemas;
+pub const PriorityLevelConfigurations = resources.PriorityLevelConfigurations;
+pub const RuntimeClasses = resources.RuntimeClasses;
+pub const StorageVersionMigrations = resources.StorageVersionMigrations;
 pub const GatewayClasses = resources.GatewayClasses;
 pub const Gateways = resources.Gateways;
 pub const HTTPRoutes = resources.HTTPRoutes;

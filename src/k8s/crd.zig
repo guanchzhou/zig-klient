@@ -9,7 +9,7 @@ pub const CRDInfo = struct {
     kind: []const u8,
     plural: []const u8,
     namespaced: bool = true,
-    
+
     /// Get API path for this CRD
     pub fn apiPath(self: CRDInfo, allocator: std.mem.Allocator) ![]const u8 {
         if (std.mem.eql(u8, self.group, "")) {
@@ -17,12 +17,12 @@ pub const CRDInfo = struct {
         }
         return try std.fmt.allocPrint(allocator, "/apis/{s}/{s}", .{ self.group, self.version });
     }
-    
+
     /// Get resource path for this CRD
     pub fn resourcePath(self: CRDInfo, allocator: std.mem.Allocator, namespace: ?[]const u8, name: ?[]const u8) ![]const u8 {
         const api = try self.apiPath(allocator);
         defer allocator.free(api);
-        
+
         if (self.namespaced) {
             const ns = namespace orelse "default";
             if (name) |n| {
@@ -38,134 +38,104 @@ pub const CRDInfo = struct {
     }
 };
 
-/// Dynamic client for Custom Resources
+/// Dynamic client for Custom Resources.
+/// All methods returning parsed data return std.json.Parsed — caller must call .deinit().
 pub const DynamicClient = struct {
     client: *K8sClient,
     crd_info: CRDInfo,
-    
+
     const Self = @This();
-    
+
     pub fn init(client: *K8sClient, crd_info: CRDInfo) Self {
         return .{
             .client = client,
             .crd_info = crd_info,
         };
     }
-    
+
+    fn parseJsonResponse(allocator: std.mem.Allocator, body: []const u8) !std.json.Parsed(std.json.Value) {
+        return std.json.parseFromSlice(std.json.Value, allocator, body, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        });
+    }
+
+    fn serializeValue(allocator: std.mem.Allocator, resource: std.json.Value) ![]const u8 {
+        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
+        errdefer buf.deinit(allocator);
+        try std.json.stringify(resource, .{}, buf.writer(allocator));
+        return try buf.toOwnedSlice(allocator);
+    }
+
     /// List custom resources
-    /// NOTE: Caller must call deinit() on the returned Parsed object
     pub fn list(self: Self, namespace: ?[]const u8) !std.json.Parsed(std.json.Value) {
-        const path = try self.crd_info.resourcePath(self.client.allocator, namespace, null);
-        defer self.client.allocator.free(path);
+        const allocator = self.client.allocator;
+        const path = try self.crd_info.resourcePath(allocator, namespace, null);
+        defer allocator.free(path);
 
         const body = try self.client.request(.GET, path, null);
-        defer self.client.allocator.free(body);
+        defer allocator.free(body);
 
-        const parsed = try std.json.parseFromSlice(
-            std.json.Value,
-            self.client.allocator,
-            body,
-            .{
-                .ignore_unknown_fields = true,
-                .allocate = .alloc_always,
-            },
-        );
-
-        return parsed;
+        return parseJsonResponse(allocator, body);
     }
 
     /// Get a specific custom resource
-    /// NOTE: Caller must call deinit() on the returned Parsed object
     pub fn get(self: Self, name: []const u8, namespace: ?[]const u8) !std.json.Parsed(std.json.Value) {
-        const path = try self.crd_info.resourcePath(self.client.allocator, namespace, name);
-        defer self.client.allocator.free(path);
+        const allocator = self.client.allocator;
+        const path = try self.crd_info.resourcePath(allocator, namespace, name);
+        defer allocator.free(path);
 
         const body = try self.client.request(.GET, path, null);
-        defer self.client.allocator.free(body);
+        defer allocator.free(body);
 
-        const parsed = try std.json.parseFromSlice(
-            std.json.Value,
-            self.client.allocator,
-            body,
-            .{
-                .ignore_unknown_fields = true,
-                .allocate = .alloc_always,
-            },
-        );
-
-        return parsed;
+        return parseJsonResponse(allocator, body);
     }
 
     /// Create a custom resource
-    /// NOTE: Caller must call deinit() on the returned Parsed object
     pub fn create(self: Self, resource: std.json.Value, namespace: ?[]const u8) !std.json.Parsed(std.json.Value) {
-        const path = try self.crd_info.resourcePath(self.client.allocator, namespace, null);
-        defer self.client.allocator.free(path);
+        const allocator = self.client.allocator;
+        const path = try self.crd_info.resourcePath(allocator, namespace, null);
+        defer allocator.free(path);
 
-        // Serialize resource to JSON
-        var json_buffer = std.ArrayList(u8).init(self.client.allocator);
-        defer json_buffer.deinit();
+        const json_body = try serializeValue(allocator, resource);
+        defer allocator.free(json_body);
 
-        try std.json.stringify(resource, .{}, json_buffer.writer());
+        const body = try self.client.request(.POST, path, json_body);
+        defer allocator.free(body);
 
-        const body = try self.client.request(.POST, path, json_buffer.items);
-        defer self.client.allocator.free(body);
-
-        const parsed = try std.json.parseFromSlice(
-            std.json.Value,
-            self.client.allocator,
-            body,
-            .{
-                .ignore_unknown_fields = true,
-                .allocate = .alloc_always,
-            },
-        );
-
-        return parsed;
+        return parseJsonResponse(allocator, body);
     }
 
     /// Update a custom resource
-    /// NOTE: Caller must call deinit() on the returned Parsed object
     pub fn update(self: Self, name: []const u8, resource: std.json.Value, namespace: ?[]const u8) !std.json.Parsed(std.json.Value) {
-        const path = try self.crd_info.resourcePath(self.client.allocator, namespace, name);
-        defer self.client.allocator.free(path);
+        const allocator = self.client.allocator;
+        const path = try self.crd_info.resourcePath(allocator, namespace, name);
+        defer allocator.free(path);
 
-        // Serialize resource to JSON
-        var json_buffer = std.ArrayList(u8).init(self.client.allocator);
-        defer json_buffer.deinit();
+        const json_body = try serializeValue(allocator, resource);
+        defer allocator.free(json_body);
 
-        try std.json.stringify(resource, .{}, json_buffer.writer());
+        const body = try self.client.request(.PUT, path, json_body);
+        defer allocator.free(body);
 
-        const body = try self.client.request(.PUT, path, json_buffer.items);
-        defer self.client.allocator.free(body);
-
-        const parsed = try std.json.parseFromSlice(
-            std.json.Value,
-            self.client.allocator,
-            body,
-            .{
-                .ignore_unknown_fields = true,
-                .allocate = .alloc_always,
-            },
-        );
-
-        return parsed;
+        return parseJsonResponse(allocator, body);
     }
 
     /// Delete a custom resource
     pub fn delete(self: Self, name: []const u8, namespace: ?[]const u8) !void {
-        const path = try self.crd_info.resourcePath(self.client.allocator, namespace, name);
-        defer self.client.allocator.free(path);
+        const allocator = self.client.allocator;
+        const path = try self.crd_info.resourcePath(allocator, namespace, name);
+        defer allocator.free(path);
 
         const body = try self.client.request(.DELETE, path, null);
-        defer self.client.allocator.free(body);
+        defer allocator.free(body);
     }
 
     /// Patch a custom resource
-    /// NOTE: Caller must call deinit() on the returned Parsed object
     pub fn patch(self: Self, name: []const u8, patch_data: []const u8, namespace: ?[]const u8) !std.json.Parsed(std.json.Value) {
-        const path = try self.crd_info.resourcePath(self.client.allocator, namespace, name);
-        defer self.client.allocator.free(path);
+        const allocator = self.client.allocator;
+        const path = try self.crd_info.resourcePath(allocator, namespace, name);
+        defer allocator.free(path);
 
         const body = try self.client.requestWithContentType(
             .PATCH,
@@ -173,19 +143,9 @@ pub const DynamicClient = struct {
             patch_data,
             "application/strategic-merge-patch+json",
         );
-        defer self.client.allocator.free(body);
+        defer allocator.free(body);
 
-        const parsed = try std.json.parseFromSlice(
-            std.json.Value,
-            self.client.allocator,
-            body,
-            .{
-                .ignore_unknown_fields = true,
-                .allocate = .alloc_always,
-            },
-        );
-
-        return parsed;
+        return parseJsonResponse(allocator, body);
     }
 };
 

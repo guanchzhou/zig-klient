@@ -49,8 +49,8 @@ pub const ConnectionPool = struct {
         // Try to find an idle connection
         for (self.connections.items, 0..) |*conn, i| {
             if (conn.state == .idle) {
-                // Check if connection is still fresh
-                const idle_time: u64 = @intCast(now - conn.last_used);
+                // Check if connection is still fresh (saturate to 0 on clock skew)
+                const idle_time: u64 = @intCast(@max(0, now - conn.last_used));
                 if (idle_time > self.idle_timeout_ms) {
                     // Connection expired, remove it
                     _ = self.connections.swapRemove(i);
@@ -104,7 +104,7 @@ pub const ConnectionPool = struct {
         while (i < self.connections.items.len) {
             const conn = &self.connections.items[i];
             if (conn.state == .idle) {
-                const idle_time: u64 = @intCast(now - conn.last_used);
+                const idle_time: u64 = @intCast(@max(0, now - conn.last_used));
                 if (idle_time > self.idle_timeout_ms) {
                     var removed = self.connections.swapRemove(i);
                     removed.deinit();

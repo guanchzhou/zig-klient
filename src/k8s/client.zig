@@ -58,7 +58,8 @@ pub const K8sClient = struct {
         var temp_ca_path: ?[]const u8 = null;
 
         if (config.tls_config) |tls| {
-            // Rescan system certificates first so we have the standard CA bundle
+            // Rescan system certificates — best-effort since some environments
+            // don't have system CA bundles (e.g., scratch containers)
             http_client.ca_bundle.rescan(allocator) catch {};
             http_client.next_https_rescan_certs = false;
 
@@ -67,27 +68,27 @@ pub const K8sClient = struct {
                 const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{d}.pem", .{@as(u64, @intCast(std.time.timestamp()))});
                 temp_ca_path = path;
 
-                const file = std.fs.createFileAbsolute(path, .{}) catch {
+                const file = std.fs.createFileAbsolute(path, .{}) catch |err| {
+                    // If we can't create the temp file, TLS with custom CA will fail.
+                    // Propagate the error instead of silently degrading.
+                    allocator.free(path);
+                    return err;
+                };
+                defer file.close();
+                try file.writeAll(ca_pem);
+
+                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, path) catch |err| {
+                    // CA cert data provided but couldn't be loaded — this is a
+                    // configuration error that should not be silently ignored.
                     allocator.free(path);
                     temp_ca_path = null;
-                    return K8sClient{
-                        .allocator = allocator,
-                        .api_server = try allocator.dupe(u8, config.server),
-                        .token = if (config.token) |t| try allocator.dupe(u8, t) else null,
-                        .namespace = try allocator.dupe(u8, config.namespace orelse "default"),
-                        .http_client = http_client,
-                        .retry_config = config.retry_config orelse retry_mod.defaultConfig,
-                        .tls_config = config.tls_config,
-                        .max_response_size = config.max_response_size,
-                        .temp_ca_path = null,
-                    };
+                    return err;
                 };
-                file.writeAll(ca_pem) catch {};
-                file.close();
-
-                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, path) catch {};
             } else if (tls.ca_cert_path) |ca_path| {
-                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, ca_path) catch {};
+                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, ca_path) catch |err| {
+                    // User explicitly provided a CA cert path that failed to load.
+                    return err;
+                };
             }
         }
 
@@ -135,51 +136,43 @@ pub const K8sClient = struct {
         _ = self;
     }
 
-    /// List all pods in the current namespace
-    pub fn listPods(self: *K8sClient) ![]Pod {
-        const path = try std.fmt.allocPrint(self.allocator, "/api/v1/namespaces/{s}/pods", .{self.namespace});
-        defer self.allocator.free(path);
-
-        const response = try self.request(.GET, path, null);
-        defer self.allocator.free(response);
-
-        return try self.parsePodList(response);
-    }
-
-    /// List all pods across all namespaces
-    pub fn listAllPods(self: *K8sClient) ![]Pod {
-        const path = "/api/v1/pods";
-        const response = try self.request(.GET, path, null);
-        defer self.allocator.free(response);
-
-        return try self.parsePodList(response);
-    }
-
-    /// Get cluster information
+    /// Get cluster version information.
+    /// For resource metrics (CPU/memory), use the MetricsClient instead.
     pub fn getClusterInfo(self: *K8sClient) !ClusterInfo {
-        const version_path = "/version";
-        const version_response = try self.request(.GET, version_path, null);
+        const version_response = try self.request(.GET, "/version", null);
         defer self.allocator.free(version_response);
 
-        // Parse version info
-        const parsed_version = try std.json.parseFromSlice(std.json.Value, self.allocator, version_response, .{});
-        defer parsed_version.deinit();
+        const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, version_response, .{
+            .ignore_unknown_fields = true,
+        });
+        defer parsed.deinit();
 
-        const version_obj = parsed_version.value.object;
-        const git_version = version_obj.get("gitVersion").?.string;
+        const git_version = if (parsed.value.object.get("gitVersion")) |v|
+            (if (v == .string) v.string else "unknown")
+        else
+            "unknown";
 
-        // Get node info for CPU/memory
-        const nodes_path = "/api/v1/nodes";
-        const nodes_response = try self.request(.GET, nodes_path, null);
-        defer self.allocator.free(nodes_response);
-
-        const node_metrics = try self.parseNodeMetrics(nodes_response);
+        const node_count = self.getNodeCount();
 
         return ClusterInfo{
             .k8s_version = try self.allocator.dupe(u8, git_version),
-            .cpu_usage = node_metrics.cpu_usage,
-            .mem_usage = node_metrics.mem_usage,
+            .node_count = node_count,
         };
+    }
+
+    /// Count cluster nodes (best-effort, returns 0 on failure).
+    fn getNodeCount(self: *K8sClient) u32 {
+        const nodes_response = self.request(.GET, "/api/v1/nodes", null) catch return 0;
+        defer self.allocator.free(nodes_response);
+
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, nodes_response, .{
+            .ignore_unknown_fields = true,
+        }) catch return 0;
+        defer parsed.deinit();
+
+        const items = parsed.value.object.get("items") orelse return 0;
+        if (items != .array) return 0;
+        return @intCast(items.array.items.len);
     }
 
     /// HTTP method alias for convenience
@@ -404,152 +397,12 @@ pub const K8sClient = struct {
         return try body_buffer.toOwnedSlice(self.allocator);
     }
 
-    /// Parse pod list from JSON response
-    fn parsePodList(self: *K8sClient, json: []const u8) ![]Pod {
-        const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json, .{});
-        defer parsed.deinit();
-
-        const items = parsed.value.object.get("items").?.array;
-        var pods = try std.ArrayList(Pod).initCapacity(self.allocator, items.items.len);
-
-        for (items.items) |item| {
-            const metadata = item.object.get("metadata").?.object;
-            const spec = item.object.get("spec").?.object;
-            const status = item.object.get("status").?.object;
-
-            const name = metadata.get("name").?.string;
-            const namespace = metadata.get("namespace").?.string;
-            const creation_timestamp = metadata.get("creationTimestamp").?.string;
-
-            const phase = status.get("phase").?.string;
-            const container_statuses = status.get("containerStatuses");
-
-            var ready_count: u32 = 0;
-            var total_count: u32 = 0;
-            var restart_count: u32 = 0;
-
-            if (container_statuses) |cs| {
-                total_count = @intCast(cs.array.items.len);
-                for (cs.array.items) |container| {
-                    if (container.object.get("ready").?.bool) {
-                        ready_count += 1;
-                    }
-                    restart_count += @intCast(container.object.get("restartCount").?.integer);
-                }
-            }
-
-            const ready_str = try std.fmt.allocPrint(self.allocator, "{d}/{d}", .{ ready_count, total_count });
-            const age_str = try self.calculateAge(creation_timestamp);
-
-            // Get node and IP
-            const node_name = if (spec.get("nodeName")) |n| n.string else "n/a";
-            const pod_ip = if (status.get("podIP")) |ip| ip.string else "n/a";
-
-            try pods.append(self.allocator, Pod{
-                .name = try self.allocator.dupe(u8, name),
-                .namespace = try self.allocator.dupe(u8, namespace),
-                .ready = ready_str,
-                .status = try self.allocator.dupe(u8, phase),
-                .restarts = restart_count,
-                .age = age_str,
-                .node = try self.allocator.dupe(u8, node_name),
-                .ip = try self.allocator.dupe(u8, pod_ip),
-                .cpu_usage = "n/a", // TODO: Get from metrics API
-                .mem_usage = "n/a", // TODO: Get from metrics API
-            });
-        }
-
-        return try pods.toOwnedSlice(self.allocator);
-    }
-
-    /// Parse node metrics from JSON response
-    fn parseNodeMetrics(self: *K8sClient, json: []const u8) !struct { cpu_usage: u8, mem_usage: u8 } {
-        const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, json, .{});
-        defer parsed.deinit();
-
-        const items = parsed.value.object.get("items").?.array;
-
-        // Simple calculation: average across all nodes
-        var total_cpu: u64 = 0;
-        var total_mem: u64 = 0;
-        var node_count: u32 = 0;
-
-        for (items.items) |item| {
-            const status = item.object.get("status").?.object;
-            if (status.get("allocatable")) |_| {
-                node_count += 1;
-                // For now, return mock values
-                // TODO: Implement proper metrics API parsing
-                total_cpu += 50;
-                total_mem += 60;
-            }
-        }
-
-        if (node_count == 0) {
-            return .{ .cpu_usage = 0, .mem_usage = 0 };
-        }
-
-        return .{
-            .cpu_usage = @intCast(total_cpu / node_count),
-            .mem_usage = @intCast(total_mem / node_count),
-        };
-    }
-
-    /// Calculate age from ISO 8601 timestamp (e.g., "2024-01-15T10:30:00Z")
-    fn calculateAge(self: *K8sClient, timestamp: []const u8) ![]const u8 {
-        // Parse ISO 8601: YYYY-MM-DDThh:mm:ssZ
-        if (timestamp.len < 19) return try self.allocator.dupe(u8, "n/a");
-
-        const year = std.fmt.parseInt(i32, timestamp[0..4], 10) catch return try self.allocator.dupe(u8, "n/a");
-        const month = std.fmt.parseInt(u4, timestamp[5..7], 10) catch return try self.allocator.dupe(u8, "n/a");
-        const day = std.fmt.parseInt(u5, timestamp[8..10], 10) catch return try self.allocator.dupe(u8, "n/a");
-        const hour = std.fmt.parseInt(u5, timestamp[11..13], 10) catch return try self.allocator.dupe(u8, "n/a");
-        const minute = std.fmt.parseInt(u6, timestamp[14..16], 10) catch return try self.allocator.dupe(u8, "n/a");
-        const second = std.fmt.parseInt(u6, timestamp[17..19], 10) catch return try self.allocator.dupe(u8, "n/a");
-
-        const epoch_day = std.time.epoch.EpochDay.fromYearMonthDay(.{
-            .year = year,
-            .month = @enumFromInt(month),
-            .day = day,
-        });
-        const created_sec: i64 = epoch_day.toSecs() + @as(i64, hour) * 3600 + @as(i64, minute) * 60 + @as(i64, second);
-        const now_sec = std.time.timestamp();
-        const diff = now_sec - created_sec;
-
-        if (diff < 0) return try self.allocator.dupe(u8, "0s");
-
-        const udiff: u64 = @intCast(diff);
-        if (udiff < 60) {
-            return try std.fmt.allocPrint(self.allocator, "{d}s", .{udiff});
-        } else if (udiff < 3600) {
-            return try std.fmt.allocPrint(self.allocator, "{d}m", .{udiff / 60});
-        } else if (udiff < 86400) {
-            return try std.fmt.allocPrint(self.allocator, "{d}h", .{udiff / 3600});
-        } else {
-            return try std.fmt.allocPrint(self.allocator, "{d}d", .{udiff / 86400});
-        }
-    }
-};
-
-/// Pod information from Kubernetes API
-pub const Pod = struct {
-    name: []const u8,
-    namespace: []const u8,
-    ready: []const u8,
-    status: []const u8,
-    restarts: u32,
-    age: []const u8,
-    node: []const u8,
-    ip: []const u8,
-    cpu_usage: []const u8,
-    mem_usage: []const u8,
 };
 
 /// Cluster information
 pub const ClusterInfo = struct {
     k8s_version: []const u8,
-    cpu_usage: u8,
-    mem_usage: u8,
+    node_count: u32,
 };
 
 /// Kubeconfig structure

@@ -1,5 +1,6 @@
 const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
+const QueryWriter = @import("query.zig").QueryWriter;
 
 /// Server-side apply options
 pub const ApplyOptions = struct {
@@ -13,23 +14,16 @@ pub const ApplyOptions = struct {
     /// Options: "", "All", "None"
     dry_run: ?[]const u8 = null,
 
-    /// Build query string from options (single allocation)
+    /// Build query string from options
     pub fn buildQueryString(self: ApplyOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        errdefer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var qw = try QueryWriter.init(allocator);
+        errdefer qw.deinit();
 
-        try writer.print("fieldManager={s}", .{self.field_manager});
+        try qw.addString("fieldManager", self.field_manager);
+        try qw.addBoolFlag("force", self.force);
+        try qw.addOptionalString("dryRun", self.dry_run);
 
-        if (self.force) {
-            try writer.writeAll("&force=true");
-        }
-
-        if (self.dry_run) |dr| {
-            try writer.print("&dryRun={s}", .{dr});
-        }
-
-        return try buf.toOwnedSlice(allocator);
+        return try qw.toOwnedSlice();
     }
 };
 
@@ -44,30 +38,16 @@ pub const PatchOptions = struct {
     /// Dry run mode
     dry_run: ?[]const u8 = null,
 
-    /// Build query string from options (single allocation)
+    /// Build query string from options
     pub fn buildQueryString(self: PatchOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        errdefer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var qw = try QueryWriter.init(allocator);
+        errdefer qw.deinit();
 
-        var first = true;
-        if (self.field_manager) |fm| {
-            try writer.print("fieldManager={s}", .{fm});
-            first = false;
-        }
+        try qw.addOptionalString("fieldManager", self.field_manager);
+        try qw.addBoolFlag("force", self.force);
+        try qw.addOptionalString("dryRun", self.dry_run);
 
-        if (self.force) {
-            if (!first) try writer.writeByte('&');
-            try writer.writeAll("force=true");
-            first = false;
-        }
-
-        if (self.dry_run) |dr| {
-            if (!first) try writer.writeByte('&');
-            try writer.print("dryRun={s}", .{dr});
-        }
-
-        return try buf.toOwnedSlice(allocator);
+        return try qw.toOwnedSlice();
     }
 };
 

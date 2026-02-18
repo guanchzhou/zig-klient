@@ -19,6 +19,21 @@ pub const Context = struct {
 };
 
 /// User configuration from kubeconfig
+pub const ExecConfig = struct {
+    command: ?[]const u8 = null,
+    args: ?[][]const u8 = null,
+    api_version: ?[]const u8 = null,
+
+    pub fn deinit(self: *ExecConfig, allocator: std.mem.Allocator) void {
+        if (self.command) |cmd| allocator.free(cmd);
+        if (self.args) |args| {
+            for (args) |arg| allocator.free(arg);
+            allocator.free(args);
+        }
+        if (self.api_version) |v| allocator.free(v);
+    }
+};
+
 pub const User = struct {
     name: []const u8,
     token: ?[]const u8 = null,
@@ -28,6 +43,7 @@ pub const User = struct {
     client_key_data: ?[]const u8 = null,
     username: ?[]const u8 = null,
     password: ?[]const u8 = null,
+    exec: ?ExecConfig = null,
 };
 
 /// Parsed kubeconfig structure
@@ -65,6 +81,10 @@ pub const Kubeconfig = struct {
             if (user.client_key_data) |key_data| allocator.free(key_data);
             if (user.username) |username| allocator.free(username);
             if (user.password) |password| allocator.free(password);
+            if (user.exec) |*exec| {
+                var e = exec.*;
+                e.deinit(allocator);
+            }
         }
         allocator.free(self.users);
     }
@@ -179,6 +199,10 @@ pub const KubeconfigParser = struct {
                 if (user.client_certificate_data) |cert_data| self.allocator.free(cert_data);
                 if (user.client_key) |key| self.allocator.free(key);
                 if (user.client_key_data) |key_data| self.allocator.free(key_data);
+                if (user.exec) |*exec| {
+                    var e = exec.*;
+                    e.deinit(self.allocator);
+                }
             }
             users.deinit(self.allocator);
         }
@@ -407,6 +431,59 @@ pub const KubeconfigParser = struct {
             }
         }
 
+        // Parse exec config if present
+        var exec_config: ?ExecConfig = null;
+        if (node_map.get("user")) |user_value| {
+            const user_map2 = switch (user_value) {
+                .map => |m| m,
+                else => null,
+            };
+            if (user_map2) |um| {
+                if (um.get("exec")) |exec_value| {
+                    const exec_map = switch (exec_value) {
+                        .map => |m| m,
+                        else => null,
+                    };
+                    if (exec_map) |em| {
+                        var exec_cmd: ?[]const u8 = null;
+                        var exec_api_version: ?[]const u8 = null;
+                        var exec_args: ?[][]const u8 = null;
+
+                        if (em.get("command")) |v| {
+                            if (v.asScalar()) |scalar| {
+                                exec_cmd = try self.allocator.dupe(u8, scalar);
+                            }
+                        }
+                        if (em.get("apiVersion")) |v| {
+                            if (v.asScalar()) |scalar| {
+                                exec_api_version = try self.allocator.dupe(u8, scalar);
+                            }
+                        }
+                        if (em.get("args")) |args_value| {
+                            switch (args_value) {
+                                .list => |list| {
+                                    var args_list = std.ArrayListUnmanaged([]const u8){};
+                                    for (list) |item| {
+                                        if (item.asScalar()) |scalar| {
+                                            try args_list.append(self.allocator, try self.allocator.dupe(u8, scalar));
+                                        }
+                                    }
+                                    exec_args = try args_list.toOwnedSlice(self.allocator);
+                                },
+                                else => {},
+                            }
+                        }
+
+                        exec_config = ExecConfig{
+                            .command = exec_cmd,
+                            .args = exec_args,
+                            .api_version = exec_api_version,
+                        };
+                    }
+                }
+            }
+        }
+
         return User{
             .name = name orelse return error.UserMissingName,
             .token = token,
@@ -416,6 +493,7 @@ pub const KubeconfigParser = struct {
             .client_key_data = client_key_data,
             .username = username,
             .password = password,
+            .exec = exec_config,
         };
     }
 };

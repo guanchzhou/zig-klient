@@ -1,5 +1,15 @@
 const std = @import("std");
 
+/// DEPRECATED: Prefer kubeconfig_yaml.zig (KubeconfigParser) which reads kubeconfig
+/// files directly without requiring kubectl, supports exec credential plugins, and
+/// provides certificate data/paths that this parser cannot extract.
+///
+/// This parser spawns `kubectl config view -o json` as a subprocess, which:
+/// - Requires kubectl to be installed and in PATH
+/// - Cannot extract certificate file paths (cert_path/key_path are always null)
+/// - Cannot parse exec credential plugin configuration
+/// - Has higher latency due to subprocess spawning
+
 /// JSON structures matching kubectl config view -o json output
 const KubeconfigJson = struct {
     @"current-context": []const u8,

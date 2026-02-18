@@ -1,4 +1,5 @@
 const std = @import("std");
+const QueryWriter = @import("query.zig").QueryWriter;
 
 /// Options for list operations with filtering and pagination
 pub const ListOptions = struct {
@@ -37,74 +38,21 @@ pub const ListOptions = struct {
 
     /// Build query string from options (single allocation)
     pub fn buildQueryString(self: ListOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        errdefer buf.deinit(allocator);
-        const writer = buf.writer(allocator);
+        var qw = try QueryWriter.init(allocator);
+        errdefer qw.deinit();
 
-        var first = true;
-        inline for (.{
-            .{ "fieldSelector", self.field_selector },
-            .{ "labelSelector", self.label_selector },
-            .{ "continue", self.continue_token },
-            .{ "resourceVersion", self.resource_version },
-            .{ "resourceVersionMatch", self.resource_version_match },
-        }) |entry| {
-            if (entry[1]) |val| {
-                if (!first) try writer.writeByte('&');
-                try writer.print("{s}={s}", .{ entry[0], val });
-                first = false;
-            }
-        }
+        try qw.addOptionalString("fieldSelector", self.field_selector);
+        try qw.addOptionalString("labelSelector", self.label_selector);
+        try qw.addOptionalString("continue", self.continue_token);
+        try qw.addOptionalString("resourceVersion", self.resource_version);
+        try qw.addOptionalString("resourceVersionMatch", self.resource_version_match);
+        try qw.addOptionalInt("limit", self.limit);
+        try qw.addOptionalInt("timeoutSeconds", self.timeout_seconds);
+        try qw.addBoolFlag("pretty", self.pretty);
+        try qw.addBoolFlag("allowWatchBookmarks", self.allow_watch_bookmarks);
+        try qw.addBoolFlag("sendInitialEvents", self.send_initial_events);
 
-        if (self.limit) |limit| {
-            if (!first) try writer.writeByte('&');
-            try writer.print("limit={d}", .{limit});
-            first = false;
-        }
-
-        if (self.timeout_seconds) |timeout| {
-            if (!first) try writer.writeByte('&');
-            try writer.print("timeoutSeconds={d}", .{timeout});
-            first = false;
-        }
-
-        if (self.pretty) {
-            if (!first) try writer.writeByte('&');
-            try writer.writeAll("pretty=true");
-            first = false;
-        }
-
-        if (self.allow_watch_bookmarks) {
-            if (!first) try writer.writeByte('&');
-            try writer.writeAll("allowWatchBookmarks=true");
-            first = false;
-        }
-
-        if (self.send_initial_events) {
-            if (!first) try writer.writeByte('&');
-            try writer.writeAll("sendInitialEvents=true");
-            first = false;
-        }
-
-        return try buf.toOwnedSlice(allocator);
-    }
-
-    /// URL encode a string for query parameters
-    fn urlEncode(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-        var result = try std.ArrayList(u8).initCapacity(allocator, input.len);
-        errdefer result.deinit(allocator);
-
-        for (input) |c| {
-            if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
-                try result.append(allocator, c);
-            } else if (c == ' ') {
-                try result.append(allocator, '+');
-            } else {
-                try result.writer(allocator).print("%{X:0>2}", .{c});
-            }
-        }
-
-        return try result.toOwnedSlice(allocator);
+        return try qw.toOwnedSlice();
     }
 };
 
