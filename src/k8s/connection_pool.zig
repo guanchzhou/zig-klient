@@ -71,7 +71,7 @@ pub const ConnectionPool = struct {
             new_conn.state = .in_use;
             new_conn.last_used = now;
             
-            try self.connections.append(new_conn);
+            try self.connections.append(self.allocator, new_conn);
             return &self.connections.items[self.connections.items.len - 1].client;
         }
         

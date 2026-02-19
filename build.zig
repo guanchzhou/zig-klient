@@ -45,6 +45,12 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-dra", .source = "tests/dra_test.zig", .desc = "Run Dynamic Resource Allocation tests (K8s 1.34)" },
         .{ .name = "test-volume-attributes", .source = "tests/volume_attributes_test.zig", .desc = "Run VolumeAttributesClass tests (K8s 1.34)" },
         .{ .name = "test-protobuf", .source = "tests/protobuf_integration_test.zig", .desc = "Run Protobuf integration tests" },
+        .{ .name = "test-registry", .source = "tests/resource_registry_test.zig", .desc = "Run resource registry tests" },
+        .{ .name = "test-query", .source = "tests/query_test.zig", .desc = "Run query builder tests" },
+        .{ .name = "test-watch", .source = "tests/watch_test.zig", .desc = "Run watch/informer tests" },
+        .{ .name = "test-auth", .source = "tests/auth_test.zig", .desc = "Run auth and options tests" },
+        .{ .name = "test-pool", .source = "tests/connection_pool_test.zig", .desc = "Run connection pool tests" },
+        .{ .name = "test-types-meta", .source = "tests/types_meta_test.zig", .desc = "Run types, CRD, metrics, and retry edge case tests" },
     };
 
     // Tests excluded from default `zig build test` (require live cluster)
