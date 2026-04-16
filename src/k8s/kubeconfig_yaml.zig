@@ -134,8 +134,20 @@ pub const KubeconfigParser = struct {
         return .{ .allocator = allocator };
     }
 
-    /// Load kubeconfig from default location (~/.kube/config)
+    /// Load kubeconfig from KUBECONFIG env var or default location (~/.kube/config)
     pub fn load(self: *KubeconfigParser) !Kubeconfig {
+        // Respect KUBECONFIG environment variable (used by kubectx, kubeswitch, etc.)
+        if (std.posix.getenv("KUBECONFIG")) |kc| {
+            if (kc.len > 0) {
+                // KUBECONFIG can be colon-separated; use the first path
+                const first_path = if (std.mem.indexOf(u8, kc, ":")) |sep|
+                    kc[0..sep]
+                else
+                    kc;
+                return self.loadFromPath(first_path);
+            }
+        }
+
         const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
         const config_path = try std.fmt.allocPrint(self.allocator, "{s}/.kube/config", .{home});
         defer self.allocator.free(config_path);

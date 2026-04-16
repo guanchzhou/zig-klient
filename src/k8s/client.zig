@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log.scoped(.klient);
 const retry_mod = @import("retry.zig");
 const tls_mod = @import("tls.zig");
 
@@ -54,15 +55,15 @@ pub const K8sClient = struct {
             .write_buffer_size = 16384,
         };
 
+        // Always load system certificates upfront — don't rely on lazy rescan
+        // which can fail silently on some platforms (macOS).
+        http_client.ca_bundle.rescan(allocator) catch {};
+        http_client.next_https_rescan_certs = false;
+
         // Configure custom CA bundle if TLS config provided
         var temp_ca_path: ?[]const u8 = null;
 
         if (config.tls_config) |tls| {
-            // Rescan system certificates — best-effort since some environments
-            // don't have system CA bundles (e.g., scratch containers)
-            http_client.ca_bundle.rescan(allocator) catch {};
-            http_client.next_https_rescan_certs = false;
-
             if (tls.ca_cert_data) |ca_pem| {
                 // Write CA cert PEM data to a temp file for the Certificate.Bundle parser
                 const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{d}.pem", .{@as(u64, @intCast(std.time.timestamp()))});
@@ -242,20 +243,29 @@ pub const K8sClient = struct {
         }
 
         // Make request to Kubernetes API
-        var req = try self.http_client.request(method, uri, .{
+        var req = self.http_client.request(method, uri, .{
             .redirect_behavior = @enumFromInt(3),
             .headers = headers,
-        });
+        }) catch |err| {
+            log.warn("HTTP request init failed for {s}: {}", .{ path, err });
+            return err;
+        };
         defer req.deinit();
 
         // Send request with or without body
         if (body) |request_body| {
             req.transfer_encoding = .{ .content_length = request_body.len };
-            var send_body = try req.sendBody(&.{});
+            var send_body = req.sendBody(&.{}) catch |err| {
+                log.warn("HTTP sendBody failed for {s}: {}", .{ path, err });
+                return err;
+            };
             try send_body.writer.writeAll(request_body);
             try send_body.end();
         } else {
-            try req.sendBodiless();
+            req.sendBodiless() catch |err| {
+                log.warn("HTTP sendBodiless failed for {s}: {}", .{ path, err });
+                return err;
+            };
         }
 
         // Receive response headers
@@ -311,7 +321,7 @@ pub const K8sClient = struct {
 
         var transfer_buffer: [16384]u8 = undefined;
         var decompress: std.http.Decompress = undefined;
-        var decompress_buffer: [32768]u8 = undefined;
+        var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
         const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 
         reader.appendRemaining(self.allocator, &body_buffer, .limited(self.max_response_size)) catch |err| switch (err) {
@@ -388,7 +398,7 @@ pub const K8sClient = struct {
 
         var transfer_buffer: [16384]u8 = undefined;
         var decompress: std.http.Decompress = undefined;
-        var decompress_buffer: [32768]u8 = undefined;
+        var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
         const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 
         reader.appendRemaining(self.allocator, &body_buffer, .limited(self.max_response_size)) catch |err| switch (err) {

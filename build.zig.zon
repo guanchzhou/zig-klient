@@ -13,8 +13,8 @@
             .path = "../zig-yaml",
         },
         .protobuf = .{
-            .url = "git+https://github.com/Arwalk/zig-protobuf?ref=master#081a1471dfbaf9f7c11e4937d2f6d0756b32679c",
-            .hash = "protobuf-2.0.0-0e82ahVaJwAYfnNSGYt5sFQ_Ig_VYbyDQPZJ4Xbb5FuE",
+            .url = "git+https://github.com/Arwalk/zig-protobuf?ref=zig-master#7673d62b2909f1ffb687d83a646cded09212b73f",
+            .hash = "protobuf-3.0.0-0e82auyUKACQqyLICPhWm6kJoAru5DNP-idAJMP1W94r",
         },
     },
 }
