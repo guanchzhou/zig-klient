@@ -42,33 +42,41 @@ pub const DeleteOptions = struct {
     pub fn buildBody(self: DeleteOptions, allocator: std.mem.Allocator) ![]const u8 {
         var buffer = try std.ArrayList(u8).initCapacity(allocator, 256);
         errdefer buffer.deinit(allocator);
-        const writer = buffer.writer(allocator);
 
-        try writer.writeAll("{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\"");
+        try buffer.appendSlice(allocator, "{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\"");
 
         if (self.grace_period_seconds) |grace| {
-            try writer.print(",\"gracePeriodSeconds\":{d}", .{grace});
+            try buffer.appendSlice(allocator, ",\"gracePeriodSeconds\":");
+            var tmp: [32]u8 = undefined;
+            const s = std.fmt.bufPrint(&tmp, "{d}", .{grace}) catch unreachable;
+            try buffer.appendSlice(allocator, s);
         }
 
         if (self.propagation_policy) |policy| {
-            try writer.print(",\"propagationPolicy\":\"{s}\"", .{policy});
+            try buffer.appendSlice(allocator, ",\"propagationPolicy\":\"");
+            try buffer.appendSlice(allocator, policy);
+            try buffer.append(allocator, '"');
         }
 
         if (self.preconditions) |precond| {
-            try writer.writeAll(",\"preconditions\":{");
+            try buffer.appendSlice(allocator, ",\"preconditions\":{");
             var first = true;
             if (precond.resource_version) |rv| {
-                try writer.print("\"resourceVersion\":\"{s}\"", .{rv});
+                try buffer.appendSlice(allocator, "\"resourceVersion\":\"");
+                try buffer.appendSlice(allocator, rv);
+                try buffer.append(allocator, '"');
                 first = false;
             }
             if (precond.uid) |uid| {
-                if (!first) try writer.writeByte(',');
-                try writer.print("\"uid\":\"{s}\"", .{uid});
+                if (!first) try buffer.append(allocator, ',');
+                try buffer.appendSlice(allocator, "\"uid\":\"");
+                try buffer.appendSlice(allocator, uid);
+                try buffer.append(allocator, '"');
             }
-            try writer.writeByte('}');
+            try buffer.append(allocator, '}');
         }
 
-        try writer.writeByte('}');
+        try buffer.append(allocator, '}');
 
         return try buffer.toOwnedSlice(allocator);
     }

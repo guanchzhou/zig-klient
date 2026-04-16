@@ -20,25 +20,29 @@ pub const QueryWriter = struct {
 
     /// Add a string parameter: key=value
     pub fn addString(self: *QueryWriter, key: []const u8, value: []const u8) !void {
-        const writer = self.buf.writer(self.allocator);
-        if (self.has_param) try writer.writeByte('&');
-        try writer.print("{s}={s}", .{ key, value });
+        if (self.has_param) try self.buf.append(self.allocator, '&');
+        try self.buf.appendSlice(self.allocator, key);
+        try self.buf.append(self.allocator, '=');
+        try self.buf.appendSlice(self.allocator, value);
         self.has_param = true;
     }
 
     /// Add an integer parameter: key=123
     pub fn addInt(self: *QueryWriter, key: []const u8, value: anytype) !void {
-        const writer = self.buf.writer(self.allocator);
-        if (self.has_param) try writer.writeByte('&');
-        try writer.print("{s}={d}", .{ key, value });
+        if (self.has_param) try self.buf.append(self.allocator, '&');
+        try self.buf.appendSlice(self.allocator, key);
+        try self.buf.append(self.allocator, '=');
+        var tmp: [32]u8 = undefined;
+        const s = std.fmt.bufPrint(&tmp, "{d}", .{value}) catch unreachable;
+        try self.buf.appendSlice(self.allocator, s);
         self.has_param = true;
     }
 
     /// Add a boolean flag: key=true
     pub fn addFlag(self: *QueryWriter, key: []const u8) !void {
-        const writer = self.buf.writer(self.allocator);
-        if (self.has_param) try writer.writeByte('&');
-        try writer.print("{s}=true", .{key});
+        if (self.has_param) try self.buf.append(self.allocator, '&');
+        try self.buf.appendSlice(self.allocator, key);
+        try self.buf.appendSlice(self.allocator, "=true");
         self.has_param = true;
     }
 

@@ -39,7 +39,10 @@ pub const RetryContext = struct {
     random: std.Random,
     
     pub fn init(config: RetryConfig) RetryContext {
-        var prng = std.Random.DefaultPrng.init(@intCast(std.time.milliTimestamp()));
+        var ts: std.c.timespec = undefined;
+        _ = std.c.clock_gettime(std.c.CLOCK.REALTIME, &ts);
+        const seed: u64 = @bitCast(ts.sec *% 1_000_000_000 +% ts.nsec);
+        var prng = std.Random.DefaultPrng.init(seed);
         return .{
             .config = config,
             .random = prng.random(),
