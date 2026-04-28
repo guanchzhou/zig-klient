@@ -2,16 +2,20 @@ const std = @import("std");
 const klient = @import("klient");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     std.debug.print("\n" ++ "=" ** 50 ++ "\n", .{});
     std.debug.print("✓ zig-klient Integration Test with Rancher Desktop\n", .{});
     std.debug.print("=" ** 50 ++ "\n\n", .{});
 
     // Initialize client
-    var client = try klient.K8sClient.init(allocator, .{
+    var client = try klient.K8sClient.init(allocator, io, .{
         .server = "http://127.0.0.1:8080",
         .token = null,
         .namespace = "default",
@@ -38,7 +42,7 @@ pub fn main() !void {
     // Test 3: List namespaces
     std.debug.print("\nTest 3: List Namespaces\n", .{});
     var namespaces_client = klient.Namespaces.init(&client);
-    const namespaces_parsed = try namespaces_client.list();
+    const namespaces_parsed = try namespaces_client.client.listAll();
     defer namespaces_parsed.deinit();
     
     std.debug.print("  → Found {d} namespaces\n", .{namespaces_parsed.value.items.len});
@@ -49,7 +53,7 @@ pub fn main() !void {
     // Test 4: List nodes
     std.debug.print("\nTest 4: List Cluster Nodes\n", .{});
     var nodes_client = klient.Nodes.init(&client);
-    const nodes_parsed = try nodes_client.list();
+    const nodes_parsed = try nodes_client.client.listAll();
     defer nodes_parsed.deinit();
     
     std.debug.print("  → Found {d} nodes\n", .{nodes_parsed.value.items.len});

@@ -67,8 +67,8 @@ test "TLS - Base64 decoding" {
 
 test "Connection Pool - Initialization" {
     const allocator = std.testing.allocator;
-    
-    var conn_pool = try pool.ConnectionPool.init(allocator, .{
+
+    var conn_pool = try pool.ConnectionPool.init(allocator, std.testing.io, .{
         .server = "https://api.cluster.example.com",
         .max_connections = 5,
         .idle_timeout_ms = 10_000,
@@ -84,8 +84,8 @@ test "Connection Pool - Initialization" {
 
 test "Connection Pool - Statistics" {
     const allocator = std.testing.allocator;
-    
-    var conn_pool = try pool.ConnectionPool.init(allocator, .{
+
+    var conn_pool = try pool.ConnectionPool.init(allocator, std.testing.io, .{
         .server = "https://api.cluster.example.com",
         .max_connections = 10,
         .idle_timeout_ms = 30_000,

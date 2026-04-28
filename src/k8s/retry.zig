@@ -36,16 +36,15 @@ pub const RetryContext = struct {
     config: RetryConfig,
     current_attempt: u32 = 0,
     total_time_ms: u64 = 0,
-    random: std.Random,
-    
+    prng: std.Random.DefaultPrng,
+
     pub fn init(config: RetryConfig) RetryContext {
-        var ts: std.c.timespec = undefined;
+        var ts: std.c.timespec = .{ .sec = 0, .nsec = 0 };
         _ = std.c.clock_gettime(std.c.CLOCK.REALTIME, &ts);
         const seed: u64 = @bitCast(ts.sec *% 1_000_000_000 +% ts.nsec);
-        var prng = std.Random.DefaultPrng.init(seed);
         return .{
             .config = config,
-            .random = prng.random(),
+            .prng = std.Random.DefaultPrng.init(seed),
         };
     }
     
@@ -98,7 +97,7 @@ pub const RetryContext = struct {
         
         // Add random jitter: backoff * (1 + random(-jitter, +jitter))
         const jitter_range = backoff_duration * self.config.jitter_factor;
-        const jitter = (self.random.float(f64) * 2.0 - 1.0) * jitter_range;
+        const jitter = (self.prng.random().float(f64) * 2.0 - 1.0) * jitter_range;
         backoff_duration += jitter;
         
         // Ensure non-negative
@@ -113,9 +112,15 @@ pub const RetryContext = struct {
     pub fn backoff(self: *RetryContext) !void {
         const duration_ms = self.getBackoffDuration();
         if (duration_ms == 0) return;
-        
-        // Sleep for the calculated duration
-        std.time.sleep(duration_ms * std.time.ns_per_ms);
+
+        // std.time.sleep was removed in Zig 0.16; use std.c.nanosleep instead.
+        const ns_total: i64 = @intCast(duration_ms * std.time.ns_per_ms);
+        var req = std.c.timespec{
+            .sec = @divTrunc(ns_total, std.time.ns_per_s),
+            .nsec = @rem(ns_total, std.time.ns_per_s),
+        };
+        var rem: std.c.timespec = undefined;
+        _ = std.c.nanosleep(&req, &rem);
         self.total_time_ms += duration_ms;
     }
     

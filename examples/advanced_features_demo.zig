@@ -7,16 +7,20 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     std.debug.print("\n" ++ "=" ** 70 ++ "\n", .{});
     std.debug.print("  zig-klient Advanced Features Demo\n", .{});
     std.debug.print("=" ** 70 ++ "\n\n", .{});
 
     // === 1. In-Cluster Configuration ===
     std.debug.print("1. In-Cluster Configuration Detection\n", .{});
-    if (klient.isInCluster()) {
+    if (klient.isInCluster(io)) {
         std.debug.print("   ✓ Running inside Kubernetes cluster\n", .{});
 
-        var incluster_config = try klient.loadInClusterConfig(allocator);
+        var incluster_config = try klient.loadInClusterConfig(io, allocator);
         defer incluster_config.deinit();
 
         std.debug.print("   ✓ Server: {s}\n", .{incluster_config.server});

@@ -18,9 +18,13 @@ fn testFailed(name: []const u8, err: anyerror) void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     std.debug.print("\n" ++ "=" ** 70 ++ "\n", .{});
     std.debug.print("   zig-klient Comprehensive Function Test Suite\n", .{});
@@ -28,7 +32,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("Initializing K8s client (via kubectl proxy)...\n", .{});
-    var client = try klient.K8sClient.init(allocator, .{
+    var client = try klient.K8sClient.init(allocator, io, .{
         .server = "http://127.0.0.1:8080",
         .token = null,
         .namespace = "default",
@@ -177,7 +181,7 @@ pub fn main() !void {
     var namespaces_client = klient.Namespaces.init(&client);
 
     // Test list
-    if (namespaces_client.list()) |ns_parsed| {
+    if (namespaces_client.client.listAll()) |ns_parsed| {
         defer ns_parsed.deinit();
         testPassed("Namespaces.list()");
         std.debug.print("    Found: {d} namespaces\n", .{ns_parsed.value.items.len});
@@ -190,7 +194,7 @@ pub fn main() !void {
     var nodes_client = klient.Nodes.init(&client);
 
     // Test list
-    if (nodes_client.list()) |nodes_parsed| {
+    if (nodes_client.client.listAll()) |nodes_parsed| {
         defer nodes_parsed.deinit();
         testPassed("Nodes.list()");
         std.debug.print("    Found: {d} nodes\n", .{nodes_parsed.value.items.len});
@@ -268,7 +272,7 @@ pub fn main() !void {
     var pvs_client = klient.PersistentVolumes.init(&client);
 
     // Test list
-    if (pvs_client.list()) |pvs_parsed| {
+    if (pvs_client.client.listAll()) |pvs_parsed| {
         defer pvs_parsed.deinit();
         testPassed("PersistentVolumes.list()");
         std.debug.print("    Found: {d} persistent volumes\n", .{pvs_parsed.value.items.len});
@@ -292,7 +296,7 @@ pub fn main() !void {
     // === Connection Pool ===
     std.debug.print("\nTesting Connection Pool:\n", .{});
 
-    if (klient.pool.ConnectionPool.init(allocator, .{
+    if (klient.pool.ConnectionPool.init(allocator, io, .{
         .server = "http://127.0.0.1:8080",
         .max_connections = 5,
         .idle_timeout_ms = 30_000,
@@ -332,7 +336,7 @@ pub fn main() !void {
 
     // === Kubeconfig Parser ===
     std.debug.print("\nTesting Kubeconfig Parser:\n", .{});
-    var parser = klient.KubeconfigParser.init(allocator);
+    var parser = klient.KubeconfigParser.init(allocator, io);
     if (parser.load()) |kubeconfig| {
         var kc = kubeconfig;
         defer kc.deinit(allocator);

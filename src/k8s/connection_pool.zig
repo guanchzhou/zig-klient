@@ -1,35 +1,53 @@
 const std = @import("std");
 
+/// Return current wall-clock time in milliseconds.
+/// Replacement for std.time.milliTimestamp() which was removed in Zig 0.16.
+fn milliTimestamp() i64 {
+    var ts: std.c.timespec = undefined;
+    _ = std.c.clock_gettime(std.c.CLOCK.REALTIME, &ts);
+    return ts.sec *% 1000 +% @divTrunc(ts.nsec, 1_000_000);
+}
+
+/// Spin-wait until the mutex is acquired.
+/// std.atomic.Mutex in 0.16 only provides tryLock; there is no blocking lock().
+fn lockMutex(m: *std.atomic.Mutex) void {
+    while (!m.tryLock()) {
+        std.atomic.spinLoopHint();
+    }
+}
+
 /// Connection pool for HTTP connections to Kubernetes API
 pub const ConnectionPool = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     server: []const u8,
     max_connections: usize,
     idle_timeout_ms: u64,
     connections: std.ArrayList(PooledConnection),
-    mutex: std.Thread.Mutex,
-    
+    mutex: std.atomic.Mutex,
+
     const Self = @This();
-    
+
     pub const Config = struct {
         server: []const u8,
         max_connections: usize = 10,
         idle_timeout_ms: u64 = 30_000, // 30 seconds
     };
-    
-    pub fn init(allocator: std.mem.Allocator, config: Config) !Self {
+
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: Config) !Self {
         return Self{
             .allocator = allocator,
+            .io = io,
             .server = try allocator.dupe(u8, config.server),
             .max_connections = config.max_connections,
             .idle_timeout_ms = config.idle_timeout_ms,
             .connections = try std.ArrayList(PooledConnection).initCapacity(allocator, 0),
-            .mutex = .{},
+            .mutex = .unlocked,
         };
     }
-    
+
     pub fn deinit(self: *Self) void {
-        self.mutex.lock();
+        lockMutex(&self.mutex);
         defer self.mutex.unlock();
         
         for (self.connections.items) |*conn| {
@@ -41,10 +59,10 @@ pub const ConnectionPool = struct {
     
     /// Get a connection from the pool (or create new one)
     pub fn acquire(self: *Self) !*std.http.Client {
-        self.mutex.lock();
+        lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        
-        const now = std.time.milliTimestamp();
+
+        const now = milliTimestamp();
         
         // Try to find an idle connection
         for (self.connections.items, 0..) |*conn, i| {
@@ -67,7 +85,7 @@ pub const ConnectionPool = struct {
         
         // No idle connections, create new one if under limit
         if (self.connections.items.len < self.max_connections) {
-            var new_conn = try PooledConnection.init(self.allocator, self.server);
+            var new_conn = try PooledConnection.init(self.allocator, self.io, self.server);
             new_conn.state = .in_use;
             new_conn.last_used = now;
             
@@ -81,24 +99,24 @@ pub const ConnectionPool = struct {
     
     /// Release a connection back to the pool
     pub fn release(self: *Self, client: *std.http.Client) void {
-        self.mutex.lock();
+        lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        
+
         for (self.connections.items) |*conn| {
             if (&conn.client == client) {
                 conn.state = .idle;
-                conn.last_used = std.time.milliTimestamp();
+                conn.last_used = milliTimestamp();
                 return;
             }
         }
     }
-    
+
     /// Remove expired connections
     pub fn cleanup(self: *Self) void {
-        self.mutex.lock();
+        lockMutex(&self.mutex);
         defer self.mutex.unlock();
-        
-        const now = std.time.milliTimestamp();
+
+        const now = milliTimestamp();
         var i: usize = 0;
         
         while (i < self.connections.items.len) {
@@ -117,7 +135,7 @@ pub const ConnectionPool = struct {
     
     /// Get pool statistics
     pub fn stats(self: *Self) PoolStats {
-        self.mutex.lock();
+        lockMutex(&self.mutex);
         defer self.mutex.unlock();
         
         var idle_count: usize = 0;
@@ -145,17 +163,17 @@ const PooledConnection = struct {
     state: State,
     last_used: i64,
     server: []const u8,
-    
+
     const State = enum {
         idle,
         in_use,
     };
-    
-    fn init(allocator: std.mem.Allocator, server: []const u8) !PooledConnection {
+
+    fn init(allocator: std.mem.Allocator, io: std.Io, server: []const u8) !PooledConnection {
         return PooledConnection{
-            .client = std.http.Client{ .allocator = allocator },
+            .client = std.http.Client{ .allocator = allocator, .io = io },
             .state = .idle,
-            .last_used = std.time.milliTimestamp(),
+            .last_used = milliTimestamp(),
             .server = try allocator.dupe(u8, server),
         };
     }
@@ -192,9 +210,9 @@ pub const PoolManager = struct {
     
     const Self = @This();
     
-    pub fn init(allocator: std.mem.Allocator, config: ConnectionPool.Config) !Self {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ConnectionPool.Config) !Self {
         return Self{
-            .pool = try ConnectionPool.init(allocator, config),
+            .pool = try ConnectionPool.init(allocator, io, config),
             .running = std.atomic.Value(bool).init(true),
         };
     }
@@ -214,7 +232,14 @@ pub const PoolManager = struct {
     
     fn cleanupLoop(self: *Self, interval_ms: u64) void {
         while (self.running.load(.seq_cst)) {
-            std.time.sleep(interval_ms * std.time.ns_per_ms);
+            // std.time.sleep was removed in Zig 0.16; use std.c.nanosleep instead.
+            const ns_total: i64 = @intCast(interval_ms * std.time.ns_per_ms);
+            var req = std.c.timespec{
+                .sec = @divTrunc(ns_total, std.time.ns_per_s),
+                .nsec = @rem(ns_total, std.time.ns_per_s),
+            };
+            var rem: std.c.timespec = undefined;
+            _ = std.c.nanosleep(&req, &rem);
             self.pool.cleanup();
         }
     }

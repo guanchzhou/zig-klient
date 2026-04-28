@@ -2,6 +2,7 @@
     .name = .zig_klient,
     .version = "0.1.0",
     .fingerprint = 0x67475dbf5e099887,
+    .minimum_zig_version = "0.16.0",
     .paths = .{
         "build.zig",
         "build.zig.zon",

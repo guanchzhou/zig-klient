@@ -5,7 +5,7 @@ const testing = std.testing;
 test "InClusterConfig - check if in cluster" {
     // This test just checks the isInCluster function
     // It will return false if not running in a cluster
-    const in_cluster = klient.isInCluster();
+    const in_cluster = klient.isInCluster(std.testing.io);
 
     // We can't assert true/false as it depends on environment
     // Just make sure it doesn't crash
@@ -31,7 +31,7 @@ test "InClusterConfig - loadInClusterConfig error handling" {
     const allocator = testing.allocator;
 
     // This should fail when not in a cluster
-    const result = klient.loadInClusterConfig(allocator);
+    const result = klient.loadInClusterConfig(std.testing.io, allocator);
 
     // We expect an error when not running in a cluster
     try testing.expectError(error.ServiceAccountTokenNotFound, result);

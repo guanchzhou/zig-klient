@@ -525,7 +525,10 @@ fn scalePatch(allocator: std.mem.Allocator, rc: anytype, name: []const u8, repli
 }
 
 fn rolloutRestartPatch(allocator: std.mem.Allocator, rc: anytype, name: []const u8, namespace: ?[]const u8) !void {
-    const now = std.time.timestamp();
+    // std.time.timestamp() was removed in Zig 0.16; use std.c.clock_gettime instead.
+    var ts: std.c.timespec = .{ .sec = 0, .nsec = 0 };
+    _ = std.c.clock_gettime(std.c.CLOCK.REALTIME, &ts);
+    const now: i64 = ts.sec;
     const patch_json = try std.fmt.allocPrint(
         allocator,
         "{{\"spec\":{{\"template\":{{\"metadata\":{{\"annotations\":{{\"kubectl.kubernetes.io/restartedAt\":\"{d}\"}}}}}}}}}}",

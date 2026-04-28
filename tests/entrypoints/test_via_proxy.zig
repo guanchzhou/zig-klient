@@ -4,16 +4,20 @@ const klient = @import("klient");
 /// Test zig-klient against a running kubectl proxy (http://localhost:8080)
 /// Start proxy first: kubectl proxy --port=8080
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     std.debug.print("═══════════════════════════════════════════════════════════\n", .{});
     std.debug.print("  Integration Test via kubectl proxy (zig-klient)\n", .{});
     std.debug.print("═══════════════════════════════════════════════════════════\n\n", .{});
 
     // Connect directly to kubectl proxy (no TLS needed)
-    var client = try klient.K8sClient.init(allocator, .{
+    var client = try klient.K8sClient.init(allocator, io, .{
         .server = "http://127.0.0.1:8080",
         .namespace = "default",
     });

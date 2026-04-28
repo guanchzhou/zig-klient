@@ -2,9 +2,13 @@ const std = @import("std");
 const klient = @import("klient");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     std.debug.print("\n=== zig-klient Proxy Test ===\n", .{});
     std.debug.print("NOTE: This test requires 'kubectl proxy' running on port 8080\n", .{});
@@ -12,7 +16,7 @@ pub fn main() !void {
 
     // Initialize client pointing to kubectl proxy
     std.debug.print("1. Initializing K8s client (via kubectl proxy)...\n", .{});
-    var client = try klient.K8sClient.init(allocator, .{
+    var client = try klient.K8sClient.init(allocator, io, .{
         .server = "http://127.0.0.1:8080",
         .token = null, // No auth needed for kubectl proxy
         .namespace = "default",
@@ -62,7 +66,7 @@ pub fn main() !void {
     // Test 4: List namespaces
     std.debug.print("\n5. Listing all namespaces...\n", .{});
     var namespaces_client = klient.Namespaces.init(&client);
-    const namespaces_parsed = try namespaces_client.list();
+    const namespaces_parsed = try namespaces_client.client.listAll();
     defer namespaces_parsed.deinit();
     
     std.debug.print("   ✓ Found {d} namespaces\n", .{namespaces_parsed.value.items.len});
@@ -74,7 +78,7 @@ pub fn main() !void {
     // Test 5: List nodes
     std.debug.print("\n6. Listing cluster nodes...\n", .{});
     var nodes_client = klient.Nodes.init(&client);
-    const nodes_parsed = try nodes_client.list();
+    const nodes_parsed = try nodes_client.client.listAll();
     defer nodes_parsed.deinit();
     
     std.debug.print("   ✓ Found {d} nodes\n", .{nodes_parsed.value.items.len});

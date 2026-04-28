@@ -3,6 +3,7 @@ const klient = @import("klient");
 
 test "KubeconfigParser - YAML parsing" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     const yaml_config =
         \\apiVersion: v1
@@ -29,16 +30,15 @@ test "KubeconfigParser - YAML parsing" {
     var temp_dir = std.testing.tmpDir(.{});
     defer temp_dir.cleanup();
 
-    var temp_file = try temp_dir.dir.createFile("config", .{});
-    defer temp_file.close();
-    try temp_file.writeAll(yaml_config);
+    try temp_dir.dir.writeFile(io, .{ .sub_path = "config", .data = yaml_config });
 
     // Get temp file path
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const temp_path = try temp_dir.dir.realpath("config", &path_buf);
+    const path_len = try temp_dir.dir.realPathFile(io, "config", &path_buf);
+    const temp_path = path_buf[0..path_len];
 
     // Parse kubeconfig
-    var parser = klient.KubeconfigParser.init(allocator);
+    var parser = klient.KubeconfigParser.init(allocator, io);
     var config = try parser.loadFromPath(temp_path);
     defer config.deinit(allocator);
 
@@ -71,6 +71,7 @@ test "KubeconfigParser - YAML parsing" {
 
 test "KubeconfigParser - Get methods" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     const yaml_config =
         \\apiVersion: v1
@@ -95,14 +96,13 @@ test "KubeconfigParser - Get methods" {
     var temp_dir = std.testing.tmpDir(.{});
     defer temp_dir.cleanup();
 
-    var temp_file = try temp_dir.dir.createFile("config", .{});
-    defer temp_file.close();
-    try temp_file.writeAll(yaml_config);
+    try temp_dir.dir.writeFile(io, .{ .sub_path = "config", .data = yaml_config });
 
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const temp_path = try temp_dir.dir.realpath("config", &path_buf);
+    const path_len = try temp_dir.dir.realPathFile(io, "config", &path_buf);
+    const temp_path = path_buf[0..path_len];
 
-    var parser = klient.KubeconfigParser.init(allocator);
+    var parser = klient.KubeconfigParser.init(allocator, io);
     var config = try parser.loadFromPath(temp_path);
     defer config.deinit(allocator);
 

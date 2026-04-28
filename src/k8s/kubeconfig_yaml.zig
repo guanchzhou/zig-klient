@@ -1,6 +1,11 @@
 const std = @import("std");
 const yaml = @import("yaml");
 
+/// Portable getenv wrapper (std.posix.getenv removed in 0.16)
+fn getenv(name: [*:0]const u8) ?[]const u8 {
+    return if (std.c.getenv(name)) |p| std.mem.span(p) else null;
+}
+
 /// Cluster configuration from kubeconfig
 pub const Cluster = struct {
     name: []const u8,
@@ -129,15 +134,16 @@ pub const Kubeconfig = struct {
 /// Kubeconfig parser that reads directly from ~/.kube/config YAML file
 pub const KubeconfigParser = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
 
-    pub fn init(allocator: std.mem.Allocator) KubeconfigParser {
-        return .{ .allocator = allocator };
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) KubeconfigParser {
+        return .{ .allocator = allocator, .io = io };
     }
 
     /// Load kubeconfig from KUBECONFIG env var or default location (~/.kube/config)
     pub fn load(self: *KubeconfigParser) !Kubeconfig {
         // Respect KUBECONFIG environment variable (used by kubectx, kubeswitch, etc.)
-        if (std.posix.getenv("KUBECONFIG")) |kc| {
+        if (getenv("KUBECONFIG")) |kc| {
             if (kc.len > 0) {
                 // KUBECONFIG can be colon-separated; use the first path
                 const first_path = if (std.mem.indexOf(u8, kc, ":")) |sep|
@@ -148,7 +154,7 @@ pub const KubeconfigParser = struct {
             }
         }
 
-        const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
+        const home = getenv("HOME") orelse return error.HomeNotFound;
         const config_path = try std.fmt.allocPrint(self.allocator, "{s}/.kube/config", .{home});
         defer self.allocator.free(config_path);
 
@@ -157,10 +163,14 @@ pub const KubeconfigParser = struct {
 
     /// Load kubeconfig from specific path
     pub fn loadFromPath(self: *KubeconfigParser, path: []const u8) !Kubeconfig {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
+        const file = try std.Io.Dir.cwd().openFile(self.io, path, .{});
+        defer file.close(self.io);
 
-        const content = try file.readToEndAlloc(self.allocator, 10 * 1024 * 1024);
+        var buf: [4096]u8 = undefined;
+        var reader = file.reader(self.io, &buf);
+        const size = try reader.getSize();
+        const read_len = @min(@as(usize, @intCast(size)), 10 * 1024 * 1024);
+        const content = try reader.interface.readAlloc(self.allocator, read_len);
         defer self.allocator.free(content);
 
         return self.parseYaml(content);
@@ -474,7 +484,7 @@ pub const KubeconfigParser = struct {
                         if (em.get("args")) |args_value| {
                             switch (args_value) {
                                 .list => |list| {
-                                    var args_list = std.ArrayListUnmanaged([]const u8){};
+                                    var args_list: std.ArrayList([]const u8) = .empty;
                                     for (list) |item| {
                                         if (item.asScalar()) |scalar| {
                                             try args_list.append(self.allocator, try self.allocator.dupe(u8, scalar));

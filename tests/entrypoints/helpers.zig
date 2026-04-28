@@ -1,10 +1,16 @@
 const std = @import("std");
 const klient = @import("klient");
 
+/// Zig 0.16: executables need a concrete std.Io to pass into HTTP/TLS/file APIs.
+/// Callers own the returned Threaded and must call deinit() before exiting.
+pub fn initIo(allocator: std.mem.Allocator) std.Io.Threaded {
+    return std.Io.Threaded.init(allocator, .{});
+}
+
 /// Initialize K8sClient from default kubeconfig (~/.kube/config)
-pub fn initClientFromKubeconfig(allocator: std.mem.Allocator) !klient.K8sClient {
+pub fn initClientFromKubeconfig(allocator: std.mem.Allocator, io: std.Io) !klient.K8sClient {
     // Parse kubeconfig
-    var parser = klient.KubeconfigParser.init(allocator);
+    var parser = klient.KubeconfigParser.init(allocator, io);
     var config = try parser.load();
     defer config.deinit(allocator);
 
@@ -30,7 +36,7 @@ pub fn initClientFromKubeconfig(allocator: std.mem.Allocator) !klient.K8sClient 
         .tls_config = tls_config,
     };
 
-    return try klient.K8sClient.init(allocator, client_config);
+    return try klient.K8sClient.init(allocator, io, client_config);
 }
 
 /// Decode base64-encoded data (e.g. certificate-authority-data from kubeconfig)

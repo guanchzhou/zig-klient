@@ -10,6 +10,7 @@ const tls_mod = @import("tls.zig");
 /// logging if needed.
 pub const K8sClient = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     api_server: []const u8,
     token: ?[]const u8,
     namespace: []const u8,
@@ -48,17 +49,17 @@ pub const K8sClient = struct {
         max_response_size: usize = 16 * 1024 * 1024,
     };
 
-    pub fn init(allocator: std.mem.Allocator, config: Config) !K8sClient {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: Config) !K8sClient {
         var http_client = std.http.Client{
             .allocator = allocator,
-            .read_buffer_size = 16384,
-            .write_buffer_size = 16384,
+            .io = io,
         };
 
-        // Always load system certificates upfront — don't rely on lazy rescan
-        // which can fail silently on some platforms (macOS).
-        http_client.ca_bundle.rescan(allocator) catch {};
-        http_client.next_https_rescan_certs = false;
+        // Force an upfront certificate rescan so the first HTTPS request
+        // doesn't silently fail on platforms with non-standard CA paths (macOS).
+        const now = std.Io.Timestamp.now(io, .real);
+        http_client.ca_bundle.rescan(allocator, io, now) catch {};
+        http_client.now = now;
 
         // Configure custom CA bundle if TLS config provided
         var temp_ca_path: ?[]const u8 = null;
@@ -66,19 +67,23 @@ pub const K8sClient = struct {
         if (config.tls_config) |tls| {
             if (tls.ca_cert_data) |ca_pem| {
                 // Write CA cert PEM data to a temp file for the Certificate.Bundle parser
-                const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{d}.pem", .{@as(u64, @intCast(std.time.timestamp()))});
+                const timestamp: u64 = @intCast(now.toSeconds());
+                const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{d}.pem", .{timestamp});
                 temp_ca_path = path;
 
-                const file = std.fs.createFileAbsolute(path, .{}) catch |err| {
+                const file = std.Io.Dir.createFileAbsolute(io, path, .{}) catch |err| {
                     // If we can't create the temp file, TLS with custom CA will fail.
                     // Propagate the error instead of silently degrading.
                     allocator.free(path);
                     return err;
                 };
-                defer file.close();
-                try file.writeAll(ca_pem);
+                defer file.close(io);
+                var write_buf: [4096]u8 = undefined;
+                var file_writer = file.writer(io, &write_buf);
+                try file_writer.interface.writeAll(ca_pem);
+                try file_writer.flush();
 
-                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, path) catch |err| {
+                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, path) catch |err| {
                     // CA cert data provided but couldn't be loaded — this is a
                     // configuration error that should not be silently ignored.
                     allocator.free(path);
@@ -86,7 +91,7 @@ pub const K8sClient = struct {
                     return err;
                 };
             } else if (tls.ca_cert_path) |ca_path| {
-                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, ca_path) catch |err| {
+                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, ca_path) catch |err| {
                     // User explicitly provided a CA cert path that failed to load.
                     return err;
                 };
@@ -95,6 +100,7 @@ pub const K8sClient = struct {
 
         return K8sClient{
             .allocator = allocator,
+            .io = io,
             .api_server = try allocator.dupe(u8, config.server),
             .token = if (config.token) |t| try allocator.dupe(u8, t) else null,
             .namespace = try allocator.dupe(u8, config.namespace orelse "default"),
@@ -115,7 +121,7 @@ pub const K8sClient = struct {
 
         // Clean up temporary CA file if it exists
         if (self.temp_ca_path) |path| {
-            std.fs.deleteFileAbsolute(path) catch {};
+            std.Io.Dir.deleteFileAbsolute(self.io, path) catch {};
             self.allocator.free(path);
         }
     }
@@ -129,14 +135,7 @@ pub const K8sClient = struct {
     }
 
     fn destroyHttpClient(self: *K8sClient) void {
-        // WORKAROUND (Zig 0.15.x): Skip http_client.deinit() to avoid:
-        //   1. Integer overflow in std.http.Client buffer size calculations
-        //   2. Invalid free panic when clearing the connection pool
-        // Trade-off: ~200KB one-time leak per client, but no crash on exit.
-        // When upgrading Zig, test removing this workaround:
-        //   self.http_client.deinit();
-        // If it no longer crashes, delete this function body.
-        _ = self;
+        self.http_client.deinit();
     }
 
     /// Get cluster version information.
@@ -255,7 +254,8 @@ pub const K8sClient = struct {
         // Send request with or without body
         if (body) |request_body| {
             req.transfer_encoding = .{ .content_length = request_body.len };
-            var send_body = req.sendBody(&.{}) catch |err| {
+            var body_buf: [8192]u8 = undefined;
+            var send_body = req.sendBody(&body_buf) catch |err| {
                 log.warn("HTTP sendBody failed for {s}: {}", .{ path, err });
                 return err;
             };
@@ -373,7 +373,8 @@ pub const K8sClient = struct {
         // Send request with or without body
         if (body) |request_body| {
             req.transfer_encoding = .{ .content_length = request_body.len };
-            var send_body = try req.sendBody(&.{});
+            var proto_body_buf: [8192]u8 = undefined;
+            var send_body = try req.sendBody(&proto_body_buf);
             try send_body.writer.writeAll(request_body);
             try send_body.end();
         } else {

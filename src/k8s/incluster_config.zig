@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 
 /// Standard paths for service account files in Kubernetes pods
 pub const ServiceAccountPaths = struct {
@@ -45,17 +46,35 @@ pub const InClusterConfig = struct {
     }
 };
 
+/// Read the entire contents of a file opened via Io.Dir.openFileAbsolute into a
+/// newly-allocated slice.  `max_bytes` caps the allocation to guard against
+/// unexpectedly large files.
+fn readFileAlloc(
+    io: Io,
+    file: Io.File,
+    allocator: std.mem.Allocator,
+    max_bytes: usize,
+) ![]u8 {
+    var buf: [4096]u8 = undefined;
+    var file_reader = file.reader(io, &buf);
+    const size = try file_reader.getSize();
+    const read_len = @min(@as(usize, @intCast(size)), max_bytes);
+    return file_reader.interface.readAlloc(allocator, read_len);
+}
+
 /// Load in-cluster configuration from service account files
 /// This function reads the standard Kubernetes service account files
 /// and environment variables to construct client configuration
-pub fn loadInClusterConfig(allocator: std.mem.Allocator) !InClusterConfig {
+pub fn loadInClusterConfig(io: Io, allocator: std.mem.Allocator) !InClusterConfig {
     // Read service account token
-    const token_file = std.fs.openFileAbsolute(ServiceAccountPaths.token, .{}) catch {
+    const token_file = Io.Dir.openFileAbsolute(io, ServiceAccountPaths.token, .{}) catch {
         return error.ServiceAccountTokenNotFound;
     };
-    defer token_file.close();
+    defer token_file.close(io);
 
-    const token = try token_file.readToEndAlloc(allocator, 64 * 1024); // 64KB max
+    const token = readFileAlloc(io, token_file, allocator, 64 * 1024) catch { // 64KB max
+        return error.ServiceAccountTokenNotFound;
+    };
     errdefer allocator.free(token);
 
     // Trim whitespace from token
@@ -65,21 +84,25 @@ pub fn loadInClusterConfig(allocator: std.mem.Allocator) !InClusterConfig {
     errdefer allocator.free(final_token);
 
     // Read CA certificate
-    const ca_file = std.fs.openFileAbsolute(ServiceAccountPaths.ca_cert, .{}) catch {
+    const ca_file = Io.Dir.openFileAbsolute(io, ServiceAccountPaths.ca_cert, .{}) catch {
         return error.ServiceAccountCANotFound;
     };
-    defer ca_file.close();
+    defer ca_file.close(io);
 
-    const ca_cert_data = try ca_file.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
+    const ca_cert_data = readFileAlloc(io, ca_file, allocator, 10 * 1024 * 1024) catch { // 10MB max
+        return error.ServiceAccountCANotFound;
+    };
     errdefer allocator.free(ca_cert_data);
 
     // Read namespace
-    const ns_file = std.fs.openFileAbsolute(ServiceAccountPaths.namespace, .{}) catch {
+    const ns_file = Io.Dir.openFileAbsolute(io, ServiceAccountPaths.namespace, .{}) catch {
         return error.ServiceAccountNamespaceNotFound;
     };
-    defer ns_file.close();
+    defer ns_file.close(io);
 
-    const ns_data = try ns_file.readToEndAlloc(allocator, 1024); // 1KB max
+    const ns_data = readFileAlloc(io, ns_file, allocator, 1024) catch { // 1KB max
+        return error.ServiceAccountNamespaceNotFound;
+    };
     defer allocator.free(ns_data);
 
     const trimmed_ns = std.mem.trim(u8, ns_data, &std.ascii.whitespace);
@@ -87,11 +110,11 @@ pub fn loadInClusterConfig(allocator: std.mem.Allocator) !InClusterConfig {
     errdefer allocator.free(namespace);
 
     // Get Kubernetes service host and port from environment
-    const host = std.posix.getenv(EnvVars.host) orelse {
+    const host = if (std.c.getenv(EnvVars.host)) |p| std.mem.span(p) else {
         return error.KubernetesServiceHostNotSet;
     };
 
-    const port = std.posix.getenv(EnvVars.port) orelse {
+    const port = if (std.c.getenv(EnvVars.port)) |p| std.mem.span(p) else {
         return error.KubernetesServicePortNotSet;
     };
 
@@ -114,27 +137,25 @@ pub fn loadInClusterConfig(allocator: std.mem.Allocator) !InClusterConfig {
 
 /// Check if running inside a Kubernetes cluster
 /// Returns true if service account files are present
-pub fn isInCluster() bool {
+pub fn isInCluster(io: Io) bool {
     // Check if token file exists
-    const token_file = std.fs.openFileAbsolute(ServiceAccountPaths.token, .{}) catch {
+    const token_file = Io.Dir.openFileAbsolute(io, ServiceAccountPaths.token, .{}) catch {
         return false;
     };
-    token_file.close();
+    token_file.close(io);
 
     // Check if environment variables are set
-    const host = std.posix.getenv(EnvVars.host);
-    const port = std.posix.getenv(EnvVars.port);
-
-    return host != null and port != null;
+    return std.c.getenv(EnvVars.host) != null and
+        std.c.getenv(EnvVars.port) != null;
 }
 
 /// Get default Kubernetes API server URL when running in-cluster
 pub fn getDefaultServer(allocator: std.mem.Allocator) ![]const u8 {
-    const host = std.posix.getenv(EnvVars.host) orelse {
+    const host = if (std.c.getenv(EnvVars.host)) |p| std.mem.span(p) else {
         return error.KubernetesServiceHostNotSet;
     };
 
-    const port = std.posix.getenv(EnvVars.port) orelse {
+    const port = if (std.c.getenv(EnvVars.port)) |p| std.mem.span(p) else {
         return error.KubernetesServicePortNotSet;
     };
 
@@ -146,13 +167,15 @@ pub fn getDefaultServer(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 /// Get service account token
-pub fn getServiceAccountToken(allocator: std.mem.Allocator) ![]const u8 {
-    const token_file = std.fs.openFileAbsolute(ServiceAccountPaths.token, .{}) catch {
+pub fn getServiceAccountToken(io: Io, allocator: std.mem.Allocator) ![]const u8 {
+    const token_file = Io.Dir.openFileAbsolute(io, ServiceAccountPaths.token, .{}) catch {
         return error.ServiceAccountTokenNotFound;
     };
-    defer token_file.close();
+    defer token_file.close(io);
 
-    const token = try token_file.readToEndAlloc(allocator, 64 * 1024); // 64KB max
+    const token = readFileAlloc(io, token_file, allocator, 64 * 1024) catch { // 64KB max
+        return error.ServiceAccountTokenNotFound;
+    };
     defer allocator.free(token);
 
     const trimmed = std.mem.trim(u8, token, &std.ascii.whitespace);
@@ -160,23 +183,25 @@ pub fn getServiceAccountToken(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 /// Get service account CA certificate
-pub fn getServiceAccountCA(allocator: std.mem.Allocator) ![]const u8 {
-    const ca_file = std.fs.openFileAbsolute(ServiceAccountPaths.ca_cert, .{}) catch {
+pub fn getServiceAccountCA(io: Io, allocator: std.mem.Allocator) ![]const u8 {
+    const ca_file = Io.Dir.openFileAbsolute(io, ServiceAccountPaths.ca_cert, .{}) catch {
         return error.ServiceAccountCANotFound;
     };
-    defer ca_file.close();
+    defer ca_file.close(io);
 
-    return try ca_file.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
+    return readFileAlloc(io, ca_file, allocator, 10 * 1024 * 1024); // 10MB max
 }
 
 /// Get service account namespace
-pub fn getServiceAccountNamespace(allocator: std.mem.Allocator) ![]const u8 {
-    const ns_file = std.fs.openFileAbsolute(ServiceAccountPaths.namespace, .{}) catch {
+pub fn getServiceAccountNamespace(io: Io, allocator: std.mem.Allocator) ![]const u8 {
+    const ns_file = Io.Dir.openFileAbsolute(io, ServiceAccountPaths.namespace, .{}) catch {
         return error.ServiceAccountNamespaceNotFound;
     };
-    defer ns_file.close();
+    defer ns_file.close(io);
 
-    const ns_data = try ns_file.readToEndAlloc(allocator, 1024); // 1KB max
+    const ns_data = readFileAlloc(io, ns_file, allocator, 1024) catch { // 1KB max
+        return error.ServiceAccountNamespaceNotFound;
+    };
     defer allocator.free(ns_data);
 
     const trimmed = std.mem.trim(u8, ns_data, &std.ascii.whitespace);

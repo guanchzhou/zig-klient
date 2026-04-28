@@ -51,10 +51,11 @@ pub const ExecCredential = struct {
 /// into the freed arena.
 pub fn executeCredentialPlugin(
     allocator: std.mem.Allocator,
+    io: std.Io,
     config: ExecConfig,
 ) !std.json.Parsed(ExecCredential) {
     // Build command arguments
-    var cmd_args = std.ArrayListUnmanaged([]const u8){};
+    var cmd_args = std.ArrayListUnmanaged([]const u8).empty;
     defer cmd_args.deinit(allocator);
 
     try cmd_args.append(allocator, config.command);
@@ -65,21 +66,24 @@ pub fn executeCredentialPlugin(
         }
     }
 
-    // Execute command
-    var child = std.process.Child.init(cmd_args.items, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
+    // Zig 0.16: std.process.Child.init was removed. Use std.process.spawn.
+    var child = try std.process.spawn(io, .{
+        .argv = cmd_args.items,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    });
 
-    try child.spawn();
-
-    // Read stdout
-    const stdout = try child.stdout.?.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    // Read stdout through the File reader. allocRemaining with a 10MiB limit
+    // replaces the old readToEndAlloc.
+    var read_buf: [4096]u8 = undefined;
+    var stdout_reader = child.stdout.?.reader(io, &read_buf);
+    const stdout = try stdout_reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024));
     defer allocator.free(stdout);
 
     // Wait for completion
-    const term = try child.wait();
+    const term = try child.wait(io);
 
-    if (term != .Exited or term.Exited != 0) {
+    if (term != .exited or term.exited != 0) {
         if (config.installHint) |hint| {
             std.debug.print("Credential plugin failed. Install hint: {s}\n", .{hint});
         }
@@ -99,7 +103,7 @@ pub fn executeCredentialPlugin(
 
 /// AWS EKS credential plugin (aws-iam-authenticator or aws eks get-token)
 pub fn awsEksConfig(allocator: std.mem.Allocator, cluster_name: []const u8) !ExecConfig {
-    var args = std.ArrayListUnmanaged([]const u8){};
+    var args = std.ArrayListUnmanaged([]const u8).empty;
     try args.append(allocator, "eks");
     try args.append(allocator, "get-token");
     try args.append(allocator, "--cluster-name");
@@ -126,14 +130,14 @@ pub fn gcpGkeConfig(allocator: std.mem.Allocator) !ExecConfig {
 
 /// Azure AKS credential plugin (kubelogin)
 pub fn azureAksConfig(allocator: std.mem.Allocator, server_id: []const u8) !ExecConfig {
-    var args = std.ArrayListUnmanaged([]const u8){};
+    var args = std.ArrayListUnmanaged([]const u8).empty;
     try args.append(allocator, "get-token");
     try args.append(allocator, "--server-id");
     try args.append(allocator, server_id);
     try args.append(allocator, "--login");
     try args.append(allocator, "azurecli");
 
-    var envs = std.ArrayListUnmanaged(EnvVar){};
+    var envs = std.ArrayListUnmanaged(EnvVar).empty;
     try envs.append(allocator, .{
         .name = "AAD_SERVICE_PRINCIPAL_CLIENT_ID",
         .value = "",
@@ -154,7 +158,7 @@ pub fn oidcConfig(
     issuer_url: []const u8,
     client_id: []const u8,
 ) !ExecConfig {
-    var args = std.ArrayListUnmanaged([]const u8){};
+    var args = std.ArrayListUnmanaged([]const u8).empty;
     try args.append(allocator, "oidc-login");
     try args.append(allocator, "get-token");
     try args.append(allocator, "--oidc-issuer-url");

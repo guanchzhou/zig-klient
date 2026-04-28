@@ -3,9 +3,13 @@ const klient = @import("klient");
 const helpers = @import("helpers.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    var threaded = helpers.initIo(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     std.debug.print("═══════════════════════════════════════════════════════════\n", .{});
     std.debug.print("  Test: Delete Pod (zig-klient)\n", .{});
@@ -13,7 +17,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("🔌 Initializing Kubernetes client...\n", .{});
-    var client = helpers.initClientFromKubeconfig(allocator) catch |err| {
+    var client = helpers.initClientFromKubeconfig(allocator, io) catch |err| {
         std.debug.print("❌ Failed to initialize client: {}\n", .{err});
         return err;
     };
@@ -45,7 +49,12 @@ pub fn main() !void {
 
     // Wait a moment and verify deletion
     std.debug.print("⏳ Waiting for pod to be deleted...\n", .{});
-    std.Thread.sleep(6 * std.time.ns_per_s);
+    // Zig 0.16: std.Thread.sleep / std.time.sleep removed; use std.c.nanosleep.
+    {
+        var req = std.c.timespec{ .sec = 6, .nsec = 0 };
+        var rem: std.c.timespec = undefined;
+        _ = std.c.nanosleep(&req, &rem);
+    }
 
     const verify_result = pods_client.client.get(pod_name, test_namespace);
     if (verify_result) |parsed| {

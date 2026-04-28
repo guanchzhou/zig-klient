@@ -2,15 +2,19 @@ const std = @import("std");
 const klient = @import("klient");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     std.debug.print("\n=== zig-klient Real Cluster Test ===\n\n", .{});
 
     // Parse kubeconfig
     std.debug.print("1. Parsing kubeconfig...\n", .{});
-    var parser = klient.KubeconfigParser.init(allocator);
+    var parser = klient.KubeconfigParser.init(allocator, io);
     var kubeconfig = try parser.load();
     defer kubeconfig.deinit(allocator);
 
@@ -33,7 +37,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("\n2. Initializing K8s client...\n", .{});
-    var client = try klient.K8sClient.init(allocator, .{
+    var client = try klient.K8sClient.init(allocator, io, .{
         .server = cluster.server,
         .token = user.token,
         .namespace = current_context.namespace orelse "default",
@@ -91,7 +95,7 @@ pub fn main() !void {
     // Test 5: List namespaces
     std.debug.print("\n7. Listing all namespaces...\n", .{});
     var namespaces_client = klient.Namespaces.init(&client);
-    const namespaces_parsed = try namespaces_client.list();
+    const namespaces_parsed = try namespaces_client.client.listAll();
     defer namespaces_parsed.deinit();
     std.debug.print("   ✓ Found {d} namespaces\n", .{namespaces_parsed.value.items.len});
 
@@ -102,7 +106,7 @@ pub fn main() !void {
     // Test 6: List nodes
     std.debug.print("\n8. Listing cluster nodes...\n", .{});
     var nodes_client = klient.Nodes.init(&client);
-    const nodes_parsed = try nodes_client.list();
+    const nodes_parsed = try nodes_client.client.listAll();
     defer nodes_parsed.deinit();
     std.debug.print("   ✓ Found {d} nodes\n", .{nodes_parsed.value.items.len});
 
@@ -112,7 +116,7 @@ pub fn main() !void {
 
     // Test 7: Connection pool stats
     std.debug.print("\n9. Testing connection pool...\n", .{});
-    var pool = try klient.pool.ConnectionPool.init(allocator, .{
+    var pool = try klient.pool.ConnectionPool.init(allocator, io, .{
         .server = cluster.server,
         .max_connections = 5,
         .idle_timeout_ms = 30_000,

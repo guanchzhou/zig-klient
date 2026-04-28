@@ -2,11 +2,15 @@ const std = @import("std");
 const klient = @import("klient");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var parser = klient.KubeconfigParser.init(allocator);
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var parser = klient.KubeconfigParser.init(allocator, io);
     var config = try parser.load();
     defer config.deinit(allocator);
 

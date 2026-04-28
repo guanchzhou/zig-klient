@@ -3,9 +3,13 @@ const klient = @import("klient");
 const helpers = @import("helpers.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    var threaded = helpers.initIo(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     std.debug.print("═══════════════════════════════════════════════════════════\n", .{});
     std.debug.print("  Test: Watch Pods (zig-klient)\n", .{});
@@ -13,7 +17,7 @@ pub fn main() !void {
 
     // Initialize client
     std.debug.print("🔌 Initializing Kubernetes client...\n", .{});
-    var client = helpers.initClientFromKubeconfig(allocator) catch |err| {
+    var client = helpers.initClientFromKubeconfig(allocator, io) catch |err| {
         std.debug.print("❌ Failed to initialize client: {}\n", .{err});
         return err;
     };

@@ -1,4 +1,23 @@
 const std = @import("std");
+const Io = std.Io;
+
+/// Read a file at `path` (relative to cwd or absolute) into a newly-allocated
+/// slice, capped at `max_bytes`. Centralises the 0.16 open/read boilerplate
+/// used by loadFromFiles and createBundle.
+fn readFileToAlloc(
+    allocator: std.mem.Allocator,
+    io: Io,
+    path: []const u8,
+    max_bytes: usize,
+) ![]u8 {
+    const file = try Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    var buf: [4096]u8 = undefined;
+    var file_reader = file.reader(io, &buf);
+    const size = try file_reader.getSize();
+    const read_len = @min(@as(usize, @intCast(size)), max_bytes);
+    return file_reader.interface.readAlloc(allocator, read_len);
+}
 
 /// TLS configuration for custom CA certificates and mTLS authentication
 pub const TlsConfig = struct {
@@ -15,6 +34,7 @@ pub const TlsConfig = struct {
 /// Load TLS configuration from files
 pub fn loadFromFiles(
     allocator: std.mem.Allocator,
+    io: Io,
     cert_path: ?[]const u8,
     key_path: ?[]const u8,
     ca_path: ?[]const u8,
@@ -31,28 +51,19 @@ pub fn loadFromFiles(
 
     // Load client certificate
     if (cert_path) |path| {
-        const cert_file = try std.fs.cwd().openFile(path, .{});
-        defer cert_file.close();
-
-        config.client_cert_data = try cert_file.readToEndAlloc(allocator, 1024 * 1024);
+        config.client_cert_data = try readFileToAlloc(allocator, io, path, 1024 * 1024);
         config.client_cert_path = try allocator.dupe(u8, path);
     }
 
     // Load client key
     if (key_path) |path| {
-        const key_file = try std.fs.cwd().openFile(path, .{});
-        defer key_file.close();
-
-        config.client_key_data = try key_file.readToEndAlloc(allocator, 1024 * 1024);
+        config.client_key_data = try readFileToAlloc(allocator, io, path, 1024 * 1024);
         config.client_key_path = try allocator.dupe(u8, path);
     }
 
     // Load CA certificate
     if (ca_path) |path| {
-        const ca_file = try std.fs.cwd().openFile(path, .{});
-        defer ca_file.close();
-
-        config.ca_cert_data = try ca_file.readToEndAlloc(allocator, 1024 * 1024);
+        config.ca_cert_data = try readFileToAlloc(allocator, io, path, 1024 * 1024);
         config.ca_cert_path = try allocator.dupe(u8, path);
     }
 
@@ -118,16 +129,14 @@ pub const TlsBundle = struct {
 };
 
 /// Create TLS bundle from config
-pub fn createBundle(allocator: std.mem.Allocator, config: TlsConfig) !TlsBundle {
+pub fn createBundle(allocator: std.mem.Allocator, io: Io, config: TlsConfig) !TlsBundle {
     var bundle: TlsBundle = undefined;
 
     // Get certificate data
     if (config.client_cert_data) |data| {
         bundle.cert_data = try allocator.dupe(u8, data);
     } else if (config.client_cert_path) |path| {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-        bundle.cert_data = try file.readToEndAlloc(allocator, 1024 * 1024);
+        bundle.cert_data = try readFileToAlloc(allocator, io, path, 1024 * 1024);
     } else {
         return error.NoCertificateData;
     }
@@ -137,9 +146,7 @@ pub fn createBundle(allocator: std.mem.Allocator, config: TlsConfig) !TlsBundle 
     if (config.client_key_data) |data| {
         bundle.key_data = try allocator.dupe(u8, data);
     } else if (config.client_key_path) |path| {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-        bundle.key_data = try file.readToEndAlloc(allocator, 1024 * 1024);
+        bundle.key_data = try readFileToAlloc(allocator, io, path, 1024 * 1024);
     } else {
         allocator.free(bundle.cert_data);
         return error.NoKeyData;
@@ -153,9 +160,7 @@ pub fn createBundle(allocator: std.mem.Allocator, config: TlsConfig) !TlsBundle 
     if (config.ca_cert_data) |data| {
         bundle.ca_data = try allocator.dupe(u8, data);
     } else if (config.ca_cert_path) |path| {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-        bundle.ca_data = try file.readToEndAlloc(allocator, 1024 * 1024);
+        bundle.ca_data = try readFileToAlloc(allocator, io, path, 1024 * 1024);
     }
 
     return bundle;

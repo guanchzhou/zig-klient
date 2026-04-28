@@ -16,7 +16,7 @@ test "Protobuf - K8sClient method exists" {
     const allocator = std.testing.allocator;
 
     // Create a client (using correct Config field names)
-    var client = try klient.K8sClient.init(allocator, .{
+    var client = try klient.K8sClient.init(allocator, std.testing.io, .{
         .server = "https://test.example.com",
         .token = "test-token",
     });

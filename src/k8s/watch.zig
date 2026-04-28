@@ -3,6 +3,15 @@ const K8sClient = @import("client.zig").K8sClient;
 const types = @import("types.zig");
 const ResourceClient = @import("resources.zig").ResourceClient;
 
+/// Spin-wait until the mutex is acquired.
+/// std.atomic.Mutex in 0.16 only provides tryLock; there is no blocking lock().
+/// Matches the pattern used in connection_pool.zig.
+fn lockMutex(m: *std.atomic.Mutex) void {
+    while (!m.tryLock()) {
+        std.atomic.spinLoopHint();
+    }
+}
+
 /// Watch event type
 pub const EventType = enum {
     ADDED,
@@ -192,39 +201,39 @@ pub fn Watcher(comptime T: type) type {
             var path_list = try std.ArrayList(u8).initCapacity(allocator, 0);
             errdefer path_list.deinit(allocator);
 
-            const writer = path_list.writer(allocator);
-
+            // Zig 0.16: unmanaged ArrayList uses .print(gpa, fmt, args) directly;
+            // the .writer() method was removed.
             if (self.namespace) |ns| {
-                try writer.print("{s}/namespaces/{s}/{s}?watch=true", .{
+                try path_list.print(allocator, "{s}/namespaces/{s}/{s}?watch=true", .{
                     self.api_path,
                     ns,
                     self.resource,
                 });
             } else {
-                try writer.print("{s}/{s}?watch=true", .{
+                try path_list.print(allocator, "{s}/{s}?watch=true", .{
                     self.api_path,
                     self.resource,
                 });
             }
 
             if (self.resource_version) |rv| {
-                try writer.print("&resourceVersion={s}", .{rv});
+                try path_list.print(allocator, "&resourceVersion={s}", .{rv});
             }
 
             if (self.options.timeout_seconds) |timeout| {
-                try writer.print("&timeoutSeconds={d}", .{timeout});
+                try path_list.print(allocator, "&timeoutSeconds={d}", .{timeout});
             }
 
             if (self.options.label_selector) |selector| {
-                try writer.print("&labelSelector={s}", .{selector});
+                try path_list.print(allocator, "&labelSelector={s}", .{selector});
             }
 
             if (self.options.field_selector) |selector| {
-                try writer.print("&fieldSelector={s}", .{selector});
+                try path_list.print(allocator, "&fieldSelector={s}", .{selector});
             }
 
             if (self.options.allow_watch_bookmarks) {
-                try writer.writeAll("&allowWatchBookmarks=true");
+                try path_list.appendSlice(allocator, "&allowWatchBookmarks=true");
             }
 
             return try path_list.toOwnedSlice(allocator);
@@ -265,7 +274,7 @@ pub fn Informer(comptime T: type) type {
         cache: std.StringHashMap(T),
         resource_version: ?[]const u8,
         running: std.atomic.Value(bool),
-        mutex: std.Thread.Mutex,
+        mutex: std.atomic.Mutex,
 
         const Self = @This();
 
@@ -284,12 +293,12 @@ pub fn Informer(comptime T: type) type {
                 .cache = std.StringHashMap(T).init(allocator),
                 .resource_version = null,
                 .running = std.atomic.Value(bool).init(false),
-                .mutex = .{},
+                .mutex = .unlocked,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.mutex.lock();
+            lockMutex(&self.mutex);
             defer self.mutex.unlock();
             self.cache.deinit();
         }
@@ -317,25 +326,26 @@ pub fn Informer(comptime T: type) type {
 
         /// Get resource from cache by name (thread-safe)
         pub fn get(self: *Self, name: []const u8) ?T {
-            self.mutex.lock();
+            lockMutex(&self.mutex);
             defer self.mutex.unlock();
             return self.cache.get(name);
         }
 
         /// List all resources in cache (thread-safe)
         pub fn listCached(self: *Self) ![]T {
-            self.mutex.lock();
+            lockMutex(&self.mutex);
             defer self.mutex.unlock();
 
-            var result_list = std.ArrayList(T).init(self.cache.allocator);
-            errdefer result_list.deinit();
+            const allocator = self.cache.allocator;
+            var result_list = try std.ArrayList(T).initCapacity(allocator, 0);
+            errdefer result_list.deinit(allocator);
 
             var it = self.cache.valueIterator();
             while (it.next()) |value| {
-                try result_list.append(value.*);
+                try result_list.append(allocator, value.*);
             }
 
-            return try result_list.toOwnedSlice();
+            return try result_list.toOwnedSlice(allocator);
         }
 
         /// Initial list to populate cache
@@ -349,24 +359,22 @@ pub fn Informer(comptime T: type) type {
             const result = try rc.list(self.namespace);
             defer result.deinit();
 
-            self.mutex.lock();
+            lockMutex(&self.mutex);
             defer self.mutex.unlock();
 
-            // Populate cache from list result
-            if (result.value.items) |items| {
-                for (items) |item| {
-                    if (@hasField(T, "metadata")) {
-                        if (item.metadata.name.len > 0) {
-                            try self.cache.put(item.metadata.name, item);
-                        }
+            // Populate cache from list result. In the current List(T) schema
+            // `items` is non-optional, so iterate it directly.
+            for (result.value.items) |item| {
+                if (@hasField(T, "metadata")) {
+                    if (item.metadata.name.len > 0) {
+                        try self.cache.put(item.metadata.name, item);
                     }
                 }
             }
 
-            // Store resource version for subsequent watch
-            if (result.value.metadata) |meta| {
-                self.resource_version = meta.resourceVersion;
-            }
+            // Store resource version for subsequent watch. `metadata` is a
+            // non-optional nested struct; only `resourceVersion` is optional.
+            self.resource_version = result.value.metadata.resourceVersion;
         }
 
         /// Watch loop to keep cache updated.
@@ -394,7 +402,7 @@ pub fn Informer(comptime T: type) type {
         fn handleWatchEvent(self: *Self, event: *WatchEvent(T)) anyerror!void {
             defer event.deinit();
 
-            self.mutex.lock();
+            lockMutex(&self.mutex);
             defer self.mutex.unlock();
 
             if (@hasField(T, "metadata")) {

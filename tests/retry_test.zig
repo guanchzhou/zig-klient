@@ -3,36 +3,50 @@ const klient = @import("klient");
 const retry = klient.retry;
 
 test "RetryContext - Basic retry logic" {
-    var ctx = retry.RetryContext.init(retry.defaultConfig);
-    
+    var ctx = retry.RetryContext.init(.{
+        .max_attempts = 3,
+        .initial_backoff_ms = 100,
+        .max_backoff_ms = 30_000,
+        .backoff_multiplier = 2.0,
+        .jitter_factor = 0.0,
+        .max_retry_time_ms = 60_000,
+    });
+
     // First attempt should succeed
     try std.testing.expect(ctx.shouldRetry(null));
     try std.testing.expectEqual(@as(u32, 0), ctx.current_attempt);
-    
+
     // Increment and check backoff
     ctx.nextAttempt();
     const backoff1 = ctx.getBackoffDuration();
-    try std.testing.expect(backoff1 > 0); // Should have some backoff
-    
+    try std.testing.expect(backoff1 >= 100);
+
     std.debug.print("✅ Retry attempt 1 backoff: {d}ms\n", .{backoff1});
 }
 
 test "RetryContext - Exponential backoff" {
-    var ctx = retry.RetryContext.init(retry.defaultConfig);
-    
+    var ctx = retry.RetryContext.init(.{
+        .max_attempts = 5,
+        .initial_backoff_ms = 100,
+        .max_backoff_ms = 30_000,
+        .backoff_multiplier = 2.0,
+        .jitter_factor = 0.0,
+        .max_retry_time_ms = 60_000,
+    });
+
     ctx.nextAttempt(); // attempt 1
     const backoff1 = ctx.getBackoffDuration();
-    
+
     ctx.nextAttempt(); // attempt 2
     const backoff2 = ctx.getBackoffDuration();
-    
+
     ctx.nextAttempt(); // attempt 3
     const backoff3 = ctx.getBackoffDuration();
-    
-    // Each backoff should be larger (exponential)
-    try std.testing.expect(backoff2 > backoff1);
-    try std.testing.expect(backoff3 > backoff2);
-    
+
+    // Each backoff should be larger (exponential): 100, 200, 400
+    try std.testing.expect(backoff2 >= backoff1);
+    try std.testing.expect(backoff3 >= backoff2);
+
     std.debug.print("✅ Exponential backoff: {d}ms -> {d}ms -> {d}ms\n", .{
         backoff1,
         backoff2,

@@ -4,7 +4,7 @@ const klient = @import("klient");
 test "ConnectionPool: init and deinit with testing allocator" {
     const allocator = std.testing.allocator;
 
-    var pool = try klient.ConnectionPool.init(allocator, .{
+    var pool = try klient.ConnectionPool.init(allocator, std.testing.io, .{
         .server = "https://localhost:6443",
         .max_connections = 5,
         .idle_timeout_ms = 10_000,
@@ -45,7 +45,7 @@ test "ConnectionPool: utilization is 0 when max is 0" {
 test "ConnectionPool: acquire returns connection" {
     const allocator = std.testing.allocator;
 
-    var pool = try klient.ConnectionPool.init(allocator, .{
+    var pool = try klient.ConnectionPool.init(allocator, std.testing.io, .{
         .server = "https://localhost:6443",
         .max_connections = 2,
         .idle_timeout_ms = 30_000,
@@ -74,7 +74,7 @@ test "ConnectionPool: acquire returns connection" {
 test "ConnectionPool: respects max connections" {
     const allocator = std.testing.allocator;
 
-    var pool = try klient.ConnectionPool.init(allocator, .{
+    var pool = try klient.ConnectionPool.init(allocator, std.testing.io, .{
         .server = "https://localhost:6443",
         .max_connections = 1,
         .idle_timeout_ms = 30_000,
@@ -98,7 +98,7 @@ test "ConnectionPool: respects max connections" {
 test "ConnectionPool: acquire creates connection and stats are accurate" {
     const allocator = std.testing.allocator;
 
-    var pool = try klient.ConnectionPool.init(allocator, .{
+    var pool = try klient.ConnectionPool.init(allocator, std.testing.io, .{
         .server = "https://localhost:6443",
         .max_connections = 5,
         .idle_timeout_ms = 30_000,
@@ -121,7 +121,7 @@ test "ConnectionPool: acquire creates connection and stats are accurate" {
 test "PoolManager: init and deinit" {
     const allocator = std.testing.allocator;
 
-    var manager = try klient.PoolManager.init(allocator, .{
+    var manager = try klient.PoolManager.init(allocator, std.testing.io, .{
         .server = "https://localhost:6443",
         .max_connections = 10,
     });
