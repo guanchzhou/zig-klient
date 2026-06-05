@@ -1,0 +1,58 @@
+name: Integration (kind)
+
+# Live integration against a real Kubernetes cluster (kind). Runs on demand and
+# nightly to keep PR latency low — the per-PR CI only compiles the entrypoints.
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * *"
+
+jobs:
+  kind-integration:
+    name: Live integration on kind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig 0.16.0
+        env:
+          ZIG_URL: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          ZIG_SHA: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+        run: |
+          curl -fsSL "$ZIG_URL" -o zig.tar.xz
+          echo "$ZIG_SHA  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          # kind node image — bump as kind ships newer Kubernetes.
+          node_image: kindest/node:v1.33.1
+
+      - name: Build integration entrypoints
+        run: zig build build-integration-tests
+
+      - name: Start kubectl proxy (allow exec/attach)
+        run: |
+          kubectl proxy --port=8080 --reject-paths='^$' &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8080/healthz && break || sleep 1
+          done
+
+      - name: Create exec target pod
+        run: |
+          kubectl run zig-klient-exec-test --image=busybox:1.36 --restart=Never \
+            --command -- sleep 3600
+          kubectl wait --for=condition=Ready pod/zig-klient-exec-test --timeout=120s
+
+      - name: Resource CRUD + list (via proxy)
+        run: zig build test-via-proxy
+
+      - name: Pod exec over WebSocket
+        run: zig build test-pod-exec
+
+      # MutatingAdmissionPolicy requires K8s >= 1.36; enable once kind ships a 1.36
+      # node image:
+      # - name: MutatingAdmissionPolicy CRUD
+      #   run: zig build test-mutating-admission-policy
