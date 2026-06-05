@@ -674,8 +674,8 @@ zig-klient/
 │       ├── exec_credential.zig # Cloud auth
 │       └── kubeconfig_json.zig # Config parsing
 ├── tests/                      # Unit tests (isolated)
-├── examples/                   # Usage examples
-│   └── tests/                  # Integration tests (real cluster)
+│   ├── entrypoints/            # Live integration tests (via kubectl proxy)
+│   └── comprehensive/          # Larger live scenarios
 └── docs/                       # Documentation
 ```
 
