@@ -1,14 +1,18 @@
 # zig-klient
 
-A Kubernetes client library for Zig, implementing 65 Kubernetes resource types with full CRUD operations across 20 API groups, current through Kubernetes 1.36. Includes native WebSocket support for Pod exec/attach/port-forward and Protobuf serialization via the zig-protobuf library.
+A Kubernetes client library for **Zig** — 65 resource types across 20 API groups with full CRUD, current through **Kubernetes 1.36**. Native WebSocket support for Pod `exec`/`attach`/`port-forward`, and Protobuf serialization via [zig-protobuf](https://github.com/Arwalk/zig-protobuf).
 
-**Build**: Zig 0.16.0  
-**Tested against**: Rancher Desktop (Kubernetes 1.35.3). K8s 1.36-only resource types (e.g. `MutatingAdmissionPolicy`) are unit-tested only — they require a 1.36 API server to exercise live.  
-**Dependencies**: zig-yaml (YAML parsing), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) (Protocol Buffers)
+|              |                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------- |
+| **Build**    | Zig 0.16.0                                                                             |
+| **Coverage** | 65 resource types / 20 API groups, current through K8s 1.36                            |
+| **Tested**   | Live CRUD verified on Rancher Desktop **K8s 1.36.1** (incl. `MutatingAdmissionPolicy`); every type unit-tested |
+| **Deps**     | [zig-yaml](https://github.com/guanchzhou/zig-yaml), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) |
+| **License**  | MIT                                                                                    |
 
-## TLS Note
+**Contents:** [Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Resource Operations](#resource-operations) · [Testing](#testing) · [Architecture](#architecture) · [Requirements](#requirements) · [Roadmap](#roadmap)
 
-Custom CA certificates are supported via `tls_config.ca_cert_data` or `tls_config.ca_cert_path`. For clusters with self-signed certificates, pass the CA bundle in the client config. As a fallback, use `connectWithFallback()` for automatic kubectl proxy detection, or connect via `http://127.0.0.1:8080` after running `kubectl proxy`.
+> **Connecting & TLS.** Custom CA certificates are supported via `tls_config.ca_cert_data` / `tls_config.ca_cert_path`, and client-certificate auth via `client_cert_data` / `client_key_data`. Against clusters with self-signed certificates the direct TLS path may currently fail with `error.TlsInitializationFailed` (a `std.crypto.tls` limitation). Workaround: use `connectWithFallback()`, or run `kubectl proxy` and connect to `http://127.0.0.1:8080`.
 
 ## Features
 
@@ -116,7 +120,7 @@ StorageVersionMigration
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
 - Two dependencies: zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
-- Tested against Kubernetes 1.35.3 (Rancher Desktop)
+- Live CRUD verified against Kubernetes 1.36.1 (Rancher Desktop)
 
 ## Installation
 
@@ -633,12 +637,19 @@ zig build test-advanced   # TLS, Connection Pool, CRD tests
 
 ### Integration Tests
 
-Integration tests run against a real Kubernetes cluster. See [docs/TESTING.md](docs/TESTING.md) for details.
+Integration tests run against a real Kubernetes cluster. Because the direct TLS
+path currently fails against self-signed clusters (see **Connecting & TLS**), the
+entrypoints connect through `kubectl proxy`:
 
 ```bash
-cd examples/tests
-./run_all_tests.sh
+kubectl proxy --port=8080 &           # expose the API without TLS
+zig build test-mutating-admission-policy   # K8s 1.36 MutatingAdmissionPolicy CRUD round-trip
+zig build test-via-proxy                   # pods/namespaces/nodes + pod CRUD
 ```
+
+The `test-mutating-admission-policy` entrypoint was verified against Rancher
+Desktop running **Kubernetes 1.36.1** — list → create → get → delete all succeed.
+See [docs/TESTING.md](docs/TESTING.md) for the full guide.
 
 ## Documentation
 
@@ -670,7 +681,7 @@ zig-klient/
 
 ## Feature Parity Status
 
-**Tested against**: Rancher Desktop (Kubernetes 1.35.3)
+**Tested against**: Rancher Desktop (Kubernetes 1.36.1)
 
 | Feature | Kubernetes 1.36 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
