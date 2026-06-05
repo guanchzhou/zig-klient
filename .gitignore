@@ -1,6 +1,12 @@
 # Zig build artifacts
 zig-out/
 .zig-cache/
+# Zig package cache (fetched dependencies; reproducible from build.zig.zon)
+zig-pkg/
+
+# Local planning + agent tooling artifacts
+tasks/
+docs/superpowers/
 
 # IDE
 .vscode/

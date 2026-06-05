@@ -1,8 +1,9 @@
 # zig-klient
 
-A Kubernetes client library for Zig, implementing all 62 standard Kubernetes 1.35 resource types with full CRUD operations across 20 API groups. Includes native WebSocket support for Pod exec/attach/port-forward and Protobuf serialization via the zig-protobuf library.
+A Kubernetes client library for Zig, implementing 65 Kubernetes resource types with full CRUD operations across 20 API groups, current through Kubernetes 1.36. Includes native WebSocket support for Pod exec/attach/port-forward and Protobuf serialization via the zig-protobuf library.
 
-**Tested against**: Rancher Desktop with Kubernetes 1.35.1  
+**Build**: Zig 0.16.0  
+**Tested against**: Rancher Desktop (Kubernetes 1.35.3). K8s 1.36-only resource types (e.g. `MutatingAdmissionPolicy`) are unit-tested only — they require a 1.36 API server to exercise live.  
 **Dependencies**: zig-yaml (YAML parsing), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) (Protocol Buffers)
 
 ## TLS Note
@@ -11,7 +12,7 @@ Custom CA certificates are supported via `tls_config.ca_cert_data` or `tls_confi
 
 ## Features
 
-### Resource Coverage (62 Resources Across 20 API Groups)
+### Resource Coverage (65 Resources Across 20 API Groups)
 
 **Core API (v1)** - 17 resources  
 Pod, Service, ConfigMap, Secret, Namespace, Node, PersistentVolume, PersistentVolumeClaim, ServiceAccount, Endpoints, Event, ReplicationController, PodTemplate, ResourceQuota, LimitRange, Binding, ComponentStatus
@@ -52,8 +53,10 @@ Lease
 **Certificates (certificates.k8s.io/v1)** - 1 resource  
 CertificateSigningRequest
 
-**Admission Control (admissionregistration.k8s.io/v1)** - 4 resources  
-ValidatingWebhookConfiguration, MutatingWebhookConfiguration, ValidatingAdmissionPolicy, ValidatingAdmissionPolicyBinding
+**Admission Control (admissionregistration.k8s.io/v1)** - 6 resources  
+ValidatingWebhookConfiguration, MutatingWebhookConfiguration, ValidatingAdmissionPolicy, ValidatingAdmissionPolicyBinding, MutatingAdmissionPolicy, MutatingAdmissionPolicyBinding
+
+> `MutatingAdmissionPolicy` and `MutatingAdmissionPolicyBinding` graduated to GA in Kubernetes 1.36.
 
 **API Registration (apiregistration.k8s.io/v1)** - 1 resource  
 APIService
@@ -68,7 +71,7 @@ RuntimeClass
 StorageVersionMigration
 
 ### Core Capabilities
-- **62 Resource Types**: ALL Kubernetes 1.35 standard resources (100% coverage)
+- **65 Resource Types**: Kubernetes resource types across 20 API groups, current through K8s 1.36
 - **Full CRUD Operations**: Create, Read, Update, Delete, Patch on all resources
 - **Advanced Delete**: Grace period, propagation policy, preconditions, delete collection
 - **Advanced Create/Update**: Field manager, field validation, dry-run support
@@ -113,7 +116,7 @@ StorageVersionMigration
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
 - Two dependencies: zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
-- Tested against Kubernetes 1.35.1
+- Tested against Kubernetes 1.35.3 (Rancher Desktop)
 
 ## Installation
 
@@ -667,12 +670,12 @@ zig-klient/
 
 ## Feature Parity Status
 
-**Tested against**: Rancher Desktop with Kubernetes 1.35.1
+**Tested against**: Rancher Desktop (Kubernetes 1.35.3)
 
-| Feature | Kubernetes 1.35 | zig-klient | Coverage |
+| Feature | Kubernetes 1.36 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
 | HTTP Operations | All methods | All methods | 100% |
-| K8s Resource Types | 62 standard | 62 | 100% |
+| K8s Resource Types | 65 modeled | 65 | 100% |
 | API Groups | 20 | 20 | 100% |
 | Auth Methods | 5 | 4 | 100% |
 | In-Cluster Config | Yes | Yes | Yes |
@@ -687,15 +690,16 @@ zig-klient/
 | WebSocket Support | Yes | Yes (native) | Yes |
 | Protobuf Support | Yes | Yes (zig-protobuf) | Yes |
 | Gateway API | Yes | Yes | Yes |
-| Dynamic Resource Allocation | Yes | Yes | Yes |
+| Dynamic Resource Allocation | Yes (GA 1.36) | Yes | Yes |
+| Mutating Admission Policy | Yes (GA 1.36) | Yes | Yes |
 
-**Coverage**: 100% of Kubernetes 1.35 standard resources (62 types across 20 API groups) - workloads, networking, Gateway API, storage, security, auto-scaling, dynamic resource allocation, admission control, certificates, API management, storage migration, WebSocket, and Protobuf.
+**Coverage**: 65 Kubernetes resource types across 20 API groups, current through K8s 1.36 - workloads, networking, Gateway API, storage, security, auto-scaling, dynamic resource allocation, admission control (incl. 1.36 MutatingAdmissionPolicy), certificates, API management, storage migration, WebSocket, and Protobuf.
 
 See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed breakdown.
 
 ## Requirements
 
-- Zig 0.15.1 or newer
+- Zig 0.16.0 or newer
 - kubectl (for kubeconfig parsing)
 - Cloud CLI tools (optional, for exec credential plugins):
   - `aws` CLI for EKS
@@ -719,7 +723,7 @@ Contributions are welcome! Please:
 ## Roadmap
 
 ### Implemented
-- [x] All 62 standard Kubernetes 1.35 resource types across 20 API groups
+- [x] 65 Kubernetes resource types across 20 API groups (current through K8s 1.36)
 - [x] All HTTP methods (GET, POST, PUT, DELETE, PATCH)
 - [x] Bearer token auth
 - [x] mTLS auth

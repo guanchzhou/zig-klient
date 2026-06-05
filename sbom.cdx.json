@@ -1,0 +1,60 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:4beebeb1-0b20-4c4e-b8a3-da3041662011",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-06-05T10:12:46Z",
+    "tools": [
+      { "vendor": "zig-klient", "name": "hand-authored-from-build.zig.zon", "version": "0.2.0" }
+    ],
+    "component": {
+      "type": "library",
+      "bom-ref": "pkg:generic/zig-klient@0.2.0",
+      "name": "zig-klient",
+      "version": "0.2.0",
+      "description": "Kubernetes client library for Zig (65 resource types, through K8s 1.36)",
+      "licenses": [ { "license": { "id": "MIT" } } ],
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/guanchzhou/zig-klient" }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/zig-yaml@0.3.0",
+      "name": "zig-yaml",
+      "version": "0.3.0",
+      "scope": "required",
+      "description": "YAML 1.2 parser/serializer for Zig (path dependency: ../zig-yaml)",
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/guanchzhou/zig-yaml" }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/zig-protobuf@3.0.0",
+      "name": "zig-protobuf",
+      "version": "3.0.0",
+      "scope": "required",
+      "description": "Protocol Buffers for Zig",
+      "externalReferences": [
+        { "type": "vcs", "url": "git+https://github.com/Arwalk/zig-protobuf" },
+        { "type": "distribution", "url": "https://github.com/Arwalk/zig-protobuf/commit/7673d62b2909f1ffb687d83a646cded09212b73f" }
+      ],
+      "properties": [
+        { "name": "zig:zon:ref", "value": "zig-master" },
+        { "name": "zig:zon:hash", "value": "protobuf-3.0.0-0e82auyUKACQqyLICPhWm6kJoAru5DNP-idAJMP1W94r" }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:generic/zig-klient@0.2.0",
+      "dependsOn": [ "pkg:generic/zig-yaml@0.3.0", "pkg:generic/zig-protobuf@3.0.0" ]
+    },
+    { "ref": "pkg:generic/zig-yaml@0.3.0", "dependsOn": [] },
+    { "ref": "pkg:generic/zig-protobuf@3.0.0", "dependsOn": [] }
+  ]
+}
