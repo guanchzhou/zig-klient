@@ -11,7 +11,7 @@ fn podJson(name: []const u8, namespace: []const u8, phase: []const u8) []const u
     _ = namespace;
     _ = phase;
     return
-        \\{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod","namespace":"default"},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}
+    \\{"apiVersion":"v1","kind":"Pod","metadata":{"name":"test-pod","namespace":"default"},"spec":{"containers":[{"name":"nginx","image":"nginx:latest"}]}}
     ;
 }
 
@@ -40,7 +40,8 @@ test "ObjectMeta: deserialize with all fields" {
 
 test "ObjectMeta: deserialize with minimal fields" {
     const allocator = std.testing.allocator;
-    const json = \\{"name":"minimal"}
+    const json =
+        \\{"name":"minimal"}
     ;
 
     const parsed = try std.json.parseFromSlice(klient.ObjectMeta, allocator, json, .{
@@ -245,5 +246,4 @@ test "retry: shouldRetry returns false for non-retryable codes" {
 
     // Null status code should retry (transport error)
     try std.testing.expect(ctx.shouldRetry(null));
-
 }

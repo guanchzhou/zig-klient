@@ -17,7 +17,6 @@ test "ResourceClaim - create structure" {
     try std.testing.expectEqualStrings("resource.k8s.io/v1", claim.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceClaim", claim.kind.?);
     try std.testing.expectEqualStrings("test-resource-claim", claim.metadata.name);
-
 }
 
 test "ResourceClaim - JSON deserialization" {
@@ -45,7 +44,6 @@ test "ResourceClaim - JSON deserialization" {
     try std.testing.expectEqualStrings("ResourceClaim", parsed.value.kind.?);
     try std.testing.expectEqualStrings("gpu-claim", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("ml-workloads", parsed.value.metadata.namespace.?);
-
 }
 
 test "ResourceClaimTemplate - create structure" {
@@ -64,7 +62,6 @@ test "ResourceClaimTemplate - create structure" {
     try std.testing.expectEqualStrings("resource.k8s.io/v1", template.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceClaimTemplate", template.kind.?);
     try std.testing.expectEqualStrings("test-claim-template", template.metadata.name);
-
 }
 
 test "ResourceClaimTemplate - JSON deserialization" {
@@ -93,7 +90,6 @@ test "ResourceClaimTemplate - JSON deserialization" {
     try std.testing.expectEqualStrings("resource.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceClaimTemplate", parsed.value.kind.?);
     try std.testing.expectEqualStrings("gpu-template", parsed.value.metadata.name);
-
 }
 
 test "ResourceSlice - create structure" {
@@ -116,7 +112,6 @@ test "ResourceSlice - create structure" {
     try std.testing.expectEqualStrings("test-resource-slice", slice.metadata.name);
     try std.testing.expectEqualStrings("gpu.resource.k8s.io", slice.spec.?.driver);
     try std.testing.expectEqualStrings("node-1", slice.spec.?.nodeName.?);
-
 }
 
 test "ResourceSlice - JSON deserialization" {
@@ -146,7 +141,6 @@ test "ResourceSlice - JSON deserialization" {
     try std.testing.expectEqualStrings("ResourceSlice", parsed.value.kind.?);
     try std.testing.expectEqualStrings("node-1-gpu-slice", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("gpu.example.com", parsed.value.spec.?.driver);
-
 }
 
 test "DeviceClass - create structure" {
@@ -166,7 +160,6 @@ test "DeviceClass - create structure" {
     try std.testing.expectEqualStrings("resource.k8s.io/v1", dc.apiVersion.?);
     try std.testing.expectEqualStrings("DeviceClass", dc.kind.?);
     try std.testing.expectEqualStrings("test-device-class", dc.metadata.name);
-
 }
 
 test "DeviceClass - JSON deserialization" {
@@ -192,5 +185,4 @@ test "DeviceClass - JSON deserialization" {
     try std.testing.expectEqualStrings("resource.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("DeviceClass", parsed.value.kind.?);
     try std.testing.expectEqualStrings("nvidia-gpu", parsed.value.metadata.name);
-
 }

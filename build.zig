@@ -59,11 +59,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-migration-probe", .source = "tests/migration_probe_test.zig", .desc = "Force-compile entire library surface to catch lazy-compilation gaps" },
     };
 
-    // Tests excluded from default `zig build test` (require live cluster).
-    // NOTE: tests/websocket_live_test.zig is disabled — it was written against
-    // a pre-refactor klient API (parseKubeconfig, parseYaml, K8sClient.Config
-    // with .api_server/.auth_method) that no longer exists. Separate from the
-    // 0.16 migration; needs a full rewrite before it can compile.
+    // Tests excluded from default `zig build test` (require a live cluster).
+    // Live exec/attach/port-forward are covered by the integration entrypoints
+    // below (test-pod-exec, run via kubectl proxy).
     const live_tests = [_]struct { name: []const u8, source: []const u8, desc: []const u8 }{};
 
     const test_step = b.step("test", "Run all unit tests");

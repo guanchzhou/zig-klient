@@ -36,6 +36,3 @@ pub fn main() !void {
     std.debug.print("  ✅ Connection test passed!\n", .{});
     std.debug.print("═══════════════════════════════════════════════════════════\n", .{});
 }
-
-
-

@@ -72,5 +72,4 @@ test "registry: custom wrapper types have specialized methods" {
 
     // CronJobs has setSuspend
     try std.testing.expect(@hasDecl(klient.CronJobs, "setSuspend"));
-
 }

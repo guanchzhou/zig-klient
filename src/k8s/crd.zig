@@ -150,7 +150,6 @@ pub const DynamicClient = struct {
 };
 
 /// Common CRD examples
-
 /// Cert-Manager Certificate CRD
 pub const CertManagerCertificate = CRDInfo{
     .group = "cert-manager.io",

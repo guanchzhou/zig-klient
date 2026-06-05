@@ -19,7 +19,6 @@ test "ServiceAccount - create structure" {
     try std.testing.expectEqualStrings("test-sa", sa.metadata.name);
     try std.testing.expectEqualStrings("default", sa.metadata.namespace.?);
     try std.testing.expect(sa.automountServiceAccountToken.? == true);
-
 }
 
 test "ServiceAccount - deserialize from JSON" {
@@ -53,7 +52,6 @@ test "ServiceAccount - deserialize from JSON" {
     try std.testing.expectEqualStrings("default", sa.metadata.name);
     try std.testing.expectEqualStrings("default", sa.metadata.namespace.?);
     try std.testing.expect(sa.automountServiceAccountToken.? == true);
-
 }
 
 test "ServiceAccount - with image pull secrets" {
@@ -88,7 +86,6 @@ test "ServiceAccount - with image pull secrets" {
     try std.testing.expectEqualStrings("production", sa.metadata.namespace.?);
     try std.testing.expect(sa.imagePullSecrets != null);
     try std.testing.expect(sa.automountServiceAccountToken.? == false);
-
 }
 
 test "ServiceAccount - list response" {
@@ -135,5 +132,4 @@ test "ServiceAccount - list response" {
     try std.testing.expectEqualStrings("default", list.items[0].metadata.name);
     try std.testing.expectEqualStrings("admin", list.items[1].metadata.name);
     try std.testing.expectEqualStrings("kube-system", list.items[1].metadata.namespace.?);
-
 }

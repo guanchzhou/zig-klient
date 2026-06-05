@@ -8,14 +8,12 @@ test "WebSocket - Channel enum values" {
     try std.testing.expectEqual(2, ws.Channel.stderr.toInt());
     try std.testing.expectEqual(3, ws.Channel.error_stream.toInt());
     try std.testing.expectEqual(4, ws.Channel.resize.toInt());
-
 }
 
 test "WebSocket - Subprotocol strings" {
     try std.testing.expectEqualStrings("v4.channel.k8s.io", ws.Subprotocol.v4_channel.toString());
     try std.testing.expectEqualStrings("v4.base64.channel.k8s.io", ws.Subprotocol.v4_base64_channel.toString());
     try std.testing.expectEqualStrings("v5.channel.k8s.io", ws.Subprotocol.v5_channel.toString());
-
 }
 
 test "WebSocket - Build exec path with simple command" {
@@ -34,7 +32,6 @@ test "WebSocket - Build exec path with simple command" {
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "command=-la"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "stdout=true"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "stderr=true"));
-
 }
 
 test "WebSocket - Build exec path with stdin and container" {
@@ -53,7 +50,6 @@ test "WebSocket - Build exec path with stdin and container" {
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "stdin=true"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "tty=true"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "container=nginx"));
-
 }
 
 test "WebSocket - Build attach path" {
@@ -71,7 +67,6 @@ test "WebSocket - Build attach path" {
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "stdin=true"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "stdout=true"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "stderr=true"));
-
 }
 
 test "WebSocket - Build port-forward path with single port" {
@@ -83,7 +78,6 @@ test "WebSocket - Build port-forward path with single port" {
 
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "/api/v1/namespaces/default/pods/my-pod/portforward"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "ports=8080"));
-
 }
 
 test "WebSocket - Build port-forward path with multiple ports" {
@@ -97,7 +91,6 @@ test "WebSocket - Build port-forward path with multiple ports" {
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "ports=8080"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "ports=5432"));
     try std.testing.expect(std.mem.containsAtLeast(u8, path, 1, "ports=3306"));
-
 }
 
 test "WebSocket - ExecOptions structure" {
@@ -115,7 +108,6 @@ test "WebSocket - ExecOptions structure" {
     try std.testing.expectEqual(false, options.stdin);
     try std.testing.expectEqual(true, options.stdout);
     try std.testing.expectEqualStrings("nginx", options.container.?);
-
 }
 
 test "WebSocket - AttachOptions structure" {
@@ -130,7 +122,6 @@ test "WebSocket - AttachOptions structure" {
     try std.testing.expectEqual(true, options.stdin);
     try std.testing.expectEqual(true, options.tty);
     try std.testing.expectEqualStrings("app", options.container.?);
-
 }
 
 test "WebSocket - PortMapping structure" {
@@ -141,7 +132,6 @@ test "WebSocket - PortMapping structure" {
 
     try std.testing.expectEqual(@as(u16, 8080), mapping.local);
     try std.testing.expectEqual(@as(u16, 80), mapping.remote);
-
 }
 
 test "WebSocket - PortForwardOptions with multiple mappings" {
@@ -158,5 +148,4 @@ test "WebSocket - PortForwardOptions with multiple mappings" {
     try std.testing.expectEqual(@as(usize, 3), options.ports.len);
     try std.testing.expectEqual(@as(u16, 8080), options.ports[0].local);
     try std.testing.expectEqual(@as(u16, 80), options.ports[0].remote);
-
 }

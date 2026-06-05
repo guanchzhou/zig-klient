@@ -65,7 +65,6 @@ test "KubeconfigParser - YAML parsing" {
     const user = config.users[0];
     try std.testing.expectEqualStrings("test-user", user.name);
     try std.testing.expectEqualStrings("my-bearer-token", user.token.?);
-
 }
 
 test "KubeconfigParser - Get methods" {
@@ -118,5 +117,4 @@ test "KubeconfigParser - Get methods" {
     const user = config.getUserByName("prod-user").?;
     try std.testing.expectEqualStrings("Y2VydC1kYXRh", user.client_certificate_data.?);
     try std.testing.expectEqualStrings("a2V5LWRhdGE=", user.client_key_data.?);
-
 }

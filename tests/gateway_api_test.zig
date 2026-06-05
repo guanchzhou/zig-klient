@@ -20,7 +20,6 @@ test "GatewayClass - create structure" {
     try std.testing.expectEqualStrings("test-gateway-class", gc.metadata.name);
     try std.testing.expectEqualStrings("example.com/gateway-controller", gc.spec.?.controllerName);
     try std.testing.expectEqualStrings("Test gateway class", gc.spec.?.description.?);
-
 }
 
 test "GatewayClass - JSON deserialization" {
@@ -49,7 +48,6 @@ test "GatewayClass - JSON deserialization" {
     try std.testing.expectEqualStrings("GatewayClass", parsed.value.kind.?);
     try std.testing.expectEqualStrings("example-gateway", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("example.io/gateway-controller", parsed.value.spec.?.controllerName);
-
 }
 
 test "Gateway - create structure" {
@@ -71,7 +69,6 @@ test "Gateway - create structure" {
     try std.testing.expectEqualStrings("Gateway", gateway.kind.?);
     try std.testing.expectEqualStrings("test-gateway", gateway.metadata.name);
     try std.testing.expectEqualStrings("example-gateway-class", gateway.spec.?.gatewayClassName);
-
 }
 
 test "Gateway - JSON deserialization" {
@@ -102,7 +99,6 @@ test "Gateway - JSON deserialization" {
     try std.testing.expectEqualStrings("Gateway", parsed.value.kind.?);
     try std.testing.expectEqualStrings("my-gateway", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("my-gateway-class", parsed.value.spec.?.gatewayClassName);
-
 }
 
 test "HTTPRoute - create structure" {
@@ -123,7 +119,6 @@ test "HTTPRoute - create structure" {
     try std.testing.expectEqualStrings("gateway.networking.k8s.io/v1", route.apiVersion.?);
     try std.testing.expectEqualStrings("HTTPRoute", route.kind.?);
     try std.testing.expectEqualStrings("test-http-route", route.metadata.name);
-
 }
 
 test "HTTPRoute - JSON deserialization" {
@@ -153,7 +148,6 @@ test "HTTPRoute - JSON deserialization" {
     try std.testing.expectEqualStrings("gateway.networking.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("HTTPRoute", parsed.value.kind.?);
     try std.testing.expectEqualStrings("example-route", parsed.value.metadata.name);
-
 }
 
 test "GRPCRoute - create structure" {
@@ -174,7 +168,6 @@ test "GRPCRoute - create structure" {
     try std.testing.expectEqualStrings("gateway.networking.k8s.io/v1", route.apiVersion.?);
     try std.testing.expectEqualStrings("GRPCRoute", route.kind.?);
     try std.testing.expectEqualStrings("test-grpc-route", route.metadata.name);
-
 }
 
 test "GRPCRoute - JSON deserialization" {
@@ -204,7 +197,6 @@ test "GRPCRoute - JSON deserialization" {
     try std.testing.expectEqualStrings("gateway.networking.k8s.io/v1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("GRPCRoute", parsed.value.kind.?);
     try std.testing.expectEqualStrings("grpc-service", parsed.value.metadata.name);
-
 }
 
 test "ReferenceGrant - create structure" {
@@ -224,7 +216,6 @@ test "ReferenceGrant - create structure" {
     try std.testing.expectEqualStrings("gateway.networking.k8s.io/v1beta1", grant.apiVersion.?);
     try std.testing.expectEqualStrings("ReferenceGrant", grant.kind.?);
     try std.testing.expectEqualStrings("test-ref-grant", grant.metadata.name);
-
 }
 
 test "ReferenceGrant - JSON deserialization" {
@@ -254,5 +245,4 @@ test "ReferenceGrant - JSON deserialization" {
     try std.testing.expectEqualStrings("gateway.networking.k8s.io/v1beta1", parsed.value.apiVersion.?);
     try std.testing.expectEqualStrings("ReferenceGrant", parsed.value.kind.?);
     try std.testing.expectEqualStrings("backend-grant", parsed.value.metadata.name);
-
 }

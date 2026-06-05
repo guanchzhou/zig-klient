@@ -4,19 +4,19 @@ const std = @import("std");
 pub const RetryConfig = struct {
     /// Maximum number of retry attempts (0 = no retries)
     max_attempts: u32 = 3,
-    
+
     /// Initial backoff duration in milliseconds
     initial_backoff_ms: u64 = 100,
-    
+
     /// Maximum backoff duration in milliseconds
     max_backoff_ms: u64 = 30_000, // 30 seconds
-    
+
     /// Backoff multiplier for exponential backoff
     backoff_multiplier: f64 = 2.0,
-    
+
     /// Add random jitter to backoff (0.0 - 1.0)
     jitter_factor: f64 = 0.1,
-    
+
     /// Which HTTP status codes should trigger retries
     retryable_status_codes: []const u16 = &[_]u16{
         408, // Request Timeout
@@ -26,7 +26,7 @@ pub const RetryConfig = struct {
         503, // Service Unavailable
         504, // Gateway Timeout
     },
-    
+
     /// Maximum total retry time in milliseconds
     max_retry_time_ms: u64 = 60_000, // 1 minute
 };
@@ -47,19 +47,19 @@ pub const RetryContext = struct {
             .prng = std.Random.DefaultPrng.init(seed),
         };
     }
-    
+
     /// Check if we should retry based on attempt count and total time
     pub fn shouldRetry(self: *RetryContext, status_code: ?u16) bool {
         // Don't retry if we've exhausted attempts
         if (self.current_attempt >= self.config.max_attempts) {
             return false;
         }
-        
+
         // Don't retry if we've exceeded max retry time
         if (self.total_time_ms >= self.config.max_retry_time_ms) {
             return false;
         }
-        
+
         // If status code provided, check if it's retryable
         if (status_code) |code| {
             var is_retryable = false;
@@ -73,41 +73,41 @@ pub const RetryContext = struct {
                 return false;
             }
         }
-        
+
         return true;
     }
-    
+
     /// Calculate backoff duration for current attempt with exponential backoff and jitter
     pub fn getBackoffDuration(self: *RetryContext) u64 {
         if (self.current_attempt == 0) {
             return 0; // No backoff for first attempt
         }
-        
+
         // Calculate exponential backoff: initial * (multiplier ^ (attempt - 1))
         const attempt_f: f64 = @floatFromInt(self.current_attempt - 1);
         const backoff_f: f64 = @floatFromInt(self.config.initial_backoff_ms);
         const multiplier_pow = std.math.pow(f64, self.config.backoff_multiplier, attempt_f);
         var backoff_duration = backoff_f * multiplier_pow;
-        
+
         // Cap at max backoff
         const max_backoff_f: f64 = @floatFromInt(self.config.max_backoff_ms);
         if (backoff_duration > max_backoff_f) {
             backoff_duration = max_backoff_f;
         }
-        
+
         // Add random jitter: backoff * (1 + random(-jitter, +jitter))
         const jitter_range = backoff_duration * self.config.jitter_factor;
         const jitter = (self.prng.random().float(f64) * 2.0 - 1.0) * jitter_range;
         backoff_duration += jitter;
-        
+
         // Ensure non-negative
         if (backoff_duration < 0) {
             backoff_duration = 0;
         }
-        
+
         return @intFromFloat(backoff_duration);
     }
-    
+
     /// Sleep for the backoff duration
     pub fn backoff(self: *RetryContext) !void {
         const duration_ms = self.getBackoffDuration();
@@ -123,12 +123,12 @@ pub const RetryContext = struct {
         _ = std.c.nanosleep(&req, &rem);
         self.total_time_ms += duration_ms;
     }
-    
+
     /// Increment attempt counter
     pub fn nextAttempt(self: *RetryContext) void {
         self.current_attempt += 1;
     }
-    
+
     /// Reset retry context for a new operation
     pub fn reset(self: *RetryContext) void {
         self.current_attempt = 0;
@@ -143,7 +143,7 @@ pub fn retryWithBackoff(
     operation: anytype,
 ) !T {
     var ctx = RetryContext.init(config);
-    
+
     while (true) {
         // Try the operation
         const result = operation() catch |err| {
@@ -151,13 +151,13 @@ pub fn retryWithBackoff(
             if (!ctx.shouldRetry(null)) {
                 return err; // No more retries, return error
             }
-            
+
             // Backoff before retry
             ctx.nextAttempt();
             try ctx.backoff();
             continue;
         };
-        
+
         // Success!
         return result;
     }

@@ -104,7 +104,6 @@ pub fn executeCredentialPlugin(
 }
 
 /// Common exec credential plugin configurations
-
 /// AWS EKS credential plugin (aws-iam-authenticator or aws eks get-token)
 pub fn awsEksConfig(allocator: std.mem.Allocator, cluster_name: []const u8) !ExecConfig {
     var args = std.ArrayListUnmanaged([]const u8).empty;

@@ -81,5 +81,4 @@ test "DeleteOptions: buildBody includes preconditions" {
     const precond = parsed.value.object.get("preconditions").?.object;
     try std.testing.expectEqualStrings("12345", precond.get("resourceVersion").?.string);
     try std.testing.expectEqualStrings("abc-def-ghi", precond.get("uid").?.string);
-
 }

@@ -18,7 +18,6 @@ test "Role - create structure" {
     try std.testing.expectEqualStrings("Role", role.kind.?);
     try std.testing.expectEqualStrings("pod-reader", role.metadata.name);
     try std.testing.expectEqualStrings("default", role.metadata.namespace.?);
-
 }
 
 test "Role - deserialize from JSON" {
@@ -55,7 +54,6 @@ test "Role - deserialize from JSON" {
     try std.testing.expectEqualStrings("Role", role.kind.?);
     try std.testing.expectEqualStrings("pod-reader", role.metadata.name);
     try std.testing.expect(role.rules != null);
-
 }
 
 test "RoleBinding - create structure" {
@@ -80,7 +78,6 @@ test "RoleBinding - create structure" {
     try std.testing.expectEqualStrings("RoleBinding", role_binding.kind.?);
     try std.testing.expectEqualStrings("read-pods", role_binding.metadata.name);
     try std.testing.expectEqualStrings("pod-reader", role_binding.roleRef.name);
-
 }
 
 test "RoleBinding - deserialize from JSON" {
@@ -121,7 +118,6 @@ test "RoleBinding - deserialize from JSON" {
     try std.testing.expectEqualStrings("rbac.authorization.k8s.io/v1", role_binding.apiVersion.?);
     try std.testing.expectEqualStrings("read-pods", role_binding.metadata.name);
     try std.testing.expectEqualStrings("pod-reader", role_binding.roleRef.name);
-
 }
 
 test "ClusterRole - create structure" {
@@ -139,7 +135,6 @@ test "ClusterRole - create structure" {
     try std.testing.expectEqualStrings("rbac.authorization.k8s.io/v1", cluster_role.apiVersion.?);
     try std.testing.expectEqualStrings("ClusterRole", cluster_role.kind.?);
     try std.testing.expectEqualStrings("secret-reader", cluster_role.metadata.name);
-
 }
 
 test "ClusterRole - deserialize from JSON" {
@@ -174,7 +169,6 @@ test "ClusterRole - deserialize from JSON" {
     try std.testing.expectEqualStrings("rbac.authorization.k8s.io/v1", cluster_role.apiVersion.?);
     try std.testing.expectEqualStrings("cluster-admin", cluster_role.metadata.name);
     try std.testing.expect(cluster_role.rules != null);
-
 }
 
 test "ClusterRoleBinding - create structure" {
@@ -198,7 +192,6 @@ test "ClusterRoleBinding - create structure" {
     try std.testing.expectEqualStrings("ClusterRoleBinding", cluster_role_binding.kind.?);
     try std.testing.expectEqualStrings("read-secrets-global", cluster_role_binding.metadata.name);
     try std.testing.expectEqualStrings("secret-reader", cluster_role_binding.roleRef.name);
-
 }
 
 test "ClusterRoleBinding - deserialize from JSON" {
@@ -238,7 +231,6 @@ test "ClusterRoleBinding - deserialize from JSON" {
     try std.testing.expectEqualStrings("rbac.authorization.k8s.io/v1", cluster_role_binding.apiVersion.?);
     try std.testing.expectEqualStrings("cluster-admin-binding", cluster_role_binding.metadata.name);
     try std.testing.expectEqualStrings("cluster-admin", cluster_role_binding.roleRef.name);
-
 }
 
 test "Role list - deserialize from JSON" {
@@ -282,5 +274,4 @@ test "Role list - deserialize from JSON" {
     const list = parsed.value;
     try std.testing.expectEqual(@as(usize, 1), list.items.len);
     try std.testing.expectEqualStrings("pod-reader", list.items[0].metadata.name);
-
 }
