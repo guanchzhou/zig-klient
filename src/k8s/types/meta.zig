@@ -32,7 +32,7 @@ pub fn List(comptime T: type) type {
         items: []T,
         metadata: struct {
             resourceVersion: ?[]const u8 = null,
-            continue_: ?[]const u8 = null,
+            @"continue": ?[]const u8 = null,
         },
     };
 }

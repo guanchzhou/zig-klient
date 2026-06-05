@@ -110,7 +110,7 @@ pub const Pod = Resource(PodSpec);
 pub const ServiceSpec = struct {
     selector: ?std.json.Value = null,
     ports: ?[]ServicePort = null,
-    type_: ?[]const u8 = null,
+    type: ?[]const u8 = null,
     clusterIP: ?[]const u8 = null,
     externalIPs: ?[][]const u8 = null,
 };
@@ -139,7 +139,7 @@ pub const ConfigMap = Resource(ConfigMapData);
 pub const SecretData = struct {
     data: ?std.json.Value = null,
     stringData: ?std.json.Value = null,
-    type_: ?[]const u8 = null,
+    type: ?[]const u8 = null,
 };
 
 /// Secret (custom struct)

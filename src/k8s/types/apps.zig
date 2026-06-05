@@ -31,7 +31,7 @@ pub const PodTemplateSpec = struct {
 };
 
 pub const DeploymentStrategy = struct {
-    type_: []const u8,
+    type: []const u8,
     rollingUpdate: ?RollingUpdateDeployment = null,
 };
 
@@ -64,7 +64,7 @@ pub const StatefulSetSpec = struct {
 };
 
 pub const StatefulSetUpdateStrategy = struct {
-    type_: ?[]const u8 = null, // RollingUpdate or OnDelete
+    type: ?[]const u8 = null, // RollingUpdate or OnDelete
     rollingUpdate: ?RollingUpdateStatefulSetStrategy = null,
 };
 
@@ -84,7 +84,7 @@ pub const DaemonSetSpec = struct {
 };
 
 pub const DaemonSetUpdateStrategy = struct {
-    type_: ?[]const u8 = null, // RollingUpdate or OnDelete
+    type: ?[]const u8 = null, // RollingUpdate or OnDelete
     rollingUpdate: ?RollingUpdateDaemonSet = null,
 };
 

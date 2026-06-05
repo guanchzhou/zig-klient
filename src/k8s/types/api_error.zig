@@ -14,6 +14,6 @@ pub const ApiError = struct {
 
 /// Watch event types
 pub const WatchEvent = struct {
-    type_: []const u8, // ADDED, MODIFIED, DELETED, ERROR
+    type: []const u8, // ADDED, MODIFIED, DELETED, ERROR
     object: std.json.Value,
 };
