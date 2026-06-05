@@ -105,6 +105,32 @@ pub const K8sClient = struct {
         }
     }
 
+    fn dupStatusField(self: *K8sClient, obj: std.json.ObjectMap, key: []const u8) ?[]const u8 {
+        const v = obj.get(key) orelse return null;
+        if (v != .string) return null;
+        return self.allocator.dupe(u8, v.string) catch null;
+    }
+
+    /// Best-effort: parse a Kubernetes `Status` JSON error body into last_api_error.
+    /// Strings are duped so they outlive the temporary parse. No-op if the body is
+    /// empty or not a JSON object (e.g. a protobuf error body) — the caller then keeps
+    /// whatever fallback it set. Caller must have cleared the previous error first.
+    fn setApiErrorFromStatusJson(self: *K8sClient, body: []const u8) void {
+        if (body.len == 0) return;
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, body, .{
+            .ignore_unknown_fields = true,
+        }) catch return;
+        defer parsed.deinit();
+        if (parsed.value != .object) return;
+        const obj = parsed.value.object;
+        self.last_api_error = .{
+            .status = self.dupStatusField(obj, "status"),
+            .message = self.dupStatusField(obj, "message"),
+            .reason = self.dupStatusField(obj, "reason"),
+            .code = if (obj.get("code")) |v| (if (v == .integer) v.integer else null) else null,
+        };
+    }
+
     fn destroyHttpClient(self: *K8sClient) void {
         self.http_client.deinit();
     }
@@ -293,31 +319,7 @@ pub const K8sClient = struct {
 
             // Try to parse structured K8s API error
             self.clearLastApiError();
-            if (error_buffer.items.len > 0) {
-                const parsed_err = std.json.parseFromSlice(std.json.Value, self.allocator, error_buffer.items, .{
-                    .ignore_unknown_fields = true,
-                }) catch null;
-                if (parsed_err) |pe| {
-                    defer pe.deinit();
-                    const obj = pe.value.object;
-                    // Dupe strings so they survive pe.deinit()
-                    self.last_api_error = .{
-                        .status = if (obj.get("status")) |v| blk: {
-                            if (v == .string) break :blk self.allocator.dupe(u8, v.string) catch null else break :blk null;
-                        } else null,
-                        .message = if (obj.get("message")) |v| blk: {
-                            if (v == .string) break :blk self.allocator.dupe(u8, v.string) catch null else break :blk null;
-                        } else null,
-                        .reason = if (obj.get("reason")) |v| blk: {
-                            if (v == .string) break :blk self.allocator.dupe(u8, v.string) catch null else break :blk null;
-                        } else null,
-                        .code = if (obj.get("code")) |v| blk: {
-                            if (v == .integer) break :blk v.integer else break :blk null;
-                        } else null,
-                    };
-                }
-            }
-
+            self.setApiErrorFromStatusJson(error_buffer.items);
             return error.K8sApiError;
         }
 
@@ -395,7 +397,20 @@ pub const K8sClient = struct {
         const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
         if (!is_success) {
             self.clearLastApiError();
-            self.last_api_error = .{ .code = @intFromEnum(response.head.status) };
+            // Read the (small) error body. The API server usually returns a JSON
+            // Status even for a protobuf request; parse it for message/reason/code.
+            var err_buf = try std.ArrayList(u8).initCapacity(self.allocator, 1024);
+            defer err_buf.deinit(self.allocator);
+            var err_transfer_buffer: [16384]u8 = undefined;
+            var err_decompress: std.http.Decompress = undefined;
+            var err_decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
+            const err_reader = response.readerDecompressing(&err_transfer_buffer, &err_decompress, &err_decompress_buffer);
+            err_reader.appendRemaining(self.allocator, &err_buf, .limited(65536)) catch {};
+            self.setApiErrorFromStatusJson(err_buf.items);
+            // Fall back to the HTTP status code if the body wasn't a JSON Status.
+            if (self.last_api_error == null) {
+                self.last_api_error = .{ .code = @intFromEnum(response.head.status) };
+            }
             return error.K8sApiError;
         }
 

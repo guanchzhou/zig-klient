@@ -68,9 +68,14 @@ pub fn executeCredentialPlugin(
     }
 
     // Zig 0.16: std.process.Child.init was removed. Use std.process.spawn.
-    // NOTE: config.env (kubeconfig-scoped plugin env vars) is not yet applied — the
-    // child inherits the parent environment only. Honoring config.env requires
-    // building an Environ.Map (parent env + these entries) and passing environ_map.
+    //
+    // NOTE: config.env (kubeconfig-scoped plugin env vars) is intentionally not
+    // applied yet — the child inherits the parent environment only. The k8s spec
+    // ADDS these to the parent env, but SpawnOptions.environ_map *replaces* the env,
+    // and Zig 0.16 exposes no public accessor for the live process environ to seed a
+    // merged Map from a library context. Replacing the env with only config.env would
+    // drop PATH/HOME and break the plugins, so we inherit until a parent-env accessor
+    // is available. Plugins that need extra env can be invoked with it pre-set.
     var child = try std.process.spawn(io, .{
         .argv = cmd_args.items,
         .stdout = .pipe,

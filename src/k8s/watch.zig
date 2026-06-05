@@ -158,6 +158,12 @@ pub fn Watcher(comptime T: type) type {
             var redirect_buffer: [2048]u8 = undefined;
             var response = try req.receiveHead(&redirect_buffer);
 
+            // 410 Gone = the resourceVersion is too old / compacted away. Surface it
+            // distinctly so an Informer can re-list from scratch (the canonical
+            // list-then-watch recovery) instead of spinning on a doomed watch.
+            if (response.head.status == .gone) {
+                return error.ExpiredResourceVersion;
+            }
             if (response.head.status != .ok) {
                 return error.WatchFailed;
             }
@@ -355,7 +361,15 @@ pub fn Informer(comptime T: type) type {
                 self.watchLoop() catch |err| {
                     // On watch errors, retry if still running
                     if (!self.running.load(.acquire)) return;
-                    return err;
+                    switch (err) {
+                        // resourceVersion expired (HTTP 410) — re-list from scratch and
+                        // resume watching from the fresh version (client-go's relist).
+                        error.ExpiredResourceVersion => {
+                            try self.setResourceVersion(null);
+                            try self.initialList();
+                        },
+                        else => return err,
+                    }
                 };
             }
         }
@@ -405,6 +419,12 @@ pub fn Informer(comptime T: type) type {
 
             lockMutex(&self.mutex);
             defer self.mutex.unlock();
+
+            // Replace the cache contents (this also runs on a relist after a 410, so
+            // entries deleted while we were disconnected must not linger).
+            var it = self.cache.valueIterator();
+            while (it.next()) |parsed| parsed.deinit();
+            self.cache.clearRetainingCapacity();
 
             // Populate cache from list result. In the current List(T) schema
             // `items` is non-optional, so iterate it directly.
