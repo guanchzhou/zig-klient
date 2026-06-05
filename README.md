@@ -719,7 +719,7 @@ See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed break
 
 ## License
 
-Apache 2.0 License - see LICENSE file for details
+MIT License - see [LICENSE](LICENSE) file for details
 
 ## Contributing
 
