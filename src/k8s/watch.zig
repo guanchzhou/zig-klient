@@ -5,7 +5,8 @@ const ResourceClient = @import("resources.zig").ResourceClient;
 
 /// Spin-wait until the mutex is acquired.
 /// std.atomic.Mutex in 0.16 only provides tryLock; there is no blocking lock().
-/// Matches the pattern used in connection_pool.zig.
+/// The informer holds this lock only briefly (cache reads/writes), so a short spin
+/// is acceptable.
 fn lockMutex(m: *std.atomic.Mutex) void {
     while (!m.tryLock()) {
         std.atomic.spinLoopHint();

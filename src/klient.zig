@@ -202,11 +202,6 @@ pub const tls = @import("k8s/tls.zig");
 pub const TlsConfig = tls.TlsConfig;
 pub const TlsBundle = tls.TlsBundle;
 
-pub const pool = @import("k8s/connection_pool.zig");
-pub const ConnectionPool = pool.ConnectionPool;
-pub const PoolManager = pool.PoolManager;
-pub const PoolStats = pool.PoolStats;
-
 pub const crd = @import("k8s/crd.zig");
 pub const CRDInfo = crd.CRDInfo;
 pub const DynamicClient = crd.DynamicClient;

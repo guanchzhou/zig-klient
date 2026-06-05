@@ -14,7 +14,6 @@ test "probe: entire klient surface compiles" {
     std.testing.refAllDecls(klient.retry);
     std.testing.refAllDecls(klient.watch);
     std.testing.refAllDecls(klient.tls);
-    std.testing.refAllDecls(klient.pool);
     std.testing.refAllDecls(klient.crd);
     std.testing.refAllDecls(klient.exec_credential);
     std.testing.refAllDecls(klient.incluster);
