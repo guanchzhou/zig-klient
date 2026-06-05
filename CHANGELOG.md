@@ -5,6 +5,37 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-05
+
+Remaining review backlog: functional robustness, supply-chain, and CI/docs.
+
+### Fixed
+- **Informer relist on `410 Gone`**: an expired/compacted `resourceVersion` now
+  surfaces as `error.ExpiredResourceVersion`; the Informer re-lists from scratch
+  (clearing the cache) and resumes watching instead of spinning on a doomed watch.
+- **Protobuf error detail**: the protobuf request path now reads the error body and
+  parses the JSON `Status` the API server returns (message/reason/code), instead of
+  only the HTTP code. Shared `setApiErrorFromStatusJson` across both paths.
+
+### Added
+- Live **kind-based integration CI** (`integration.yml`, manual + nightly): runs
+  `test-via-proxy` + `test-pod-exec` against a real cluster.
+- **Fuzz target** for the kubeconfig YAML parser (`zig build test-fuzz --fuzz`).
+- **API docs**: `zig build docs` (autodoc) + a GitHub Pages deploy workflow.
+- **Release signing**: cosign keyless signatures for `SHA256SUMS` + the SBOM, with
+  verification instructions in SECURITY.md.
+
+### Removed
+- Dead `examples/` tree (referenced the removed connection pool, stale path dep,
+  never built). Usage lives in the README and `tests/entrypoints/`.
+
+### Notes (deliberate deferrals)
+- `ExecConfig.env` is still not applied (0.16 exposes no live-environ accessor to
+  build a merged env without dropping PATH/HOME — documented in code).
+- Spin-lock mutexes retained (0.16 has no blocking `std.Thread.Mutex`; held briefly).
+- Cosmetic refactors (re-export chain, `client.client` indirection) deferred —
+  breaking the public surface for cosmetics. `kcov` coverage deferred (immature on Zig).
+
 ## [0.3.0] - 2026-06-05
 
 Functional-bug, correctness, and SDLC fixes from a full code review. Two more masked
@@ -142,6 +173,7 @@ First tagged release. Builds on the completed Zig 0.16 migration with Kubernetes
   logic, exec-credential plugins, and Protobuf serialization. Completed the
   Zig 0.15 → 0.16 migration.
 
+[0.3.1]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.1
 [0.3.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.0
 [0.2.2]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.2
 [0.2.1]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.1
