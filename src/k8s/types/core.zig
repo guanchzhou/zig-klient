@@ -10,6 +10,9 @@ pub const PodSpec = struct {
     nodeName: ?[]const u8 = null,
     serviceAccountName: ?[]const u8 = null,
     volumes: ?[]Volume = null,
+    /// Run the pod in a user namespace, mapping container UIDs/GIDs to a distinct
+    /// host range. GA in K8s 1.36.
+    hostUsers: ?bool = null,
 };
 
 pub const Container = struct {
@@ -61,6 +64,16 @@ pub const Volume = struct {
     configMap: ?ConfigMapVolumeSource = null,
     secret: ?SecretVolumeSource = null,
     emptyDir: ?std.json.Value = null,
+    /// OCI image/artifact mounted as a read-only volume. Stable in K8s 1.36.
+    image: ?ImageVolumeSource = null,
+};
+
+/// OCI image volume source (Volume.image). Stable in K8s 1.36.
+pub const ImageVolumeSource = struct {
+    /// Image or artifact reference, e.g. "registry.example.com/app:v1".
+    reference: ?[]const u8 = null,
+    /// "Always", "Never", or "IfNotPresent".
+    pullPolicy: ?[]const u8 = null,
 };
 
 pub const ConfigMapVolumeSource = struct {

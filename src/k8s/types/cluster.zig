@@ -69,6 +69,32 @@ pub const ValidatingAdmissionPolicyBindingSpec = struct {
 /// ValidatingAdmissionPolicyBinding (admission policy binding) - cluster-scoped
 pub const ValidatingAdmissionPolicyBinding = Resource(ValidatingAdmissionPolicyBindingSpec);
 
+/// MutatingAdmissionPolicy specification (admissionregistration.k8s.io/v1) - K8s 1.36 GA
+pub const MutatingAdmissionPolicySpec = struct {
+    failurePolicy: ?[]const u8 = null,
+    matchConstraints: ?std.json.Value = null,
+    /// CEL-based mutations applied to matching objects (ApplyConfiguration or JSONPatch)
+    mutations: ?[]std.json.Value = null,
+    /// "Never" or "IfNeeded" — whether mutations may run again after other mutating admission
+    reinvocationPolicy: ?[]const u8 = null,
+    paramKind: ?std.json.Value = null,
+    matchConditions: ?[]std.json.Value = null,
+    variables: ?[]std.json.Value = null,
+};
+
+/// MutatingAdmissionPolicy (CEL admission mutation policy) - cluster-scoped
+pub const MutatingAdmissionPolicy = Resource(MutatingAdmissionPolicySpec);
+
+/// MutatingAdmissionPolicyBinding specification (admissionregistration.k8s.io/v1) - K8s 1.36 GA
+pub const MutatingAdmissionPolicyBindingSpec = struct {
+    policyName: []const u8,
+    paramRef: ?std.json.Value = null,
+    matchResources: ?std.json.Value = null,
+};
+
+/// MutatingAdmissionPolicyBinding (admission policy binding) - cluster-scoped
+pub const MutatingAdmissionPolicyBinding = Resource(MutatingAdmissionPolicyBindingSpec);
+
 /// APIService specification
 pub const APIServiceSpec = struct {
     service: ?std.json.Value = null,

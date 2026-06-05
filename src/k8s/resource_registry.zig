@@ -93,6 +93,8 @@ pub fn metaFor(comptime T: type) ResourceMeta {
         .{ types.MutatingWebhookConfiguration, "/apis/admissionregistration.k8s.io/v1", "mutatingwebhookconfigurations", Scope.cluster },
         .{ types.ValidatingAdmissionPolicy, "/apis/admissionregistration.k8s.io/v1", "validatingadmissionpolicies", Scope.cluster },
         .{ types.ValidatingAdmissionPolicyBinding, "/apis/admissionregistration.k8s.io/v1", "validatingadmissionpolicybindings", Scope.cluster },
+        .{ types.MutatingAdmissionPolicy, "/apis/admissionregistration.k8s.io/v1", "mutatingadmissionpolicies", Scope.cluster },
+        .{ types.MutatingAdmissionPolicyBinding, "/apis/admissionregistration.k8s.io/v1", "mutatingadmissionpolicybindings", Scope.cluster },
 
         // API Registration
         .{ types.APIService, "/apis/apiregistration.k8s.io/v1", "apiservices", Scope.cluster },
