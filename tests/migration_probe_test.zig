@@ -93,3 +93,19 @@ test "probe: JSON serialization paths compile on 0.16" {
     _ = &klient.crd.DynamicClient.create;
     _ = &klient.crd.DynamicClient.update;
 }
+
+// Remaining public method bodies not exercised by other tests — force them so any
+// further masked 0.16 breakage fails the build here.
+test "probe: remaining module method bodies compile on 0.16" {
+    _ = &klient.metrics.MetricsClient.getNodeMetrics;
+    _ = &klient.metrics.MetricsClient.getAllPodMetrics;
+    _ = &klient.metrics.MetricsClient.getPodMetrics;
+    _ = &klient.metrics.MetricsClient.getPodMetricsByName;
+    _ = &klient.exec_credential.executeCredentialPlugin;
+    _ = &klient.exec_credential.awsEksConfig;
+    _ = &klient.exec_credential.azureAksConfig;
+    _ = &klient.incluster.loadInClusterConfig;
+    _ = &klient.incluster.getServiceAccountToken;
+    _ = &klient.incluster.getDefaultServer;
+    _ = &klient.KubeconfigParser.load;
+}
