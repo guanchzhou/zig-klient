@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log.scoped(.klient);
 const K8sClient = @import("client.zig").K8sClient;
 
 const proxy_urls = [_][]const u8{
@@ -64,6 +65,12 @@ pub fn connectWithFallback(
 
 /// Try to connect via kubectl proxy on standard ports.
 fn tryProxyConnection(allocator: std.mem.Allocator, io: std.Io, namespace: ?[]const u8) ?K8sClient {
+    // SECURITY: this is a downgrade — the direct (TLS, authenticated) connection
+    // failed and we are falling back to an UNAUTHENTICATED plaintext localhost
+    // proxy. The bearer token is intentionally dropped (token = null) so it is never
+    // sent in cleartext, and the host is hardcoded loopback (no SSRF). Surface it so
+    // the downgrade is never silent.
+    log.warn("direct API-server connection failed; falling back to local kubectl proxy (unauthenticated, loopback only)", .{});
     for (proxy_urls) |url| {
         if (tryConnect(allocator, io, url, namespace)) |client| return client;
     }

@@ -8,6 +8,9 @@ const tls_mod = @import("tls.zig");
 ///
 /// Note: This library is logging-agnostic. Wrap API calls with your own
 /// logging if needed.
+///
+/// Thread-safety: a `K8sClient` is NOT safe to share across threads — `last_api_error`
+/// is unsynchronized mutable state updated on each request. Use one client per thread.
 pub const K8sClient = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -418,6 +421,11 @@ pub const K8sClient = struct {
 pub const ClusterInfo = struct {
     k8s_version: []const u8,
     node_count: u32,
+
+    /// getClusterInfo() dupes `k8s_version`, so the caller owns it and must free.
+    pub fn deinit(self: ClusterInfo, allocator: std.mem.Allocator) void {
+        allocator.free(self.k8s_version);
+    }
 };
 
 /// Kubeconfig structure

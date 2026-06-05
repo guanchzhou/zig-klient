@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log.scoped(.klient);
 
 /// ExecCredential configuration from kubeconfig
 pub const ExecConfig = struct {
@@ -67,6 +68,9 @@ pub fn executeCredentialPlugin(
     }
 
     // Zig 0.16: std.process.Child.init was removed. Use std.process.spawn.
+    // NOTE: config.env (kubeconfig-scoped plugin env vars) is not yet applied — the
+    // child inherits the parent environment only. Honoring config.env requires
+    // building an Environ.Map (parent env + these entries) and passing environ_map.
     var child = try std.process.spawn(io, .{
         .argv = cmd_args.items,
         .stdout = .pipe,
@@ -85,7 +89,7 @@ pub fn executeCredentialPlugin(
 
     if (term != .exited or term.exited != 0) {
         if (config.installHint) |hint| {
-            std.debug.print("Credential plugin failed. Install hint: {s}\n", .{hint});
+            log.warn("credential plugin failed; install hint: {s}", .{hint});
         }
         return error.CredentialPluginFailed;
     }
