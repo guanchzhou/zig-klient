@@ -20,8 +20,6 @@ pub const K8sClient = struct {
     max_response_size: usize,
     /// Last K8s API error response (populated on K8sApiError)
     last_api_error: ?ApiError = null,
-    // Temp CA file path - must be deleted in deinit()
-    temp_ca_path: ?[]const u8 = null,
 
     /// Structured Kubernetes API error (owns its string memory)
     pub const ApiError = struct {
@@ -62,34 +60,37 @@ pub const K8sClient = struct {
         http_client.now = now;
 
         // Configure custom CA bundle if TLS config provided
-        var temp_ca_path: ?[]const u8 = null;
-
         if (config.tls_config) |tls| {
             if (tls.ca_cert_data) |ca_pem| {
-                // Write CA cert PEM data to a temp file for the Certificate.Bundle parser
-                const timestamp: u64 = @intCast(now.toSeconds());
-                const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{d}.pem", .{timestamp});
-                temp_ca_path = path;
+                // The Certificate.Bundle parser only reads from a file, so we stage the
+                // PEM in a temp file. SECURITY: use an UNPREDICTABLE name + exclusive
+                // (O_EXCL) creation and delete it immediately after loading, so a local
+                // attacker on a shared /tmp cannot win a symlink/TOCTOU race to swap in
+                // their own CA (which would let them MITM the entire API session).
+                var rand_bytes: [16]u8 = undefined;
+                try io.randomSecure(&rand_bytes);
+                const rand_hex = std.fmt.bytesToHex(rand_bytes, .lower);
+                const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{s}.pem", .{&rand_hex});
+                defer allocator.free(path);
 
-                const file = std.Io.Dir.createFileAbsolute(io, path, .{}) catch |err| {
-                    // If we can't create the temp file, TLS with custom CA will fail.
-                    // Propagate the error instead of silently degrading.
-                    allocator.free(path);
-                    return err;
-                };
-                defer file.close(io);
-                var write_buf: [4096]u8 = undefined;
-                var file_writer = file.writer(io, &write_buf);
-                try file_writer.interface.writeAll(ca_pem);
-                try file_writer.flush();
+                {
+                    // .exclusive = true → fails if the path already exists (incl. a
+                    // pre-planted symlink), so creation never follows/overwrites.
+                    const file = std.Io.Dir.createFileAbsolute(io, path, .{ .exclusive = true }) catch |err| {
+                        return err;
+                    };
+                    defer file.close(io);
+                    var write_buf: [4096]u8 = undefined;
+                    var file_writer = file.writer(io, &write_buf);
+                    try file_writer.interface.writeAll(ca_pem);
+                    try file_writer.flush();
+                }
 
-                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, path) catch |err| {
-                    // CA cert data provided but couldn't be loaded — this is a
-                    // configuration error that should not be silently ignored.
-                    allocator.free(path);
-                    temp_ca_path = null;
-                    return err;
-                };
+                // Parse into the bundle (which copies the certs into its own memory),
+                // then remove the staging file regardless of outcome.
+                const load_result = http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, path);
+                std.Io.Dir.deleteFileAbsolute(io, path) catch {};
+                load_result catch |err| return err;
             } else if (tls.ca_cert_path) |ca_path| {
                 http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, ca_path) catch |err| {
                     // User explicitly provided a CA cert path that failed to load.
@@ -108,7 +109,6 @@ pub const K8sClient = struct {
             .retry_config = config.retry_config orelse retry_mod.defaultConfig,
             .tls_config = config.tls_config,
             .max_response_size = config.max_response_size,
-            .temp_ca_path = temp_ca_path,
         };
     }
 
@@ -118,12 +118,6 @@ pub const K8sClient = struct {
         if (self.token) |t| self.allocator.free(t);
         self.allocator.free(self.namespace);
         self.destroyHttpClient();
-
-        // Clean up temporary CA file if it exists
-        if (self.temp_ca_path) |path| {
-            std.Io.Dir.deleteFileAbsolute(self.io, path) catch {};
-            self.allocator.free(path);
-        }
     }
 
     /// Free previous API error strings before storing a new one
