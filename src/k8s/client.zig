@@ -148,19 +148,40 @@ pub const K8sClient = struct {
     /// HTTP method alias for convenience
     pub const Method = std.http.Method;
 
-    /// Make HTTP request to Kubernetes API with automatic retries
+    /// Make a request to the Kubernetes API. Idempotent methods (GET/PUT/DELETE/
+    /// PATCH/HEAD) are retried automatically per `retry_config` on transport errors
+    /// and retryable status codes (429/5xx); POST (create) is sent ONCE to avoid
+    /// duplicating a non-idempotent write. Use requestWithRetry to force retries.
     pub fn request(self: *K8sClient, method: std.http.Method, path: []const u8, body: ?[]const u8) ![]u8 {
         return self.requestWithContentType(method, path, body, "application/json");
     }
 
-    /// Make HTTP request with retries (use this for production code)
-    /// Retries on transport errors and retryable HTTP status codes (429, 500, 502, 503, 504)
-    pub fn requestWithRetry(self: *K8sClient, method: std.http.Method, path: []const u8, body: ?[]const u8) ![]u8 {
-        var retry_ctx = retry_mod.RetryContext.init(self.retry_config);
+    /// Whether a duplicate of this method has no additional observable effect, so
+    /// it is safe to retry. POST/CONNECT are not.
+    fn isIdempotent(method: std.http.Method) bool {
+        return switch (method) {
+            .GET, .HEAD, .PUT, .DELETE, .OPTIONS, .TRACE, .PATCH => true,
+            else => false,
+        };
+    }
 
+    /// Shared retry loop. Retries when `force` is set or the method is idempotent;
+    /// otherwise performs a single attempt.
+    fn sendWithRetry(
+        self: *K8sClient,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        content_type: []const u8,
+        force: bool,
+    ) ![]u8 {
+        if (!force and !isIdempotent(method)) {
+            return self.sendOnce(method, path, body, content_type);
+        }
+
+        var retry_ctx = retry_mod.RetryContext.init(self.retry_config);
         while (true) {
-            const result = self.request(method, path, body) catch |err| {
-                // For K8s API errors, check if the status code is retryable
+            const result = self.sendOnce(method, path, body, content_type) catch |err| {
                 const status_code: ?u16 = if (err == error.K8sApiError)
                     if (self.last_api_error) |api_err|
                         if (api_err.code) |code| @intCast(code) else null
@@ -169,21 +190,35 @@ pub const K8sClient = struct {
                 else
                     null;
 
-                if (!retry_ctx.shouldRetry(status_code)) {
-                    return err;
-                }
+                if (!retry_ctx.shouldRetry(status_code)) return err;
 
                 retry_ctx.nextAttempt();
                 try retry_ctx.backoff();
                 continue;
             };
-
             return result;
         }
     }
 
-    /// Make HTTP request with custom Content-Type
+    /// Force retries regardless of method idempotency. Use only when a duplicate
+    /// write is known to be safe (e.g. a POST guarded by a server-side dedup).
+    pub fn requestWithRetry(self: *K8sClient, method: std.http.Method, path: []const u8, body: ?[]const u8) ![]u8 {
+        return self.sendWithRetry(method, path, body, "application/json", true);
+    }
+
+    /// Make HTTP request with custom Content-Type (idempotent methods auto-retry).
     pub fn requestWithContentType(
+        self: *K8sClient,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        content_type: []const u8,
+    ) ![]u8 {
+        return self.sendWithRetry(method, path, body, content_type, false);
+    }
+
+    /// A single HTTP attempt with no retry. The retry wrappers call this.
+    fn sendOnce(
         self: *K8sClient,
         method: std.http.Method,
         path: []const u8,
