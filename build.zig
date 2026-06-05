@@ -108,6 +108,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-watch-pods", .source = "tests/entrypoints/test_watch_pods.zig", .desc = "Watch for pod events" },
         .{ .name = "test-full-integration", .source = "tests/entrypoints/test_full_integration.zig", .desc = "Run all operations end-to-end" },
         .{ .name = "test-via-proxy", .source = "tests/entrypoints/test_via_proxy.zig", .desc = "Integration test via kubectl proxy (no TLS)" },
+        .{ .name = "test-mutating-admission-policy", .source = "tests/entrypoints/test_mutating_admission_policy.zig", .desc = "MutatingAdmissionPolicy CRUD (requires K8s >= 1.36)" },
     };
 
     const build_integration_step = b.step("build-integration-tests", "Build all integration test executables");
