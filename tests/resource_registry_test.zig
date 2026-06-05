@@ -15,7 +15,6 @@ test "registry: Pod is namespaced at /api/v1" {
     try std.testing.expectEqualStrings("/api/v1", rc.api_path);
     try std.testing.expectEqualStrings("pods", rc.resource);
     try std.testing.expect(!rc.is_cluster_scoped);
-    std.debug.print("✅ Pod registry metadata test passed\n", .{});
 }
 
 test "registry: Namespace is cluster-scoped" {
@@ -26,7 +25,6 @@ test "registry: Namespace is cluster-scoped" {
     // We can't call init without a real K8sClient, but we can verify
     // the type exists and has the right shape
     try std.testing.expect(@hasField(ns_type, "client"));
-    std.debug.print("✅ Namespace cluster-scoped test passed\n", .{});
 }
 
 test "registry: Deployment is namespaced at /apis/apps/v1" {
@@ -37,7 +35,6 @@ test "registry: Deployment is namespaced at /apis/apps/v1" {
     try std.testing.expect(@hasDecl(deploy_type, "scale"));
     try std.testing.expect(@hasDecl(deploy_type, "rolloutRestart"));
     try std.testing.expect(@hasDecl(deploy_type, "setImage"));
-    std.debug.print("✅ Deployment registry metadata test passed\n", .{});
 }
 
 test "registry: all resource wrapper types have .client field" {
@@ -54,7 +51,6 @@ test "registry: all resource wrapper types have .client field" {
     try std.testing.expect(@hasField(klient.StorageVersionMigrations, "client")); // misc
     try std.testing.expect(@hasField(klient.CertificateSigningRequests, "client")); // certs
     try std.testing.expect(@hasField(klient.ValidatingWebhookConfigurations, "client")); // admission
-    std.debug.print("✅ All 62 resource types registered test passed\n", .{});
 }
 
 test "registry: custom wrapper types have specialized methods" {
@@ -77,5 +73,4 @@ test "registry: custom wrapper types have specialized methods" {
     // CronJobs has setSuspend
     try std.testing.expect(@hasDecl(klient.CronJobs, "setSuspend"));
 
-    std.debug.print("✅ Custom wrapper specialized methods test passed\n", .{});
 }

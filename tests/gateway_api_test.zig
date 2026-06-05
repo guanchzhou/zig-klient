@@ -21,7 +21,6 @@ test "GatewayClass - create structure" {
     try std.testing.expectEqualStrings("example.com/gateway-controller", gc.spec.?.controllerName);
     try std.testing.expectEqualStrings("Test gateway class", gc.spec.?.description.?);
 
-    std.debug.print("✅ GatewayClass create structure test passed\n", .{});
 }
 
 test "GatewayClass - JSON deserialization" {
@@ -51,7 +50,6 @@ test "GatewayClass - JSON deserialization" {
     try std.testing.expectEqualStrings("example-gateway", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("example.io/gateway-controller", parsed.value.spec.?.controllerName);
 
-    std.debug.print("✅ GatewayClass JSON deserialization test passed\n", .{});
 }
 
 test "Gateway - create structure" {
@@ -74,7 +72,6 @@ test "Gateway - create structure" {
     try std.testing.expectEqualStrings("test-gateway", gateway.metadata.name);
     try std.testing.expectEqualStrings("example-gateway-class", gateway.spec.?.gatewayClassName);
 
-    std.debug.print("✅ Gateway create structure test passed\n", .{});
 }
 
 test "Gateway - JSON deserialization" {
@@ -106,7 +103,6 @@ test "Gateway - JSON deserialization" {
     try std.testing.expectEqualStrings("my-gateway", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("my-gateway-class", parsed.value.spec.?.gatewayClassName);
 
-    std.debug.print("✅ Gateway JSON deserialization test passed\n", .{});
 }
 
 test "HTTPRoute - create structure" {
@@ -128,7 +124,6 @@ test "HTTPRoute - create structure" {
     try std.testing.expectEqualStrings("HTTPRoute", route.kind.?);
     try std.testing.expectEqualStrings("test-http-route", route.metadata.name);
 
-    std.debug.print("✅ HTTPRoute create structure test passed\n", .{});
 }
 
 test "HTTPRoute - JSON deserialization" {
@@ -159,7 +154,6 @@ test "HTTPRoute - JSON deserialization" {
     try std.testing.expectEqualStrings("HTTPRoute", parsed.value.kind.?);
     try std.testing.expectEqualStrings("example-route", parsed.value.metadata.name);
 
-    std.debug.print("✅ HTTPRoute JSON deserialization test passed\n", .{});
 }
 
 test "GRPCRoute - create structure" {
@@ -181,7 +175,6 @@ test "GRPCRoute - create structure" {
     try std.testing.expectEqualStrings("GRPCRoute", route.kind.?);
     try std.testing.expectEqualStrings("test-grpc-route", route.metadata.name);
 
-    std.debug.print("✅ GRPCRoute create structure test passed\n", .{});
 }
 
 test "GRPCRoute - JSON deserialization" {
@@ -212,7 +205,6 @@ test "GRPCRoute - JSON deserialization" {
     try std.testing.expectEqualStrings("GRPCRoute", parsed.value.kind.?);
     try std.testing.expectEqualStrings("grpc-service", parsed.value.metadata.name);
 
-    std.debug.print("✅ GRPCRoute JSON deserialization test passed\n", .{});
 }
 
 test "ReferenceGrant - create structure" {
@@ -233,7 +225,6 @@ test "ReferenceGrant - create structure" {
     try std.testing.expectEqualStrings("ReferenceGrant", grant.kind.?);
     try std.testing.expectEqualStrings("test-ref-grant", grant.metadata.name);
 
-    std.debug.print("✅ ReferenceGrant create structure test passed\n", .{});
 }
 
 test "ReferenceGrant - JSON deserialization" {
@@ -264,5 +255,4 @@ test "ReferenceGrant - JSON deserialization" {
     try std.testing.expectEqualStrings("ReferenceGrant", parsed.value.kind.?);
     try std.testing.expectEqualStrings("backend-grant", parsed.value.metadata.name);
 
-    std.debug.print("✅ ReferenceGrant JSON deserialization test passed\n", .{});
 }

@@ -15,7 +15,6 @@ test "ValidatingWebhookConfiguration - create structure" {
     try std.testing.expectEqualStrings("admissionregistration.k8s.io/v1", vwc.apiVersion.?);
     try std.testing.expectEqualStrings("ValidatingWebhookConfiguration", vwc.kind.?);
     try std.testing.expectEqualStrings("test-webhook", vwc.metadata.name);
-    std.debug.print("✅ ValidatingWebhookConfiguration create structure test passed\n", .{});
 }
 
 test "ValidatingWebhookConfiguration - deserialize from JSON" {
@@ -47,7 +46,6 @@ test "ValidatingWebhookConfiguration - deserialize from JSON" {
 
     try std.testing.expectEqualStrings("my-webhook", vwc.metadata.name);
     try std.testing.expect(vwc.webhooks.?.len == 1);
-    std.debug.print("✅ ValidatingWebhookConfiguration deserialize test passed\n", .{});
 }
 
 test "MutatingWebhookConfiguration - create structure" {
@@ -64,7 +62,6 @@ test "MutatingWebhookConfiguration - create structure" {
     try std.testing.expectEqualStrings("admissionregistration.k8s.io/v1", mwc.apiVersion.?);
     try std.testing.expectEqualStrings("MutatingWebhookConfiguration", mwc.kind.?);
     try std.testing.expectEqualStrings("test-mutating-webhook", mwc.metadata.name);
-    std.debug.print("✅ MutatingWebhookConfiguration create structure test passed\n", .{});
 }
 
 test "ValidatingAdmissionPolicy - create structure" {
@@ -89,7 +86,6 @@ test "ValidatingAdmissionPolicy - create structure" {
     try std.testing.expectEqualStrings("admissionregistration.k8s.io/v1", policy.apiVersion.?);
     try std.testing.expectEqualStrings("ValidatingAdmissionPolicy", policy.kind.?);
     try std.testing.expectEqualStrings("test-policy", policy.metadata.name);
-    std.debug.print("✅ ValidatingAdmissionPolicy create structure test passed\n", .{});
 }
 
 test "ValidatingAdmissionPolicyBinding - create structure" {
@@ -112,7 +108,6 @@ test "ValidatingAdmissionPolicyBinding - create structure" {
     try std.testing.expectEqualStrings("ValidatingAdmissionPolicyBinding", binding.kind.?);
     try std.testing.expectEqualStrings("test-binding", binding.metadata.name);
     try std.testing.expectEqualStrings("test-policy", binding.spec.?.policyName);
-    std.debug.print("✅ ValidatingAdmissionPolicyBinding create structure test passed\n", .{});
 }
 
 test "MutatingAdmissionPolicy - create structure (K8s 1.36 GA)" {
@@ -215,5 +210,4 @@ test "CertificateSigningRequest - create structure" {
     try std.testing.expectEqualStrings("CertificateSigningRequest", csr.kind.?);
     try std.testing.expectEqualStrings("test-csr", csr.metadata.name);
     try std.testing.expectEqualStrings("kubernetes.io/kube-apiserver-client", csr.spec.?.signerName);
-    std.debug.print("✅ CertificateSigningRequest create structure test passed\n", .{});
 }

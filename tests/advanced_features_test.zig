@@ -17,7 +17,6 @@ test "TLS Config - Basic structure" {
     try std.testing.expectEqualStrings("/path/to/ca.pem", config.ca_cert_path.?);
     try std.testing.expect(!config.insecure_skip_verify);
     
-    std.debug.print("✅ TLS Config structure test passed\n", .{});
 }
 
 test "TLS - PEM validation" {
@@ -50,7 +49,6 @@ test "TLS - PEM validation" {
     const invalid_key_result = tls.validateCertKeyPair(valid_cert, invalid_key);
     try std.testing.expectError(error.InvalidPrivateKey, invalid_key_result);
     
-    std.debug.print("✅ TLS PEM validation test passed\n", .{});
 }
 
 test "TLS - Base64 decoding" {
@@ -62,7 +60,6 @@ test "TLS - Base64 decoding" {
     
     try std.testing.expectEqualStrings("Hello World!", decoded);
     
-    std.debug.print("✅ TLS Base64 decoding test passed\n", .{});
 }
 
 test "Connection Pool - Initialization" {
@@ -79,7 +76,6 @@ test "Connection Pool - Initialization" {
     try std.testing.expectEqual(@as(usize, 5), conn_pool.max_connections);
     try std.testing.expectEqual(@as(u64, 10_000), conn_pool.idle_timeout_ms);
     
-    std.debug.print("✅ Connection Pool initialization test passed\n", .{});
 }
 
 test "Connection Pool - Statistics" {
@@ -99,7 +95,6 @@ test "Connection Pool - Statistics" {
     try std.testing.expectEqual(@as(usize, 10), stats.max);
     try std.testing.expectEqual(@as(f64, 0.0), stats.utilization());
     
-    std.debug.print("✅ Connection Pool statistics test passed\n", .{});
 }
 
 test "Connection Pool - Utilization calculation" {
@@ -121,7 +116,6 @@ test "Connection Pool - Utilization calculation" {
     
     try std.testing.expectEqual(@as(f64, 0.0), stats2.utilization());
     
-    std.debug.print("✅ Pool utilization calculation test passed\n", .{});
 }
 
 test "CRD - API path construction" {
@@ -151,7 +145,6 @@ test "CRD - API path construction" {
     defer allocator.free(custom_path);
     try std.testing.expectEqualStrings("/apis/example.com/v1alpha1", custom_path);
     
-    std.debug.print("✅ CRD API path construction test passed\n", .{});
 }
 
 test "CRD - Resource path construction" {
@@ -192,7 +185,6 @@ test "CRD - Resource path construction" {
     defer allocator.free(cluster_get_path);
     try std.testing.expectEqualStrings("/apis/custom.io/v1/clusterresources/my-resource", cluster_get_path);
     
-    std.debug.print("✅ CRD resource path construction test passed\n", .{});
 }
 
 test "CRD - Predefined CRDs" {
@@ -216,7 +208,6 @@ test "CRD - Predefined CRDs" {
     try std.testing.expectEqualStrings("/apis/monitoring.coreos.com/v1", prom_path);
     try std.testing.expectEqualStrings("ServiceMonitor", crd.PrometheusServiceMonitor.kind);
     
-    std.debug.print("✅ Predefined CRDs test passed\n", .{});
 }
 
 test "CRD - Argo and Knative" {
@@ -230,5 +221,4 @@ test "CRD - Argo and Knative" {
     try std.testing.expectEqualStrings("v1", crd.KnativeService.version);
     try std.testing.expectEqualStrings("services", crd.KnativeService.plural);
     
-    std.debug.print("✅ Argo and Knative CRDs test passed\n", .{});
 }

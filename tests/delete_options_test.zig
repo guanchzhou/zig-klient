@@ -13,7 +13,6 @@ test "DeleteOptions - buildQueryString with grace period" {
     defer allocator.free(query_string);
 
     try std.testing.expectEqualStrings("gracePeriodSeconds=30", query_string);
-    std.debug.print("✅ DeleteOptions grace period test passed\n", .{});
 }
 
 test "DeleteOptions - buildQueryString with propagation policy" {
@@ -27,7 +26,6 @@ test "DeleteOptions - buildQueryString with propagation policy" {
     defer allocator.free(query_string);
 
     try std.testing.expectEqualStrings("propagationPolicy=Foreground", query_string);
-    std.debug.print("✅ DeleteOptions propagation policy test passed\n", .{});
 }
 
 test "DeleteOptions - buildQueryString with dry run" {
@@ -41,7 +39,6 @@ test "DeleteOptions - buildQueryString with dry run" {
     defer allocator.free(query_string);
 
     try std.testing.expectEqualStrings("dryRun=All", query_string);
-    std.debug.print("✅ DeleteOptions dry run test passed\n", .{});
 }
 
 test "DeleteOptions - buildQueryString with multiple options" {
@@ -60,7 +57,6 @@ test "DeleteOptions - buildQueryString with multiple options" {
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "gracePeriodSeconds=0"));
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "propagationPolicy=Background"));
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "dryRun=All"));
-    std.debug.print("✅ DeleteOptions multiple options test passed\n", .{});
 }
 
 test "DeleteOptions - buildQueryString with no options" {
@@ -71,7 +67,6 @@ test "DeleteOptions - buildQueryString with no options" {
     defer allocator.free(query_string);
 
     try std.testing.expectEqualStrings("", query_string);
-    std.debug.print("✅ DeleteOptions no options test passed\n", .{});
 }
 
 test "DeleteOptions - buildBody with preconditions" {
@@ -96,7 +91,6 @@ test "DeleteOptions - buildBody with preconditions" {
     try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "preconditions"));
     try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "12345"));
     try std.testing.expect(std.mem.containsAtLeast(u8, body, 1, "abc-def-123"));
-    std.debug.print("✅ DeleteOptions buildBody test passed\n", .{});
 }
 
 test "CreateOptions - buildQueryString with field manager" {
@@ -110,7 +104,6 @@ test "CreateOptions - buildQueryString with field manager" {
     defer allocator.free(query_string);
 
     try std.testing.expectEqualStrings("fieldManager=my-controller", query_string);
-    std.debug.print("✅ CreateOptions field manager test passed\n", .{});
 }
 
 test "CreateOptions - buildQueryString with field validation" {
@@ -124,7 +117,6 @@ test "CreateOptions - buildQueryString with field validation" {
     defer allocator.free(query_string);
 
     try std.testing.expectEqualStrings("fieldValidation=Strict", query_string);
-    std.debug.print("✅ CreateOptions field validation test passed\n", .{});
 }
 
 test "CreateOptions - buildQueryString with all options" {
@@ -145,7 +137,6 @@ test "CreateOptions - buildQueryString with all options" {
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "fieldValidation=Warn"));
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "dryRun=All"));
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "pretty=true"));
-    std.debug.print("✅ CreateOptions all options test passed\n", .{});
 }
 
 test "UpdateOptions - buildQueryString with options" {
@@ -162,19 +153,16 @@ test "UpdateOptions - buildQueryString with options" {
     // Check parameters are present
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "fieldManager=update-controller"));
     try std.testing.expect(std.mem.containsAtLeast(u8, query_string, 1, "fieldValidation=Ignore"));
-    std.debug.print("✅ UpdateOptions test passed\n", .{});
 }
 
 test "PropagationPolicy - toString" {
     try std.testing.expectEqualStrings("Orphan", delete_opts.PropagationPolicy.orphan.toString());
     try std.testing.expectEqualStrings("Background", delete_opts.PropagationPolicy.background.toString());
     try std.testing.expectEqualStrings("Foreground", delete_opts.PropagationPolicy.foreground.toString());
-    std.debug.print("✅ PropagationPolicy toString test passed\n", .{});
 }
 
 test "FieldValidation - toString" {
     try std.testing.expectEqualStrings("Strict", delete_opts.FieldValidation.strict.toString());
     try std.testing.expectEqualStrings("Warn", delete_opts.FieldValidation.warn.toString());
     try std.testing.expectEqualStrings("Ignore", delete_opts.FieldValidation.ignore.toString());
-    std.debug.print("✅ FieldValidation toString test passed\n", .{});
 }

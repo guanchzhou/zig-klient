@@ -23,7 +23,6 @@ test "StorageClass - create structure" {
     try std.testing.expectEqualStrings("fast-ssd", sc.metadata.name);
     try std.testing.expectEqualStrings("kubernetes.io/aws-ebs", sc.provisioner);
     try std.testing.expect(sc.allowVolumeExpansion.? == true);
-    std.debug.print("✅ StorageClass create structure test passed\n", .{});
 }
 
 test "StorageClass - deserialize from JSON" {
@@ -51,7 +50,6 @@ test "StorageClass - deserialize from JSON" {
     try std.testing.expectEqualStrings("gp2", sc.metadata.name);
     try std.testing.expectEqualStrings("kubernetes.io/aws-ebs", sc.provisioner);
     try std.testing.expect(sc.allowVolumeExpansion.? == true);
-    std.debug.print("✅ StorageClass deserialize test passed\n", .{});
 }
 
 test "VolumeAttachment - create structure" {
@@ -74,7 +72,6 @@ test "VolumeAttachment - create structure" {
     try std.testing.expectEqualStrings("test-volume-attachment", va.metadata.name);
     try std.testing.expectEqualStrings("ebs.csi.aws.com", va.spec.?.attacher);
     try std.testing.expectEqualStrings("node-1", va.spec.?.nodeName);
-    std.debug.print("✅ VolumeAttachment create structure test passed\n", .{});
 }
 
 test "CSIDriver - create structure" {
@@ -102,7 +99,6 @@ test "CSIDriver - create structure" {
     try std.testing.expectEqualStrings("ebs.csi.aws.com", driver.metadata.name);
     try std.testing.expect(driver.spec.attachRequired.? == true);
     try std.testing.expect(driver.spec.storageCapacity.? == true);
-    std.debug.print("✅ CSIDriver create structure test passed\n", .{});
 }
 
 test "CSINode - create structure" {
@@ -121,7 +117,6 @@ test "CSINode - create structure" {
     try std.testing.expectEqualStrings("storage.k8s.io/v1", node.apiVersion.?);
     try std.testing.expectEqualStrings("CSINode", node.kind.?);
     try std.testing.expectEqualStrings("node-1", node.metadata.name);
-    std.debug.print("✅ CSINode create structure test passed\n", .{});
 }
 
 test "CSIStorageCapacity - create structure" {
@@ -144,5 +139,4 @@ test "CSIStorageCapacity - create structure" {
     try std.testing.expectEqualStrings("CSIStorageCapacity", capacity.kind.?);
     try std.testing.expectEqualStrings("test-capacity", capacity.metadata.name);
     try std.testing.expectEqualStrings("fast-ssd", capacity.spec.?.storageClassName);
-    std.debug.print("✅ CSIStorageCapacity create structure test passed\n", .{});
 }

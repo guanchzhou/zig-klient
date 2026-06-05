@@ -17,7 +17,6 @@ test "VolumeAttributesClass - create structure" {
     try std.testing.expectEqualStrings("test-volume-attributes", vac.metadata.name);
     try std.testing.expectEqualStrings("ebs.csi.aws.com", vac.driverName);
 
-    std.debug.print("✅ VolumeAttributesClass create structure test passed\n", .{});
 }
 
 test "VolumeAttributesClass - JSON deserialization" {
@@ -49,7 +48,6 @@ test "VolumeAttributesClass - JSON deserialization" {
     try std.testing.expectEqualStrings("bronze", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("pd.csi.storage.gke.io", parsed.value.driverName);
 
-    std.debug.print("✅ VolumeAttributesClass JSON deserialization test passed\n", .{});
 }
 
 test "VolumeAttributesClass - minimal structure" {
@@ -67,5 +65,4 @@ test "VolumeAttributesClass - minimal structure" {
     try std.testing.expectEqualStrings("default.csi.driver", vac.driverName);
     try std.testing.expect(vac.parameters == null);
 
-    std.debug.print("✅ VolumeAttributesClass minimal structure test passed\n", .{});
 }

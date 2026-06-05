@@ -23,7 +23,6 @@ test "HorizontalPodAutoscaler - create structure" {
     try std.testing.expectEqualStrings("test-hpa", hpa.metadata.name);
     try std.testing.expect(hpa.spec.?.maxReplicas == 10);
     try std.testing.expect(hpa.spec.?.minReplicas.? == 2);
-    std.debug.print("✅ HorizontalPodAutoscaler create structure test passed\n", .{});
 }
 
 test "HorizontalPodAutoscaler - deserialize from JSON" {
@@ -56,7 +55,6 @@ test "HorizontalPodAutoscaler - deserialize from JSON" {
     try std.testing.expectEqualStrings("production", hpa.metadata.namespace.?);
     try std.testing.expect(hpa.spec.?.maxReplicas == 20);
     try std.testing.expect(hpa.spec.?.minReplicas.? == 3);
-    std.debug.print("✅ HorizontalPodAutoscaler deserialize test passed\n", .{});
 }
 
 test "PodDisruptionBudget - create structure" {
@@ -78,7 +76,6 @@ test "PodDisruptionBudget - create structure" {
     try std.testing.expectEqualStrings("policy/v1", pdb.apiVersion.?);
     try std.testing.expectEqualStrings("PodDisruptionBudget", pdb.kind.?);
     try std.testing.expectEqualStrings("test-pdb", pdb.metadata.name);
-    std.debug.print("✅ PodDisruptionBudget create structure test passed\n", .{});
 }
 
 test "PodDisruptionBudget - deserialize from JSON" {
@@ -108,7 +105,6 @@ test "PodDisruptionBudget - deserialize from JSON" {
 
     try std.testing.expectEqualStrings("my-pdb", pdb.metadata.name);
     try std.testing.expectEqualStrings("production", pdb.metadata.namespace.?);
-    std.debug.print("✅ PodDisruptionBudget deserialize test passed\n", .{});
 }
 
 test "ResourceQuota - create structure" {
@@ -129,7 +125,6 @@ test "ResourceQuota - create structure" {
     try std.testing.expectEqualStrings("v1", quota.apiVersion.?);
     try std.testing.expectEqualStrings("ResourceQuota", quota.kind.?);
     try std.testing.expectEqualStrings("test-quota", quota.metadata.name);
-    std.debug.print("✅ ResourceQuota create structure test passed\n", .{});
 }
 
 test "LimitRange - create structure" {
@@ -148,5 +143,4 @@ test "LimitRange - create structure" {
     try std.testing.expectEqualStrings("v1", lr.apiVersion.?);
     try std.testing.expectEqualStrings("LimitRange", lr.kind.?);
     try std.testing.expectEqualStrings("test-limits", lr.metadata.name);
-    std.debug.print("✅ LimitRange create structure test passed\n", .{});
 }

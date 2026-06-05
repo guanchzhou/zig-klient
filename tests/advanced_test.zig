@@ -25,7 +25,6 @@ test "APIService - create structure" {
     try std.testing.expectEqualStrings("v1.custom.example.com", api.metadata.name);
     try std.testing.expectEqualStrings("custom.example.com", api.spec.group);
     try std.testing.expect(api.spec.groupPriorityMinimum == 100);
-    std.debug.print("✅ APIService create structure test passed\n", .{});
 }
 
 test "FlowSchema - create structure" {
@@ -48,7 +47,6 @@ test "FlowSchema - create structure" {
     try std.testing.expectEqualStrings("FlowSchema", fs.kind.?);
     try std.testing.expectEqualStrings("test-flow", fs.metadata.name);
     try std.testing.expect(fs.spec.?.matchingPrecedence.? == 1000);
-    std.debug.print("✅ FlowSchema create structure test passed\n", .{});
 }
 
 test "PriorityLevelConfiguration - create structure" {
@@ -70,7 +68,6 @@ test "PriorityLevelConfiguration - create structure" {
     try std.testing.expectEqualStrings("PriorityLevelConfiguration", plc.kind.?);
     try std.testing.expectEqualStrings("test-priority", plc.metadata.name);
     try std.testing.expectEqualStrings("Limited", plc.spec.?.type);
-    std.debug.print("✅ PriorityLevelConfiguration create structure test passed\n", .{});
 }
 
 test "RuntimeClass - create structure" {
@@ -90,7 +87,6 @@ test "RuntimeClass - create structure" {
     try std.testing.expectEqualStrings("RuntimeClass", rc.kind.?);
     try std.testing.expectEqualStrings("kata", rc.metadata.name);
     try std.testing.expectEqualStrings("kata", rc.handler);
-    std.debug.print("✅ RuntimeClass create structure test passed\n", .{});
 }
 
 test "RuntimeClass - deserialize from JSON" {
@@ -112,7 +108,6 @@ test "RuntimeClass - deserialize from JSON" {
 
     try std.testing.expectEqualStrings("gvisor", rc.metadata.name);
     try std.testing.expectEqualStrings("runsc", rc.handler);
-    std.debug.print("✅ RuntimeClass deserialize test passed\n", .{});
 }
 
 test "PriorityClass - create structure" {
@@ -134,7 +129,6 @@ test "PriorityClass - create structure" {
     try std.testing.expectEqualStrings("high-priority", pc.metadata.name);
     try std.testing.expect(pc.value == 1000);
     try std.testing.expect(pc.globalDefault.? == false);
-    std.debug.print("✅ PriorityClass create structure test passed\n", .{});
 }
 
 test "Lease - create structure" {
@@ -158,7 +152,6 @@ test "Lease - create structure" {
     try std.testing.expectEqualStrings("Lease", lease.kind.?);
     try std.testing.expectEqualStrings("test-lease", lease.metadata.name);
     try std.testing.expectEqualStrings("node-1", lease.spec.?.holderIdentity.?);
-    std.debug.print("✅ Lease create structure test passed\n", .{});
 }
 
 test "ComponentStatus - create structure" {
@@ -175,7 +168,6 @@ test "ComponentStatus - create structure" {
     try std.testing.expectEqualStrings("v1", cs.apiVersion.?);
     try std.testing.expectEqualStrings("ComponentStatus", cs.kind.?);
     try std.testing.expectEqualStrings("etcd-0", cs.metadata.name);
-    std.debug.print("✅ ComponentStatus create structure test passed\n", .{});
 }
 
 test "Binding - create structure" {
@@ -194,5 +186,4 @@ test "Binding - create structure" {
     try std.testing.expectEqualStrings("v1", binding.apiVersion.?);
     try std.testing.expectEqualStrings("Binding", binding.kind.?);
     try std.testing.expectEqualStrings("test-binding", binding.metadata.name);
-    std.debug.print("✅ Binding create structure test passed\n", .{});
 }

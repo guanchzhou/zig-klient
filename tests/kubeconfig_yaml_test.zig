@@ -66,7 +66,6 @@ test "KubeconfigParser - YAML parsing" {
     try std.testing.expectEqualStrings("test-user", user.name);
     try std.testing.expectEqualStrings("my-bearer-token", user.token.?);
 
-    std.debug.print("✅ YAML kubeconfig parsing test passed\n", .{});
 }
 
 test "KubeconfigParser - Get methods" {
@@ -120,5 +119,4 @@ test "KubeconfigParser - Get methods" {
     try std.testing.expectEqualStrings("Y2VydC1kYXRh", user.client_certificate_data.?);
     try std.testing.expectEqualStrings("a2V5LWRhdGE=", user.client_key_data.?);
 
-    std.debug.print("✅ YAML kubeconfig get methods test passed\n", .{});
 }

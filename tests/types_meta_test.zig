@@ -36,7 +36,6 @@ test "ObjectMeta: deserialize with all fields" {
     try std.testing.expectEqualStrings("abc-123", parsed.value.uid.?);
     try std.testing.expectEqualStrings("456", parsed.value.resourceVersion.?);
     try std.testing.expectEqual(@as(?i64, 3), parsed.value.generation);
-    std.debug.print("✅ ObjectMeta deserialization test passed\n", .{});
 }
 
 test "ObjectMeta: deserialize with minimal fields" {
@@ -53,7 +52,6 @@ test "ObjectMeta: deserialize with minimal fields" {
     try std.testing.expectEqualStrings("minimal", parsed.value.name);
     try std.testing.expectEqual(@as(?[]const u8, null), parsed.value.namespace);
     try std.testing.expectEqual(@as(?[]const u8, null), parsed.value.uid);
-    std.debug.print("✅ ObjectMeta minimal deserialization test passed\n", .{});
 }
 
 // =============================================================================
@@ -72,7 +70,6 @@ test "Resource(T): Pod deserialization" {
 
     try std.testing.expectEqualStrings("test-pod", parsed.value.metadata.name);
     try std.testing.expect(parsed.value.spec != null);
-    std.debug.print("✅ Resource(T) Pod deserialization test passed\n", .{});
 }
 
 test "Resource(T): unknown fields ignored gracefully" {
@@ -88,7 +85,6 @@ test "Resource(T): unknown fields ignored gracefully" {
     defer parsed.deinit();
 
     try std.testing.expectEqualStrings("test", parsed.value.metadata.name);
-    std.debug.print("✅ Resource(T) unknown fields test passed\n", .{});
 }
 
 // =============================================================================
@@ -111,7 +107,6 @@ test "List(T): Pod list deserialization" {
     try std.testing.expectEqualStrings("pod-1", parsed.value.items[0].metadata.name);
     try std.testing.expectEqualStrings("pod-2", parsed.value.items[1].metadata.name);
     try std.testing.expectEqualStrings("999", parsed.value.metadata.resourceVersion.?);
-    std.debug.print("✅ List(T) Pod list deserialization test passed\n", .{});
 }
 
 test "List(T): empty items list" {
@@ -127,7 +122,6 @@ test "List(T): empty items list" {
     defer parsed.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), parsed.value.items.len);
-    std.debug.print("✅ List(T) empty items test passed\n", .{});
 }
 
 // =============================================================================
@@ -151,7 +145,6 @@ test "CRDInfo: namespaced resource path with name" {
         "/apis/cert-manager.io/v1/namespaces/my-ns/certificates/my-cert",
         path,
     );
-    std.debug.print("✅ CRDInfo namespaced path test passed\n", .{});
 }
 
 test "CRDInfo: cluster-scoped resource path" {
@@ -171,7 +164,6 @@ test "CRDInfo: cluster-scoped resource path" {
         "/apis/example.io/v1/clusterwidgets/my-widget",
         path,
     );
-    std.debug.print("✅ CRDInfo cluster-scoped path test passed\n", .{});
 }
 
 test "CRDInfo: core API group path" {
@@ -188,7 +180,6 @@ test "CRDInfo: core API group path" {
     defer allocator.free(api_path);
 
     try std.testing.expectEqualStrings("/api/v1", api_path);
-    std.debug.print("✅ CRDInfo core API group path test passed\n", .{});
 }
 
 // =============================================================================
@@ -206,7 +197,6 @@ test "metrics: parseCpuMillicores edge cases" {
     // Invalid
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseCpuMillicores("abc"));
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseCpuMillicores(""));
-    std.debug.print("✅ CPU millicores edge cases test passed\n", .{});
 }
 
 test "metrics: parseMemoryBytes edge cases" {
@@ -223,7 +213,6 @@ test "metrics: parseMemoryBytes edge cases" {
     // Invalid
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes(""));
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("abc"));
-    std.debug.print("✅ Memory bytes edge cases test passed\n", .{});
 }
 
 // =============================================================================
@@ -257,5 +246,4 @@ test "retry: shouldRetry returns false for non-retryable codes" {
     // Null status code should retry (transport error)
     try std.testing.expect(ctx.shouldRetry(null));
 
-    std.debug.print("✅ Retry shouldRetry edge cases test passed\n", .{});
 }

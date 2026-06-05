@@ -19,7 +19,6 @@ test "Role - create structure" {
     try std.testing.expectEqualStrings("pod-reader", role.metadata.name);
     try std.testing.expectEqualStrings("default", role.metadata.namespace.?);
 
-    std.debug.print("✅ Role create structure test passed\n", .{});
 }
 
 test "Role - deserialize from JSON" {
@@ -57,7 +56,6 @@ test "Role - deserialize from JSON" {
     try std.testing.expectEqualStrings("pod-reader", role.metadata.name);
     try std.testing.expect(role.rules != null);
 
-    std.debug.print("✅ Role deserialize test passed\n", .{});
 }
 
 test "RoleBinding - create structure" {
@@ -83,7 +81,6 @@ test "RoleBinding - create structure" {
     try std.testing.expectEqualStrings("read-pods", role_binding.metadata.name);
     try std.testing.expectEqualStrings("pod-reader", role_binding.roleRef.name);
 
-    std.debug.print("✅ RoleBinding create structure test passed\n", .{});
 }
 
 test "RoleBinding - deserialize from JSON" {
@@ -125,7 +122,6 @@ test "RoleBinding - deserialize from JSON" {
     try std.testing.expectEqualStrings("read-pods", role_binding.metadata.name);
     try std.testing.expectEqualStrings("pod-reader", role_binding.roleRef.name);
 
-    std.debug.print("✅ RoleBinding deserialize test passed\n", .{});
 }
 
 test "ClusterRole - create structure" {
@@ -144,7 +140,6 @@ test "ClusterRole - create structure" {
     try std.testing.expectEqualStrings("ClusterRole", cluster_role.kind.?);
     try std.testing.expectEqualStrings("secret-reader", cluster_role.metadata.name);
 
-    std.debug.print("✅ ClusterRole create structure test passed\n", .{});
 }
 
 test "ClusterRole - deserialize from JSON" {
@@ -180,7 +175,6 @@ test "ClusterRole - deserialize from JSON" {
     try std.testing.expectEqualStrings("cluster-admin", cluster_role.metadata.name);
     try std.testing.expect(cluster_role.rules != null);
 
-    std.debug.print("✅ ClusterRole deserialize test passed\n", .{});
 }
 
 test "ClusterRoleBinding - create structure" {
@@ -205,7 +199,6 @@ test "ClusterRoleBinding - create structure" {
     try std.testing.expectEqualStrings("read-secrets-global", cluster_role_binding.metadata.name);
     try std.testing.expectEqualStrings("secret-reader", cluster_role_binding.roleRef.name);
 
-    std.debug.print("✅ ClusterRoleBinding create structure test passed\n", .{});
 }
 
 test "ClusterRoleBinding - deserialize from JSON" {
@@ -246,7 +239,6 @@ test "ClusterRoleBinding - deserialize from JSON" {
     try std.testing.expectEqualStrings("cluster-admin-binding", cluster_role_binding.metadata.name);
     try std.testing.expectEqualStrings("cluster-admin", cluster_role_binding.roleRef.name);
 
-    std.debug.print("✅ ClusterRoleBinding deserialize test passed\n", .{});
 }
 
 test "Role list - deserialize from JSON" {
@@ -291,5 +283,4 @@ test "Role list - deserialize from JSON" {
     try std.testing.expectEqual(@as(usize, 1), list.items.len);
     try std.testing.expectEqualStrings("pod-reader", list.items[0].metadata.name);
 
-    std.debug.print("✅ Role list deserialize test passed\n", .{});
 }

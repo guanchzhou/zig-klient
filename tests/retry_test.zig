@@ -21,7 +21,6 @@ test "RetryContext - Basic retry logic" {
     const backoff1 = ctx.getBackoffDuration();
     try std.testing.expect(backoff1 >= 100);
 
-    std.debug.print("✅ Retry attempt 1 backoff: {d}ms\n", .{backoff1});
 }
 
 test "RetryContext - Exponential backoff" {
@@ -47,11 +46,6 @@ test "RetryContext - Exponential backoff" {
     try std.testing.expect(backoff2 >= backoff1);
     try std.testing.expect(backoff3 >= backoff2);
 
-    std.debug.print("✅ Exponential backoff: {d}ms -> {d}ms -> {d}ms\n", .{
-        backoff1,
-        backoff2,
-        backoff3,
-    });
 }
 
 test "RetryContext - Max attempts limit" {
@@ -75,7 +69,6 @@ test "RetryContext - Max attempts limit" {
     // Attempt 2 - should fail (max_attempts = 2)
     try std.testing.expect(!ctx.shouldRetry(null));
     
-    std.debug.print("✅ Max attempts limit enforced\n", .{});
 }
 
 test "RetryContext - Retryable status codes" {
@@ -93,7 +86,6 @@ test "RetryContext - Retryable status codes" {
     // 200 is NOT retryable
     try std.testing.expect(!ctx.shouldRetry(200));
     
-    std.debug.print("✅ Retryable status codes working\n", .{});
 }
 
 test "RetryContext - Jitter adds randomness" {
@@ -125,7 +117,6 @@ test "RetryContext - Jitter adds randomness" {
     // (might fail rarely if random values happen to match)
     try std.testing.expect(backoff1 != backoff2 or true); // Allow equality for rare case
     
-    std.debug.print("✅ Jitter: {d}ms vs {d}ms\n", .{ backoff1, backoff2 });
 }
 
 test "RetryConfig - Preset configurations" {
@@ -140,5 +131,4 @@ test "RetryConfig - Preset configurations" {
     try std.testing.expectEqual(@as(u32, 2), retry.conservativeConfig.max_attempts);
     try std.testing.expect(retry.conservativeConfig.initial_backoff_ms > retry.defaultConfig.initial_backoff_ms);
     
-    std.debug.print("✅ Preset configurations validated\n", .{});
 }

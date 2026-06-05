@@ -8,7 +8,6 @@ test "AccessReview: type has canI and convenience methods" {
     try std.testing.expect(@hasDecl(klient.AccessReview, "canWatch"));
     try std.testing.expect(@hasDecl(klient.AccessReview, "canCreate"));
     try std.testing.expect(@hasDecl(klient.AccessReview, "canDelete"));
-    std.debug.print("✅ AccessReview method declarations test passed\n", .{});
 }
 
 test "AccessReview: ReviewRequest serializes correctly" {
@@ -20,7 +19,6 @@ test "AccessReview: ReviewRequest serializes correctly" {
 
     // Verify the struct has the right fields
     try std.testing.expect(@hasField(ReviewType, "client"));
-    std.debug.print("✅ AccessReview ReviewRequest serialization test passed\n", .{});
 
     _ = allocator;
 }
@@ -29,14 +27,12 @@ test "PropagationPolicy: toString returns correct K8s values" {
     try std.testing.expectEqualStrings("Orphan", klient.PropagationPolicy.orphan.toString());
     try std.testing.expectEqualStrings("Background", klient.PropagationPolicy.background.toString());
     try std.testing.expectEqualStrings("Foreground", klient.PropagationPolicy.foreground.toString());
-    std.debug.print("✅ PropagationPolicy toString test passed\n", .{});
 }
 
 test "FieldValidation: toString returns correct K8s values" {
     try std.testing.expectEqualStrings("Strict", klient.FieldValidation.strict.toString());
     try std.testing.expectEqualStrings("Warn", klient.FieldValidation.warn.toString());
     try std.testing.expectEqualStrings("Ignore", klient.FieldValidation.ignore.toString());
-    std.debug.print("✅ FieldValidation toString test passed\n", .{});
 }
 
 test "PatchType: contentType returns correct MIME types" {
@@ -56,7 +52,6 @@ test "PatchType: contentType returns correct MIME types" {
         "application/apply-patch+yaml",
         klient.PatchType.apply.contentType(),
     );
-    std.debug.print("✅ PatchType contentType test passed\n", .{});
 }
 
 test "DeleteOptions: buildBody includes preconditions" {
@@ -87,5 +82,4 @@ test "DeleteOptions: buildBody includes preconditions" {
     try std.testing.expectEqualStrings("12345", precond.get("resourceVersion").?.string);
     try std.testing.expectEqualStrings("abc-def-ghi", precond.get("uid").?.string);
 
-    std.debug.print("✅ DeleteOptions buildBody with preconditions test passed\n", .{});
 }

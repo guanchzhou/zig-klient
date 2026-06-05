@@ -18,7 +18,6 @@ test "ResourceClaim - create structure" {
     try std.testing.expectEqualStrings("ResourceClaim", claim.kind.?);
     try std.testing.expectEqualStrings("test-resource-claim", claim.metadata.name);
 
-    std.debug.print("✅ ResourceClaim create structure test passed\n", .{});
 }
 
 test "ResourceClaim - JSON deserialization" {
@@ -47,7 +46,6 @@ test "ResourceClaim - JSON deserialization" {
     try std.testing.expectEqualStrings("gpu-claim", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("ml-workloads", parsed.value.metadata.namespace.?);
 
-    std.debug.print("✅ ResourceClaim JSON deserialization test passed\n", .{});
 }
 
 test "ResourceClaimTemplate - create structure" {
@@ -67,7 +65,6 @@ test "ResourceClaimTemplate - create structure" {
     try std.testing.expectEqualStrings("ResourceClaimTemplate", template.kind.?);
     try std.testing.expectEqualStrings("test-claim-template", template.metadata.name);
 
-    std.debug.print("✅ ResourceClaimTemplate create structure test passed\n", .{});
 }
 
 test "ResourceClaimTemplate - JSON deserialization" {
@@ -97,7 +94,6 @@ test "ResourceClaimTemplate - JSON deserialization" {
     try std.testing.expectEqualStrings("ResourceClaimTemplate", parsed.value.kind.?);
     try std.testing.expectEqualStrings("gpu-template", parsed.value.metadata.name);
 
-    std.debug.print("✅ ResourceClaimTemplate JSON deserialization test passed\n", .{});
 }
 
 test "ResourceSlice - create structure" {
@@ -121,7 +117,6 @@ test "ResourceSlice - create structure" {
     try std.testing.expectEqualStrings("gpu.resource.k8s.io", slice.spec.?.driver);
     try std.testing.expectEqualStrings("node-1", slice.spec.?.nodeName.?);
 
-    std.debug.print("✅ ResourceSlice create structure test passed\n", .{});
 }
 
 test "ResourceSlice - JSON deserialization" {
@@ -152,7 +147,6 @@ test "ResourceSlice - JSON deserialization" {
     try std.testing.expectEqualStrings("node-1-gpu-slice", parsed.value.metadata.name);
     try std.testing.expectEqualStrings("gpu.example.com", parsed.value.spec.?.driver);
 
-    std.debug.print("✅ ResourceSlice JSON deserialization test passed\n", .{});
 }
 
 test "DeviceClass - create structure" {
@@ -173,7 +167,6 @@ test "DeviceClass - create structure" {
     try std.testing.expectEqualStrings("DeviceClass", dc.kind.?);
     try std.testing.expectEqualStrings("test-device-class", dc.metadata.name);
 
-    std.debug.print("✅ DeviceClass create structure test passed\n", .{});
 }
 
 test "DeviceClass - JSON deserialization" {
@@ -200,5 +193,4 @@ test "DeviceClass - JSON deserialization" {
     try std.testing.expectEqualStrings("DeviceClass", parsed.value.kind.?);
     try std.testing.expectEqualStrings("nvidia-gpu", parsed.value.metadata.name);
 
-    std.debug.print("✅ DeviceClass JSON deserialization test passed\n", .{});
 }

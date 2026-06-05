@@ -16,7 +16,6 @@ test "ConnectionPool: init and deinit with testing allocator" {
     try std.testing.expectEqual(@as(usize, 0), s.idle);
     try std.testing.expectEqual(@as(usize, 0), s.in_use);
     try std.testing.expectEqual(@as(usize, 5), s.max);
-    std.debug.print("✅ ConnectionPool init/deinit test passed\n", .{});
 }
 
 test "ConnectionPool: stats utilization calculation" {
@@ -28,7 +27,6 @@ test "ConnectionPool: stats utilization calculation" {
     };
     const util = s.utilization();
     try std.testing.expectApproxEqAbs(@as(f64, 50.0), util, 0.001);
-    std.debug.print("✅ PoolStats utilization test passed\n", .{});
 }
 
 test "ConnectionPool: utilization is 0 when max is 0" {
@@ -39,7 +37,6 @@ test "ConnectionPool: utilization is 0 when max is 0" {
         .max = 0,
     };
     try std.testing.expectEqual(@as(f64, 0.0), s.utilization());
-    std.debug.print("✅ PoolStats zero-max utilization test passed\n", .{});
 }
 
 test "ConnectionPool: acquire returns connection" {
@@ -68,7 +65,6 @@ test "ConnectionPool: acquire returns connection" {
     try std.testing.expectEqual(@as(usize, 0), s2.in_use);
     try std.testing.expectEqual(@as(usize, 1), s2.idle);
 
-    std.debug.print("✅ ConnectionPool acquire/release test passed\n", .{});
 }
 
 test "ConnectionPool: respects max connections" {
@@ -92,7 +88,6 @@ test "ConnectionPool: respects max connections" {
     try std.testing.expectEqual(@as(usize, 1), s.total);
     try std.testing.expectEqual(@as(usize, 1), s.in_use);
 
-    std.debug.print("✅ ConnectionPool max connections test passed\n", .{});
 }
 
 test "ConnectionPool: acquire creates connection and stats are accurate" {
@@ -115,7 +110,6 @@ test "ConnectionPool: acquire creates connection and stats are accurate" {
     try std.testing.expectEqual(@as(usize, 1), s1.total);
     try std.testing.expectEqual(@as(usize, 1), s1.in_use);
 
-    std.debug.print("✅ ConnectionPool acquire and stats test passed\n", .{});
 }
 
 test "PoolManager: init and deinit" {
@@ -129,5 +123,4 @@ test "PoolManager: init and deinit" {
 
     const s = manager.pool.stats();
     try std.testing.expectEqual(@as(usize, 0), s.total);
-    std.debug.print("✅ PoolManager init/deinit test passed\n", .{});
 }
