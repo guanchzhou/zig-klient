@@ -5,6 +5,26 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-06-05
+
+### Fixed
+- `getNodeCount`/`ClusterInfo.node_count` now return `?u32` — `null` means the count
+  could not be determined (request/parse failure), distinct from a real empty
+  cluster (`0`). Previously any error was silently reported as `0`.
+
+### Docs
+- Corrected the README to match the 0.16 API: every example now passes `io` to
+  `K8sClient.init`/`WebSocketClient.init`/`executeCredentialPlugin`/`isInCluster`/
+  `loadInClusterConfig`; `DebugAllocator` (not `GeneralPurposeAllocator`); the Watch
+  example uses the real callback API; `Informer.init`'s 5 args; snake_case
+  `ListOptions`; removed all Connection Pooling references; fixed the Auth Methods
+  parity (4/5, not 100% — no HTTP basic auth) and cluster-scoped count (30).
+
+### Notes
+- The remaining review items (re-export chain, spin-lock mutex, `client.client`
+  indirection) are blocked by hard Zig 0.16 constraints (no blocking mutex;
+  `usingnamespace` removed; `.client` is public API) and are not pursued.
+
 ## [0.3.1] - 2026-06-05
 
 Remaining review backlog: functional robustness, supply-chain, and CI/docs.
@@ -173,6 +193,7 @@ First tagged release. Builds on the completed Zig 0.16 migration with Kubernetes
   logic, exec-credential plugins, and Protobuf serialization. Completed the
   Zig 0.15 → 0.16 migration.
 
+[0.3.2]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.2
 [0.3.1]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.1
 [0.3.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.0
 [0.2.2]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.2
