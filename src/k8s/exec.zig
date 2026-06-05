@@ -50,30 +50,28 @@ pub const ExecClient = struct {
             }
         }
 
-        // Receive output
+        // Receive output until the server closes the stream or sends the terminal
+        // status on the error channel. NOTE: Kubernetes sends an initial zero-length
+        // frame on each channel, so an empty frame must NOT be treated as EOF.
         while (true) {
-            const msg = try conn.receive();
+            const msg = conn.receive() catch |err| switch (err) {
+                error.ConnectionClosed => break,
+                else => return err,
+            };
             defer msg.deinit(self.allocator);
 
             switch (msg.channel) {
-                ws.Channel.stdout.toInt() => {
-                    try result.stdout_buffer.appendSlice(self.allocator, msg.data);
-                },
-                ws.Channel.stderr.toInt() => {
-                    try result.stderr_buffer.appendSlice(self.allocator, msg.data);
-                },
+                ws.Channel.stdout.toInt() => try result.stdout_buffer.appendSlice(self.allocator, msg.data),
+                ws.Channel.stderr.toInt() => try result.stderr_buffer.appendSlice(self.allocator, msg.data),
                 ws.Channel.error_stream.toInt() => {
-                    // Error from Kubernetes API
-                    result.exit_code = 1;
+                    // v4.channel terminal frame: a JSON metav1.Status. "Success" => 0,
+                    // otherwise a non-zero exit (the code is in status.details.causes).
                     try result.error_buffer.appendSlice(self.allocator, msg.data);
+                    result.exit_code = parseExecExitCode(self.allocator, msg.data);
                     break;
                 },
                 else => {},
             }
-
-            // Check if we've received all data
-            // In real implementation, this would check for stream closure
-            if (msg.data.len == 0) break;
         }
 
         return result;
@@ -100,6 +98,42 @@ pub const ExecClient = struct {
         return try self.allocator.dupe(u8, result.stdout());
     }
 };
+
+/// Parse the exit code from a v4.channel error-stream metav1.Status JSON.
+/// `{"status":"Success"}` => 0; a Failure carrying an ExitCode cause => that code;
+/// otherwise 1. Best-effort: any parse failure yields 1.
+fn parseExecExitCode(allocator: std.mem.Allocator, status_json: []const u8) i32 {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, status_json, .{
+        .ignore_unknown_fields = true,
+    }) catch return 1;
+    defer parsed.deinit();
+
+    if (parsed.value != .object) return 1;
+    const obj = parsed.value.object;
+
+    if (obj.get("status")) |s| {
+        if (s == .string and std.mem.eql(u8, s.string, "Success")) return 0;
+    }
+
+    // Failure: status.details.causes[] where reason == "ExitCode" carries the code.
+    if (obj.get("details")) |d| {
+        if (d == .object) {
+            if (d.object.get("causes")) |causes| {
+                if (causes == .array) {
+                    for (causes.array.items) |c| {
+                        if (c != .object) continue;
+                        const reason = c.object.get("reason") orelse continue;
+                        if (reason != .string or !std.mem.eql(u8, reason.string, "ExitCode")) continue;
+                        const m = c.object.get("message") orelse continue;
+                        if (m == .string) return std.fmt.parseInt(i32, m.string, 10) catch 1;
+                    }
+                }
+            }
+        }
+    }
+
+    return 1;
+}
 
 /// Options for exec operation
 pub const ExecOptions = struct {
