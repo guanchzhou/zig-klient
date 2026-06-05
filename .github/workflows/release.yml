@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, test & publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout zig-klient
+        uses: actions/checkout@v4
+        with:
+          path: zig-klient
+
+      - name: Checkout zig-yaml (sibling path dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: guanchzhou/zig-yaml
+          path: zig-yaml
+
+      - name: Set up Zig 0.16.0
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.16.0
+
+      - name: Build & test
+        working-directory: zig-klient
+        run: |
+          zig build
+          zig build test
+
+      - name: Extract changelog section for this tag
+        working-directory: zig-klient
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          # Print the body between this version's heading and the next "## " heading.
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" {flag=1; next}
+            flag && /^## \[/ {exit}
+            flag {print}
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then echo "Release $TAG" > release-notes.md; fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: zig-klient/release-notes.md
+          files: zig-klient/sbom.cdx.json
+          fail_on_unmatched_files: true

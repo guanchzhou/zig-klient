@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# zig-klient depends on zig-yaml via a relative path (../zig-yaml in build.zig.zon),
+# so we check it out as a sibling directory. zig-protobuf is fetched by `zig build`
+# from its pinned git URL.
+jobs:
+  build-test:
+    name: Build & Test (Zig 0.16.0)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout zig-klient
+        uses: actions/checkout@v4
+        with:
+          path: zig-klient
+
+      - name: Checkout zig-yaml (sibling path dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: guanchzhou/zig-yaml
+          path: zig-yaml
+
+      - name: Set up Zig 0.16.0
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.16.0
+
+      - name: Build
+        working-directory: zig-klient
+        run: zig build
+
+      - name: Unit tests
+        working-directory: zig-klient
+        run: zig build test
+
+      - name: Compile integration entrypoints
+        working-directory: zig-klient
+        run: zig build build-integration-tests
