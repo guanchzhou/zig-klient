@@ -159,18 +159,21 @@ pub const K8sClient = struct {
         };
     }
 
-    /// Count cluster nodes (best-effort, returns 0 on failure).
-    fn getNodeCount(self: *K8sClient) u32 {
-        const nodes_response = self.request(.GET, "/api/v1/nodes", null) catch return 0;
+    /// Count cluster nodes (best-effort). Returns null when the count could not be
+    /// determined (request/parse failure or unexpected shape) — distinct from a real
+    /// empty cluster (0).
+    fn getNodeCount(self: *K8sClient) ?u32 {
+        const nodes_response = self.request(.GET, "/api/v1/nodes", null) catch return null;
         defer self.allocator.free(nodes_response);
 
         const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, nodes_response, .{
             .ignore_unknown_fields = true,
-        }) catch return 0;
+        }) catch return null;
         defer parsed.deinit();
 
-        const items = parsed.value.object.get("items") orelse return 0;
-        if (items != .array) return 0;
+        if (parsed.value != .object) return null;
+        const items = parsed.value.object.get("items") orelse return null;
+        if (items != .array) return null;
         return @intCast(items.array.items.len);
     }
 
@@ -435,7 +438,8 @@ pub const K8sClient = struct {
 /// Cluster information
 pub const ClusterInfo = struct {
     k8s_version: []const u8,
-    node_count: u32,
+    /// null when the node count couldn't be determined (vs 0 = empty cluster).
+    node_count: ?u32,
 
     /// getClusterInfo() dupes `k8s_version`, so the caller owns it and must free.
     pub fn deinit(self: ClusterInfo, allocator: std.mem.Allocator) void {
