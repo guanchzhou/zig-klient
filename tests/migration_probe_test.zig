@@ -82,3 +82,14 @@ test "probe: streaming subsystem method bodies compile on 0.16" {
 
     _ = &klient.port_forward_mod.PortForwarder.forward;
 }
+
+// JSON serialization paths that are lazily compiled and were also using removed
+// 0.16 APIs (std.json.stringify free fn, ArrayList.writer) until fixed. Force them.
+test "probe: JSON serialization paths compile on 0.16" {
+    _ = &klient.auth.AccessReview.canI;
+    _ = &klient.apply.StrategicMergePatch.build;
+    _ = &klient.apply.JsonPatch.build;
+    _ = &klient.apply.ApplyHelper.apply;
+    _ = &klient.crd.DynamicClient.create;
+    _ = &klient.crd.DynamicClient.update;
+}

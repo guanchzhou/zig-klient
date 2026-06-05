@@ -61,10 +61,7 @@ pub const DynamicClient = struct {
     }
 
     fn serializeValue(allocator: std.mem.Allocator, resource: std.json.Value) ![]const u8 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        errdefer buf.deinit(allocator);
-        try std.json.stringify(resource, .{}, buf.writer(allocator));
-        return try buf.toOwnedSlice(allocator);
+        return std.json.Stringify.valueAlloc(allocator, resource, .{});
     }
 
     /// List custom resources

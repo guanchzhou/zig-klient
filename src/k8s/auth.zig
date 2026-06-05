@@ -55,14 +55,13 @@ pub const AccessReview = struct {
             },
         };
 
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 0);
-        defer buf.deinit(allocator);
-        try std.json.stringify(review, .{}, buf.writer(allocator));
+        const body = try std.json.Stringify.valueAlloc(allocator, review, .{});
+        defer allocator.free(body);
 
         const response = try self.client.request(
             .POST,
             "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-            buf.items,
+            body,
         );
         defer allocator.free(response);
 

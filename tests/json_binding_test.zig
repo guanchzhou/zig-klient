@@ -37,6 +37,28 @@ test "WatchEvent.type binds the wire \"type\" field" {
     try std.testing.expectEqualStrings("ADDED", parsed.value.type);
 }
 
+test "StrategicMergePatch.build emits a JSON object" {
+    const allocator = std.testing.allocator;
+    var patch = klient.apply.StrategicMergePatch.init(allocator);
+    defer patch.deinit();
+    try patch.addPatch("replicas", .{ .integer = 3 });
+    const out = try patch.build();
+    defer allocator.free(out);
+    try std.testing.expect(std.mem.containsAtLeast(u8, out, 1, "\"replicas\":3"));
+}
+
+test "JsonPatch.build emits an array of operations" {
+    const allocator = std.testing.allocator;
+    var patch = klient.apply.JsonPatch.init(allocator);
+    defer patch.deinit();
+    try patch.replace("/spec/replicas", .{ .integer = 5 });
+    const out = try patch.build();
+    defer allocator.free(out);
+    try std.testing.expect(out[0] == '[');
+    try std.testing.expect(std.mem.containsAtLeast(u8, out, 1, "\"op\":\"replace\""));
+    try std.testing.expect(std.mem.containsAtLeast(u8, out, 1, "\"path\":\"/spec/replicas\""));
+}
+
 test "ServiceSpec.type also serializes back as \"type\"" {
     const allocator = std.testing.allocator;
     const svc = klient.Service{

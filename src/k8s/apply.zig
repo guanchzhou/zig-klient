@@ -153,32 +153,30 @@ pub const ApplyHelper = struct {
 /// Strategic merge patch builder
 pub const StrategicMergePatch = struct {
     allocator: std.mem.Allocator,
-    patches: std.StringHashMap(std.json.Value),
+    // ObjectMap (StringArrayHashMap(Value)) so it can be wrapped in a json.Value
+    // and serialized as a JSON object.
+    patches: std.json.ObjectMap,
 
     pub fn init(allocator: std.mem.Allocator) StrategicMergePatch {
         return .{
             .allocator = allocator,
-            .patches = std.StringHashMap(std.json.Value).init(allocator),
+            .patches = .empty,
         };
     }
 
     pub fn deinit(self: *StrategicMergePatch) void {
-        self.patches.deinit();
+        self.patches.deinit(self.allocator);
     }
 
     /// Add a patch for a specific path
     pub fn addPatch(self: *StrategicMergePatch, path: []const u8, value: std.json.Value) !void {
-        try self.patches.put(path, value);
+        try self.patches.put(self.allocator, path, value);
     }
 
     /// Build the patch JSON
     pub fn build(self: *StrategicMergePatch) ![]const u8 {
-        var result = try std.ArrayList(u8).initCapacity(self.allocator, 0);
-        errdefer result.deinit(self.allocator);
-
-        try std.json.stringify(self.patches, .{}, result.writer(self.allocator));
-
-        return try result.toOwnedSlice(self.allocator);
+        const value = std.json.Value{ .object = self.patches };
+        return std.json.Stringify.valueAlloc(self.allocator, value, .{});
     }
 };
 
@@ -197,17 +195,17 @@ pub const JsonPatch = struct {
     pub fn init(allocator: std.mem.Allocator) JsonPatch {
         return .{
             .allocator = allocator,
-            .operations = std.ArrayList(Operation).init(allocator),
+            .operations = .empty,
         };
     }
 
     pub fn deinit(self: *JsonPatch) void {
-        self.operations.deinit();
+        self.operations.deinit(self.allocator);
     }
 
     /// Add an "add" operation
     pub fn add(self: *JsonPatch, path: []const u8, value: std.json.Value) !void {
-        try self.operations.append(.{
+        try self.operations.append(self.allocator, .{
             .op = "add",
             .path = path,
             .value = value,
@@ -216,7 +214,7 @@ pub const JsonPatch = struct {
 
     /// Add a "remove" operation
     pub fn remove(self: *JsonPatch, path: []const u8) !void {
-        try self.operations.append(.{
+        try self.operations.append(self.allocator, .{
             .op = "remove",
             .path = path,
         });
@@ -224,7 +222,7 @@ pub const JsonPatch = struct {
 
     /// Add a "replace" operation
     pub fn replace(self: *JsonPatch, path: []const u8, value: std.json.Value) !void {
-        try self.operations.append(.{
+        try self.operations.append(self.allocator, .{
             .op = "replace",
             .path = path,
             .value = value,
@@ -233,7 +231,7 @@ pub const JsonPatch = struct {
 
     /// Add a "test" operation
     pub fn test_(self: *JsonPatch, path: []const u8, value: std.json.Value) !void {
-        try self.operations.append(.{
+        try self.operations.append(self.allocator, .{
             .op = "test",
             .path = path,
             .value = value,
@@ -242,7 +240,7 @@ pub const JsonPatch = struct {
 
     /// Add a "move" operation
     pub fn move(self: *JsonPatch, from: []const u8, path: []const u8) !void {
-        try self.operations.append(.{
+        try self.operations.append(self.allocator, .{
             .op = "move",
             .path = path,
             .from = from,
@@ -251,7 +249,7 @@ pub const JsonPatch = struct {
 
     /// Add a "copy" operation
     pub fn copy(self: *JsonPatch, from: []const u8, path: []const u8) !void {
-        try self.operations.append(.{
+        try self.operations.append(self.allocator, .{
             .op = "copy",
             .path = path,
             .from = from,
@@ -260,11 +258,6 @@ pub const JsonPatch = struct {
 
     /// Build the patch JSON
     pub fn build(self: *JsonPatch) ![]const u8 {
-        var result = try std.ArrayList(u8).initCapacity(self.allocator, 0);
-        errdefer result.deinit(self.allocator);
-
-        try std.json.stringify(self.operations.items, .{}, result.writer(self.allocator));
-
-        return try result.toOwnedSlice(self.allocator);
+        return std.json.Stringify.valueAlloc(self.allocator, self.operations.items, .{});
     }
 };
