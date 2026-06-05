@@ -271,7 +271,10 @@ pub fn Informer(comptime T: type) type {
         api_path: []const u8,
         resource: []const u8,
         namespace: ?[]const u8,
-        cache: std.StringHashMap(T),
+        /// Cache owns each entry's memory via its own parsed arena, independent of
+        /// the transient list/watch parse buffers (which are freed after each event).
+        cache: std.StringHashMap(std.json.Parsed(T)),
+        /// Owned (duped) copy — the source slice lives in a parse arena that gets freed.
         resource_version: ?[]const u8,
         running: std.atomic.Value(bool),
         mutex: std.atomic.Mutex,
@@ -290,7 +293,7 @@ pub fn Informer(comptime T: type) type {
                 .api_path = api_path,
                 .resource = resource,
                 .namespace = namespace,
-                .cache = std.StringHashMap(T).init(allocator),
+                .cache = std.StringHashMap(std.json.Parsed(T)).init(allocator),
                 .resource_version = null,
                 .running = std.atomic.Value(bool).init(false),
                 .mutex = .unlocked,
@@ -300,7 +303,44 @@ pub fn Informer(comptime T: type) type {
         pub fn deinit(self: *Self) void {
             lockMutex(&self.mutex);
             defer self.mutex.unlock();
+            const allocator = self.cache.allocator;
+            var it = self.cache.valueIterator();
+            while (it.next()) |parsed| parsed.deinit();
             self.cache.deinit();
+            if (self.resource_version) |rv| allocator.free(rv);
+        }
+
+        /// Deep-own `object` in its own parsed arena and insert/replace it in the cache.
+        /// Caller MUST hold the mutex. Re-serializes then re-parses so cached memory is
+        /// independent of the transient list/watch parse arena that gets freed per event.
+        fn cachePut(self: *Self, object: T) !void {
+            const allocator = self.cache.allocator;
+            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{});
+            defer allocator.free(json_bytes);
+            const parsed = try std.json.parseFromSlice(T, allocator, json_bytes, .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            });
+            errdefer parsed.deinit();
+            // Key slice lives in `parsed`'s arena, so it stays valid for the entry's
+            // lifetime. Remove any prior entry first so its key+value are freed together.
+            const key = parsed.value.metadata.name;
+            if (self.cache.fetchRemove(key)) |old| old.value.deinit();
+            try self.cache.put(key, parsed);
+        }
+
+        /// Remove and free a cache entry by name. Caller MUST hold the mutex.
+        fn cacheRemove(self: *Self, name: []const u8) void {
+            if (self.cache.fetchRemove(name)) |old| old.value.deinit();
+        }
+
+        /// Replace the stored resourceVersion with an owned copy (the source slice
+        /// lives in a parse arena that is freed after the list/watch call returns).
+        fn setResourceVersion(self: *Self, rv: ?[]const u8) !void {
+            const allocator = self.cache.allocator;
+            const owned: ?[]const u8 = if (rv) |v| try allocator.dupe(u8, v) else null;
+            if (self.resource_version) |old| allocator.free(old);
+            self.resource_version = owned;
         }
 
         /// Start the informer (list then watch).
@@ -324,11 +364,14 @@ pub fn Informer(comptime T: type) type {
             self.running.store(false, .release);
         }
 
-        /// Get resource from cache by name (thread-safe)
+        /// Get resource from cache by name (thread-safe).
+        /// NOTE: the returned T borrows cache-owned memory; it is valid until the next
+        /// mutation of that entry. Copy out any fields you need to retain.
         pub fn get(self: *Self, name: []const u8) ?T {
             lockMutex(&self.mutex);
             defer self.mutex.unlock();
-            return self.cache.get(name);
+            if (self.cache.get(name)) |parsed| return parsed.value;
+            return null;
         }
 
         /// List all resources in cache (thread-safe)
@@ -341,8 +384,8 @@ pub fn Informer(comptime T: type) type {
             errdefer result_list.deinit(allocator);
 
             var it = self.cache.valueIterator();
-            while (it.next()) |value| {
-                try result_list.append(allocator, value.*);
+            while (it.next()) |parsed| {
+                try result_list.append(allocator, parsed.value);
             }
 
             return try result_list.toOwnedSlice(allocator);
@@ -367,14 +410,14 @@ pub fn Informer(comptime T: type) type {
             for (result.value.items) |item| {
                 if (@hasField(T, "metadata")) {
                     if (item.metadata.name.len > 0) {
-                        try self.cache.put(item.metadata.name, item);
+                        try self.cachePut(item);
                     }
                 }
             }
 
-            // Store resource version for subsequent watch. `metadata` is a
-            // non-optional nested struct; only `resourceVersion` is optional.
-            self.resource_version = result.value.metadata.resourceVersion;
+            // Store resource version for subsequent watch (duped — the source slice
+            // is freed when `result` is deinit'd above).
+            try self.setResourceVersion(result.value.metadata.resourceVersion);
         }
 
         /// Watch loop to keep cache updated.
@@ -395,7 +438,8 @@ pub fn Informer(comptime T: type) type {
             try watcher.watchWithContext(*Self, self, handleWatchEvent);
 
             // After watch stream ends, update resource version for reconnection
-            self.resource_version = watcher.resource_version;
+            // (duped — watcher's slice may live in a buffer freed when it goes out of scope).
+            try self.setResourceVersion(watcher.resource_version);
         }
 
         /// Callback for watch events — updates the informer cache.
@@ -408,12 +452,8 @@ pub fn Informer(comptime T: type) type {
             if (@hasField(T, "metadata")) {
                 const name = event.object.metadata.name;
                 switch (event.type_) {
-                    .ADDED, .MODIFIED => {
-                        try self.cache.put(name, event.object);
-                    },
-                    .DELETED => {
-                        _ = self.cache.remove(name);
-                    },
+                    .ADDED, .MODIFIED => try self.cachePut(event.object),
+                    .DELETED => self.cacheRemove(name),
                     else => {},
                 }
             }
