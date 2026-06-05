@@ -6,45 +6,72 @@ on:
   pull_request:
     branches: [main]
 
-# zig-klient depends on zig-yaml via a relative path (../zig-yaml in build.zig.zon),
-# so we check it out as a sibling directory. zig-protobuf is fetched by `zig build`
-# from its pinned git URL.
+# Dependencies (zig-yaml, zig-protobuf) are git-pinned in build.zig.zon and fetched
+# by `zig build`, so no sibling checkout is needed.
 jobs:
-  build-test:
-    name: Build & Test (Zig 0.16.0)
+  lint:
+    name: zig fmt
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout zig-klient
-        uses: actions/checkout@v4
-        with:
-          path: zig-klient
-
-      - name: Checkout zig-yaml (sibling path dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: guanchzhou/zig-yaml
-          path: zig-yaml
-
+      - uses: actions/checkout@v4
       - name: Install Zig 0.16.0
+        env:
+          ZIG_URL: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          ZIG_SHA: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
         run: |
-          url="https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
-          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
-          curl -fsSL "$url" -o zig.tar.xz
-          echo "$sha  zig.tar.xz" | sha256sum -c -
+          curl -fsSL "$ZIG_URL" -o zig.tar.xz
+          echo "$ZIG_SHA  zig.tar.xz" | shasum -a 256 -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: Check formatting
+        run: zig fmt --check src/ tests/ build.zig build.zig.zon
 
+  build-test:
+    name: Build & Test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            zig_url: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+            zig_sha: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+            zig_dir: zig-x86_64-linux-0.16.0
+          - os: macos-latest
+            zig_url: https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz
+            zig_sha: b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489
+            zig_dir: zig-aarch64-macos-0.16.0
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig 0.16.0
+        env:
+          ZIG_URL: ${{ matrix.zig_url }}
+          ZIG_SHA: ${{ matrix.zig_sha }}
+          ZIG_DIR: ${{ matrix.zig_dir }}
+        run: |
+          curl -fsSL "$ZIG_URL" -o zig.tar.xz
+          echo "$ZIG_SHA  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/$ZIG_DIR" >> "$GITHUB_PATH"
       - name: Verify Zig
         run: zig version
-
       - name: Build
-        working-directory: zig-klient
         run: zig build
-
       - name: Unit tests
-        working-directory: zig-klient
         run: zig build test
-
       - name: Compile integration entrypoints
-        working-directory: zig-klient
         run: zig build build-integration-tests
+
+  # Non-blocking early warning for the next Zig release (this project just lived
+  # through a painful 0.15->0.16 migration; a canary catches breakage early).
+  zig-master-canary:
+    name: Zig master (canary)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: master
+      - run: zig build
+      - run: zig build test

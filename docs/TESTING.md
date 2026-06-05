@@ -1,93 +1,55 @@
 # Testing Guide
 
-## Test Structure
+## Unit tests (`tests/`)
 
-The `zig-klient` library has two types of tests:
+Isolated tests that need no cluster — type/JSON binding, registry metadata, retry
+logic, kubeconfig parsing, query/option builders, watch/informer structure, the K8s
+1.36 additions, etc. Each `tests/<name>_test.zig` is wired in `build.zig`.
 
-### 1. Unit Tests (`tests/`)
-
-Located in `tests/`, these test isolated functionality without requiring a Kubernetes cluster:
-
-- **`retry_test.zig`** - Tests retry logic, exponential backoff, jitter, and preset configurations
-- **`advanced_features_test.zig`** - Tests TLS configuration, connection pooling, and CRD API path construction
-
-Run unit tests:
-```bash
-zig build test
+```sh
+zig build test                 # run the whole unit suite
+zig build test-retry           # a single suite (see build.zig for names)
+zig build test-json-binding    # e.g. the type/continue field-binding regression
 ```
 
-Run specific test suites:
-```bash
-zig build test-retry      # Retry logic tests
-zig build test-advanced   # Advanced features tests
+`tests/migration_probe_test.zig` force-compiles the public API surface — including
+every streaming method body — so lazy-compilation breakage fails here rather than in
+a downstream consumer.
+
+## Integration entrypoints (`tests/entrypoints/`)
+
+Standalone executables that exercise the client against a **real cluster**. Because
+the direct TLS path has a known `std.crypto.tls` limitation against self-signed
+clusters, they connect through `kubectl proxy`:
+
+```sh
+kubectl proxy --port=8080 --reject-paths='^$' &   # --reject-paths needed for exec/attach
+zig build build-integration-tests                 # compile them all (also run in CI)
+zig build test-via-proxy                           # pods / namespaces / nodes + pod CRUD
+zig build test-pod-exec                            # pod exec over WebSocket (needs a running pod)
+zig build test-mutating-admission-policy           # K8s >= 1.36 MutatingAdmissionPolicy CRUD
 ```
 
-### 2. Integration Tests (`examples/tests/`)
+For `test-pod-exec`, create a target pod first:
 
-Located in `examples/tests/`, these test against a **real Kubernetes cluster**:
-
-**Core Functionality:**
-- `test_core_client.zig` - K8sClient initialization and cluster info
-- `test_kubeconfig.zig` - Kubeconfig parsing
-- `test_connection_pool.zig` - Connection pool management
-- `test_retry.zig` - Retry configuration
-- `test_tls.zig` - TLS configuration
-
-**Resource Clients (14 total):**
-- `test_pods.zig` - Pods client
-- `test_deployments.zig` - Deployments client
-- `test_services.zig` - Services client
-- `test_configmaps.zig` - ConfigMaps client
-- `test_secrets.zig` - Secrets client
-- `test_namespaces.zig` - Namespaces client
-- `test_nodes.zig` - Nodes client
-- `test_replicasets.zig` - ReplicaSets client
-- `test_statefulsets.zig` - StatefulSets client
-- `test_daemonsets.zig` - DaemonSets client
-- `test_jobs.zig` - Jobs client
-- `test_cronjobs.zig` - CronJobs client
-- `test_pvs.zig` - PersistentVolumes client
-- `test_pvcs.zig` - PersistentVolumeClaims client
-
-Run all integration tests:
-```bash
-cd examples/tests
-./run_all_tests.sh
+```sh
+kubectl run zig-klient-exec-test --image=busybox:1.36 --restart=Never --command -- sleep 3600
+kubectl wait --for=condition=Ready pod/zig-klient-exec-test
 ```
 
-Run individual integration tests:
-```bash
-cd examples/tests
-zig build
-./zig-out/bin/test_pods
-./zig-out/bin/test_deployments
-# ... etc
-```
+## Comprehensive suite (`tests/comprehensive/`)
 
-## Prerequisites for Integration Tests
+Larger scenarios (e.g. high-volume list pagination) that require a cluster — see that
+directory's README.
 
-1. **Running Kubernetes cluster** (e.g., Rancher Desktop, minikube, kind)
-2. **kubectl proxy** running for non-TLS testing:
-   ```bash
-   kubectl proxy --port=8080 &
-   ```
-3. **Test resources** created in cluster:
-   ```bash
-   kubectl apply -f examples/tests/test-resources.yaml
-   ```
+## Prerequisites
 
-## Test Results
+- A running cluster (Rancher Desktop, kind, minikube). Verified against Kubernetes
+  1.36.1.
+- `kubectl proxy` for the integration entrypoints (see above).
 
-See `docs/INTEGRATION_TESTS.md` for the latest integration test results.
+## Notes
 
-## Coverage
-
-- **Unit Tests**: Isolated functionality (retry, TLS, CRD, connection pool)
-- **Integration Tests**: All 19 functions verified against live cluster (100% pass rate)
-
-## Cleanup
-
-Remove test resources from cluster:
-```bash
-kubectl delete namespace klient-test
-```
+- CI runs the unit suite on Linux + macOS, a `zig fmt --check` gate, and a
+  non-blocking Zig-`master` canary. Integration entrypoints are compiled in CI but
+  run against a live cluster locally.

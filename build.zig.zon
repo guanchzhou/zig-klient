@@ -11,7 +11,8 @@
     },
     .dependencies = .{
         .yaml = .{
-            .path = "../zig-yaml",
+            .url = "git+https://github.com/guanchzhou/zig-yaml#18719fb0f65a669ec153820e2c3024a44fd67e3a",
+            .hash = "zig_yaml-0.3.0-C1161ni3AgCU8PR6Pl79eGSqiVd67GumYWIQXF4eWVEQ",
         },
         .protobuf = .{
             .url = "git+https://github.com/Arwalk/zig-protobuf?ref=zig-master#7673d62b2909f1ffb687d83a646cded09212b73f",
