@@ -1,0 +1,43 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Single in-flight deployment.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    name: Build & deploy API docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig 0.16.0
+        env:
+          ZIG_URL: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          ZIG_SHA: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+        run: |
+          curl -fsSL "$ZIG_URL" -o zig.tar.xz
+          echo "$ZIG_SHA  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: Build docs
+        run: zig build docs
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: zig-out/docs
+      - id: deploy
+        uses: actions/deploy-pages@v4

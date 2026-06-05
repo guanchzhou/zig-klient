@@ -148,6 +148,16 @@ pub fn build(b: *std.Build) void {
     //   1. cd tests/comprehensive
     //   2. ./run_all.sh
     _ = b.step("test-comprehensive", "Build comprehensive tests (requires rancher-desktop)");
+
+    // === API documentation (zig build docs -> zig-out/docs) ===
+    const docs_step = b.step("docs", "Generate API documentation into zig-out/docs");
+    const docs_obj = b.addObject(.{ .name = "zig-klient", .root_module = klient_module });
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = docs_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    docs_step.dependOn(&install_docs.step);
 }
 
 // Export the module for use as a dependency
