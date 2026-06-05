@@ -84,13 +84,15 @@ StorageVersionMigration
 - **Dynamic Resource Allocation**: ResourceClaim, DeviceClass, ResourceSlice support
 - **Generic Resource Client**: Type-safe operations with `ResourceClient<T>` pattern
 - **JSON Serialization**: Built-in support for Kubernetes JSON API
-- **Cluster-Scoped Resources**: 21 resources with custom list methods
+- **Cluster-Scoped Resources**: 30 cluster-scoped resources (namespacing handled automatically by the registry)
 
 ### Authentication
-- Bearer Token: Standard token-based authentication
-- mTLS: Client certificate authentication with full TLS support
-- Exec Credential Plugins: AWS EKS, GCP GKE, Azure AKS integration
-- Kubeconfig Parsing: via `kubectl config view --output json`
+- **Bearer token** — static token or in-cluster service-account token
+- **mTLS** — client certificate authentication
+- **Exec credential plugins** — AWS EKS, GCP GKE, Azure AKS, generic OIDC
+- **In-cluster config** — automatic service-account detection inside a pod
+- Kubeconfig is parsed natively (YAML; no `kubectl` required). HTTP basic auth
+  (username/password) is **not** supported — it was removed from Kubernetes in 1.19+.
 
 ### Operational Features (k9s-inspired)
 - **Enhanced Pod Logs**: Container selection, previous container, tail lines, timestamps, sinceSeconds
@@ -104,8 +106,7 @@ StorageVersionMigration
 ### Advanced Features
 - **Retry Logic**: Exponential backoff with jitter, status-code-aware retries (429, 500, 502, 503, 504)
 - **Watch API**: Real-time resource updates with streaming support
-- **Informers**: Local caching with automatic synchronization
-- **Connection Pooling**: Thread-safe connection management
+- **Informers**: Local list-then-watch cache with automatic relist on `410 Gone`
 - **CRD Support**: Dynamic client for Custom Resource Definitions
 - **Predefined CRDs**: Cert-Manager, Istio, Prometheus, Argo, Knative
 - **In-Cluster Config**: Automatic service account detection and configuration
@@ -116,7 +117,8 @@ StorageVersionMigration
 - **Response Size Limits**: Configurable max response size (default 16MB) to prevent OOM
 
 ### Quality
-- 92 passing tests with comprehensive coverage
+- Comprehensive unit suite (`zig build test`) plus live integration entrypoints; the
+  migration probe force-compiles the whole public API surface
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
 - Two dependencies: zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
@@ -165,12 +167,17 @@ const std = @import("std");
 const klient = @import("klient");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Initialize client
-    var client = try klient.K8sClient.init(allocator, .{
+    // Zig 0.16 threads all I/O through std.Io.
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Initialize client (note the io parameter)
+    var client = try klient.K8sClient.init(allocator, io, .{
         .server = "https://kubernetes.default.svc",
         .token = "your-bearer-token",
     });
@@ -187,30 +194,38 @@ pub fn main() !void {
 }
 ```
 
+> The snippets below assume `allocator`, `io`, and (where used) `client` from the
+> setup above.
+
 ### With mTLS Authentication
 
 ```zig
-var client = try klient.K8sClient.init(allocator, .{
+var client = try klient.K8sClient.init(allocator, io, .{
     .server = "https://kubernetes.example.com",
     .tls_config = .{
-        .client_cert_path = "/path/to/client.crt",
-        .client_key_path = "/path/to/client.key",
-        .ca_cert_path = "/path/to/ca.crt",
+        .client_cert_data = client_cert_pem, // or .client_cert_path = "/path/to/client.crt"
+        .client_key_data = client_key_pem, //  or .client_key_path  = "/path/to/client.key"
+        .ca_cert_data = ca_cert_pem, //         or .ca_cert_path     = "/path/to/ca.crt"
     },
 });
 defer client.deinit();
 ```
 
+> Note: against clusters with self-signed certificates the direct TLS path may fail
+> with `error.TlsInitializationFailed` (a current `std.crypto.tls` limitation); use
+> `connectWithFallback()` or `kubectl proxy` (see **Connecting & TLS**).
+
 ### With AWS EKS Authentication
 
 ```zig
 const aws_config = try klient.awsEksConfig(allocator, "my-cluster");
-const cred = try klient.exec_credential.executeCredentialPlugin(allocator, aws_config);
-defer allocator.free(cred.status.?.token.?);
+// Returns a std.json.Parsed(ExecCredential) — it owns the token memory.
+var cred = try klient.exec_credential.executeCredentialPlugin(allocator, io, aws_config);
+defer cred.deinit();
 
-var client = try klient.K8sClient.init(allocator, .{
+var client = try klient.K8sClient.init(allocator, io, .{
     .server = "https://xxx.eks.amazonaws.com",
-    .token = cred.status.?.token,
+    .token = cred.value.status.?.token,
 });
 defer client.deinit();
 ```
@@ -218,69 +233,58 @@ defer client.deinit();
 ### With Retry Logic
 
 ```zig
-var client = try klient.K8sClient.init(allocator, .{
+var client = try klient.K8sClient.init(allocator, io, .{
     .server = "https://kubernetes.example.com",
     .token = "token",
-    .retry_config = klient.aggressiveConfig,  // or: defaultConfig, conservativeConfig
+    .retry_config = klient.aggressiveConfig, // or: defaultConfig, conservativeConfig
 });
 defer client.deinit();
+// Idempotent operations (GET/PUT/DELETE/PATCH) retry automatically on transport
+// errors and 429/5xx; POST (create) is sent once.
 ```
 
 ### Using Watch API
 
 ```zig
-const WatcherPod = klient.Watcher(klient.Pod);
-var watcher = try WatcherPod.init(&client, .{
-    .path = "/api/v1/namespaces/default/pods",
-    .timeout_seconds = 300,
+const PodWatcher = klient.Watcher(klient.Pod);
+// init(client, api_path, resource, namespace, options)
+var watcher = PodWatcher.init(&client, "/api/v1", "pods", "default", .{
+    .allow_watch_bookmarks = true,
 });
-defer watcher.deinit();
 
-while (try watcher.next()) |event| {
-    switch (event.event_type) {
-        .ADDED => std.debug.print("Pod added: {s}\n", .{event.object.metadata.name}),
-        .MODIFIED => std.debug.print("Pod modified: {s}\n", .{event.object.metadata.name}),
-        .DELETED => std.debug.print("Pod deleted: {s}\n", .{event.object.metadata.name}),
-        else => {},
+// watch() is callback-driven and blocks, dispatching each event. The callback owns
+// the event and must call event.deinit() when done.
+const handler = struct {
+    fn onEvent(event: *klient.watch.WatchEvent(klient.Pod)) anyerror!void {
+        defer event.deinit();
+        switch (event.type_) {
+            .ADDED => std.debug.print("Pod added: {s}\n", .{event.object.metadata.name}),
+            .MODIFIED => std.debug.print("Pod modified: {s}\n", .{event.object.metadata.name}),
+            .DELETED => std.debug.print("Pod deleted: {s}\n", .{event.object.metadata.name}),
+            else => {},
+        }
     }
-}
+}.onEvent;
+
+try watcher.watch(handler);
 ```
 
 ### Using Informer Pattern
 
 ```zig
-const InformerPod = klient.Informer(klient.Pod);
-var informer = try InformerPod.init(
-    allocator,
-    &client,
-    "/api/v1/namespaces/default/pods"
-);
+const PodInformer = klient.Informer(klient.Pod);
+// init(allocator, client, api_path, resource, namespace)
+var informer = PodInformer.init(allocator, &client, "/api/v1", "pods", "default");
 defer informer.deinit();
 
+// start() does the initial list then watches, blocking until stop() — run it on its
+// own thread. It relists automatically on a 410 Gone (expired resourceVersion).
 try informer.start();
 
-// Get from local cache (fast!)
+// From another thread, read the local cache (thread-safe):
 if (informer.get("my-pod")) |pod| {
     std.debug.print("Found: {s}\n", .{pod.metadata.name});
 }
-```
-
-### Connection Pooling
-
-```zig
-var pool = try klient.ConnectionPool.init(allocator, .{
-    .server = "https://kubernetes.example.com",
-    .max_connections = 20,
-    .idle_timeout_ms = 60_000,
-});
-defer pool.deinit();
-
-// Start automatic cleanup
-try pool.startCleanup(10_000);
-
-// Get pool stats
-const stats = pool.stats();
-std.debug.print("Utilization: {d:.1}%\n", .{stats.utilization()});
 ```
 
 ### Custom Resource Definitions
@@ -320,7 +324,7 @@ try deployments.client.deleteWithOptions("my-app", null, delete_opts);
 
 // Delete collection by label selector
 const list_opts = klient.ListOptions{
-    .labelSelector = "app=nginx,env=staging",
+    .label_selector = "app=nginx,env=staging",
 };
 try deployments.client.deleteCollection(null, list_opts, delete_opts);
 ```
@@ -354,10 +358,10 @@ defer updated.deinit();
 ```zig
 // Filter by field and label selectors
 const list_opts = klient.ListOptions{
-    .fieldSelector = "status.phase=Running",
-    .labelSelector = "app=nginx,tier=frontend",
+    .field_selector = "status.phase=Running",
+    .label_selector = "app=nginx,tier=frontend",
     .limit = 50,
-    .resourceVersion = "12345",
+    .resource_version = "12345",
 };
 
 var pods = klient.Pods.init(&client);
@@ -371,7 +375,7 @@ for (filtered_pods.value.items) |pod| {
 // Handle pagination with continue tokens
 if (filtered_pods.value.metadata.@"continue") |continue_token| {
     const next_opts = klient.ListOptions{
-        .continue_ = continue_token,
+        .continue_token = continue_token,
         .limit = 50,
     };
     const next_page = try pods.client.listWithOptions(null, next_opts);
@@ -383,14 +387,12 @@ if (filtered_pods.value.metadata.@"continue") |continue_token| {
 
 ```zig
 // Automatically detect and load in-cluster config
-if (klient.isInCluster()) {
-    const in_cluster = try klient.loadInClusterConfig(allocator);
-    defer allocator.free(in_cluster.host);
-    defer allocator.free(in_cluster.token);
-    defer allocator.free(in_cluster.ca_cert_data);
+if (klient.isInCluster(io)) {
+    var in_cluster = try klient.loadInClusterConfig(io, allocator);
+    defer in_cluster.deinit();
 
-    var client = try klient.K8sClient.init(allocator, .{
-        .server = in_cluster.host,
+    var client = try klient.K8sClient.init(allocator, io, .{
+        .server = in_cluster.server,
         .token = in_cluster.token,
         .tls_config = .{
             .ca_cert_data = in_cluster.ca_cert_data,
@@ -408,9 +410,12 @@ if (klient.isInCluster()) {
 ### Pod Exec (WebSocket)
 
 ```zig
-// Initialize WebSocket client
+// Initialize WebSocket client. init(allocator, io, api_server, token, ca_cert_data).
+// Over a self-signed cluster, point this at a `kubectl proxy` (http://127.0.0.1:8080)
+// with token/ca null — see the integration tests.
 var ws_client = try klient.WebSocketClient.init(
     allocator,
+    io,
     "https://kubernetes.default.svc",
     bearer_token,
     ca_cert_data,
@@ -495,7 +500,7 @@ const filtered_pods = try pods.client.listWithOptions("default", options);
 defer filtered_pods.deinit();
 
 // Using label selector builder
-var label_selector = klient.LabelSelector.init(allocator);
+var label_selector = try klient.LabelSelector.init(allocator);
 defer label_selector.deinit();
 
 try label_selector.addEquals("app", "nginx");
@@ -689,7 +694,7 @@ zig-klient/
 | HTTP Operations | All methods | All methods | 100% |
 | K8s Resource Types | 65 modeled | 65 | 100% |
 | API Groups | 20 | 20 | 100% |
-| Auth Methods | 5 | 4 | 100% |
+| Auth Methods | 5 | 4 | 80% (no HTTP basic auth — removed from K8s 1.19+) |
 | In-Cluster Config | Yes | Yes | Yes |
 | Delete Options | Yes | Yes | Yes |
 | Create/Update Options | Yes | Yes | Yes |
