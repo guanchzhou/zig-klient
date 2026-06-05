@@ -637,7 +637,7 @@ Run specific test suites:
 
 ```bash
 zig build test-retry      # Retry logic tests
-zig build test-advanced   # TLS, Connection Pool, CRD tests
+zig build test-advanced   # TLS + CRD tests
 ```
 
 ### Integration Tests
@@ -675,7 +675,6 @@ zig-klient/
 │       ├── retry.zig           # Retry logic
 │       ├── watch.zig           # Watch API & Informers
 │       ├── tls.zig             # mTLS support
-│       ├── connection_pool.zig # Connection pooling
 │       ├── crd.zig             # CRD support
 │       ├── exec_credential.zig # Cloud auth
 │       └── kubeconfig_json.zig # Config parsing
@@ -766,7 +765,6 @@ Contributions are welcome! Please:
 - [x] Retry logic with exponential backoff and jitter
 - [x] Watch API for streaming updates
 - [x] Informers with local caching
-- [x] Thread-safe connection pooling
 - [x] CRD support with dynamic client
 - [x] Server-side apply
 - [x] JSON Patch and Strategic Merge Patch
@@ -782,5 +780,5 @@ Contributions are welcome! Please:
 - [x] Structured K8s API error responses
 - [x] Response size limits and 4x larger HTTP buffers
 - [x] Status-code-aware retry logic (429, 500, 502, 503, 504)
-- [x] 31 test files, 92 passing tests
-- [x] 100% integration test pass rate
+- [x] Comprehensive unit test suite + live integration entrypoints (kind/Rancher Desktop)
+- [x] Migration probe force-compiles the entire public API surface
