@@ -46,3 +46,40 @@ test "probe: ResourceClient(T) instantiates" {
     const RC = klient.ResourceClient(klient.types.Pod);
     std.testing.refAllDecls(RC);
 }
+
+// refAllDecls is SHALLOW — it references a namespace's top-level decls (types/consts)
+// but does NOT analyze method BODIES, which Zig compiles lazily. The streaming
+// subsystem (websocket/exec/attach/port-forward) once compiled "green" while its
+// method bodies used removed 0.16 APIs, because nothing forced their analysis.
+// Taking the address of each public method (`_ = &T.method`) forces full semantic
+// analysis of its body, so a future API break fails the build here instead of in a
+// downstream consumer. See brain: zig-refalldecls-false-confidence.
+test "probe: streaming subsystem method bodies compile on 0.16" {
+    const ws = klient.websocket;
+    _ = &ws.WebSocketClient.init;
+    _ = &ws.WebSocketClient.deinit;
+    _ = &ws.WebSocketClient.connect;
+    _ = &ws.WebSocketConnection.deinit;
+    _ = &ws.WebSocketConnection.sendChannel;
+    _ = &ws.WebSocketConnection.receive;
+    _ = &ws.WebSocketConnection.close;
+    _ = &ws.buildExecPath;
+    _ = &ws.buildAttachPath;
+    _ = &ws.buildPortForwardPath;
+
+    _ = &klient.exec_mod.ExecClient.exec;
+    _ = &klient.exec_mod.ExecClient.execSimple;
+    _ = &klient.exec_mod.ExecResult.init;
+    _ = &klient.exec_mod.ExecResult.deinit;
+    _ = &klient.exec_mod.ExecSession.writeStdin;
+    _ = &klient.exec_mod.ExecSession.read;
+    _ = &klient.exec_mod.ExecSession.resize;
+
+    _ = &klient.attach_mod.AttachClient.attach;
+    _ = &klient.attach_mod.AttachSession.deinit;
+    _ = &klient.attach_mod.AttachSession.writeStdin;
+    _ = &klient.attach_mod.AttachSession.read;
+    _ = &klient.attach_mod.AttachSession.resize;
+
+    _ = &klient.port_forward_mod.PortForwarder.forward;
+}

@@ -44,8 +44,10 @@ pub const ExecClient = struct {
         errdefer result.deinit();
 
         // Send stdin if provided
-        if (options.stdin and options.stdin_data) |stdin_data| {
-            try conn.sendChannel(ws.Channel.stdin.toInt(), stdin_data);
+        if (options.stdin) {
+            if (options.stdin_data) |stdin_data| {
+                try conn.sendChannel(ws.Channel.stdin.toInt(), stdin_data);
+            }
         }
 
         // Receive output
@@ -55,15 +57,15 @@ pub const ExecClient = struct {
 
             switch (msg.channel) {
                 ws.Channel.stdout.toInt() => {
-                    try result.stdout_buffer.appendSlice(msg.data);
+                    try result.stdout_buffer.appendSlice(self.allocator, msg.data);
                 },
                 ws.Channel.stderr.toInt() => {
-                    try result.stderr_buffer.appendSlice(msg.data);
+                    try result.stderr_buffer.appendSlice(self.allocator, msg.data);
                 },
                 ws.Channel.error_stream.toInt() => {
                     // Error from Kubernetes API
                     result.exit_code = 1;
-                    try result.error_buffer.appendSlice(msg.data);
+                    try result.error_buffer.appendSlice(self.allocator, msg.data);
                     break;
                 },
                 else => {},
@@ -134,16 +136,20 @@ pub const ExecResult = struct {
     pub fn init(allocator: std.mem.Allocator) ExecResult {
         return ExecResult{
             .allocator = allocator,
-            .stdout_buffer = std.ArrayList(u8).init(allocator),
-            .stderr_buffer = std.ArrayList(u8).init(allocator),
-            .error_buffer = std.ArrayList(u8).init(allocator),
+            .stdout_buffer = .empty,
+            .stderr_buffer = .empty,
+            .error_buffer = .empty,
         };
     }
 
     pub fn deinit(self: ExecResult) void {
-        self.stdout_buffer.deinit();
-        self.stderr_buffer.deinit();
-        self.error_buffer.deinit();
+        // 0.16 ArrayList is unmanaged; deinit frees through a (copied) slice header.
+        var stdout_buffer = self.stdout_buffer;
+        var stderr_buffer = self.stderr_buffer;
+        var error_buffer = self.error_buffer;
+        stdout_buffer.deinit(self.allocator);
+        stderr_buffer.deinit(self.allocator);
+        error_buffer.deinit(self.allocator);
     }
 
     pub fn stdout(self: ExecResult) []const u8 {

@@ -1,11 +1,16 @@
 const std = @import("std");
 const crypto = std.crypto;
+const tls = @import("tls.zig");
 
-/// WebSocket client for Kubernetes SPDY protocol
-/// Implements the Kubernetes WebSocket streaming protocol with SPDY framing
-/// Used for: exec, attach, port-forward operations
+/// WebSocket client for the Kubernetes streaming protocol (SPDY channel framing
+/// over WebSocket). Used for: exec, attach, port-forward.
+///
+/// Zig 0.16: all I/O is threaded through `std.Io`. The HTTP/1.1 Upgrade handshake
+/// is performed with `std.http.Client`; after the 101 response the underlying
+/// TLS-aware `Connection` is kept alive for raw WebSocket frame I/O.
 pub const WebSocketClient = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     api_server: []const u8,
     token: ?[]const u8,
     ca_cert_data: ?[]const u8,
@@ -13,20 +18,36 @@ pub const WebSocketClient = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
+        io: std.Io,
         api_server: []const u8,
         token: ?[]const u8,
         ca_cert_data: ?[]const u8,
     ) !WebSocketClient {
+        var http_client = std.http.Client{ .allocator = allocator, .io = io };
+        const now = std.Io.Timestamp.now(io, .real);
+        http_client.ca_bundle.rescan(allocator, io, now) catch {};
+        http_client.now = now;
+
+        const api_server_owned = try allocator.dupe(u8, api_server);
+        errdefer allocator.free(api_server_owned);
+        const token_owned = if (token) |t| try allocator.dupe(u8, t) else null;
+        errdefer if (token_owned) |t| allocator.free(t);
+        const ca_owned = if (ca_cert_data) |ca| try allocator.dupe(u8, ca) else null;
+        errdefer if (ca_owned) |c| allocator.free(c);
+
+        // Load the cluster CA so wss:// to a private-CA API server verifies the
+        // server certificate (previously the CA was ignored — a TLS trust gap).
+        if (ca_owned) |ca| {
+            try tls.addCaCertData(&http_client, allocator, io, now, ca);
+        }
+
         return WebSocketClient{
             .allocator = allocator,
-            .api_server = try allocator.dupe(u8, api_server),
-            .token = if (token) |t| try allocator.dupe(u8, t) else null,
-            .ca_cert_data = if (ca_cert_data) |ca| try allocator.dupe(u8, ca) else null,
-            .http_client = std.http.Client{
-                .allocator = allocator,
-                .read_buffer_size = 4096,
-                .write_buffer_size = 4096,
-            },
+            .io = io,
+            .api_server = api_server_owned,
+            .token = token_owned,
+            .ca_cert_data = ca_owned,
+            .http_client = http_client,
         };
     }
 
@@ -37,82 +58,90 @@ pub const WebSocketClient = struct {
         self.http_client.deinit();
     }
 
-    /// Connect to WebSocket endpoint with Kubernetes SPDY protocol
+    /// Connect to a Kubernetes streaming endpoint, performing the WebSocket
+    /// (RFC 6455) handshake with the given subprotocol (e.g. "v4.channel.k8s.io").
     pub fn connect(
         self: *WebSocketClient,
         path: []const u8,
         subprotocol: []const u8,
     ) !WebSocketConnection {
-        // Build WebSocket URL
-        const ws_url = try std.fmt.allocPrint(
-            self.allocator,
-            "{s}{s}",
-            .{ self.api_server, path },
-        );
+        const ws_url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.api_server, path });
         defer self.allocator.free(ws_url);
-
-        // Parse URL
         const uri = try std.Uri.parse(ws_url);
 
-        // Generate WebSocket key
+        // RFC 6455 §4.1: random 16-byte nonce, base64-encoded.
         var key_bytes: [16]u8 = undefined;
-        crypto.random.bytes(&key_bytes);
+        try self.io.randomSecure(&key_bytes);
         var ws_key: [24]u8 = undefined;
         _ = std.base64.standard.Encoder.encode(&ws_key, &key_bytes);
 
-        // Build request headers
-        var headers = std.http.Headers{ .allocator = self.allocator };
-        defer headers.deinit();
+        var auth_buf: ?[]u8 = null;
+        defer if (auth_buf) |b| self.allocator.free(b);
 
-        try headers.append("Upgrade", "websocket");
-        try headers.append("Connection", "Upgrade");
-        try headers.append("Sec-WebSocket-Version", "13");
-        try headers.append("Sec-WebSocket-Key", &ws_key);
-        try headers.append("Sec-WebSocket-Protocol", subprotocol);
-
+        var extra: [6]std.http.Header = undefined;
+        var n: usize = 0;
+        extra[n] = .{ .name = "Upgrade", .value = "websocket" };
+        n += 1;
+        extra[n] = .{ .name = "Connection", .value = "Upgrade" };
+        n += 1;
+        extra[n] = .{ .name = "Sec-WebSocket-Version", .value = "13" };
+        n += 1;
+        extra[n] = .{ .name = "Sec-WebSocket-Key", .value = &ws_key };
+        n += 1;
+        extra[n] = .{ .name = "Sec-WebSocket-Protocol", .value = subprotocol };
+        n += 1;
         if (self.token) |token| {
-            const auth_header = try std.fmt.allocPrint(self.allocator, "Bearer {s}", .{token});
-            defer self.allocator.free(auth_header);
-            try headers.append("Authorization", auth_header);
+            auth_buf = try std.fmt.allocPrint(self.allocator, "Bearer {s}", .{token});
+            extra[n] = .{ .name = "Authorization", .value = auth_buf.? };
+            n += 1;
         }
 
-        // Perform WebSocket handshake
-        var req = try self.http_client.open(.GET, uri, headers, .{});
-        defer req.deinit();
+        var req = try self.http_client.request(.GET, uri, .{
+            .keep_alive = false,
+            // We emit "Connection: Upgrade" via extra_headers; suppress the auto header.
+            .headers = .{ .connection = .omit },
+            .extra_headers = extra[0..n],
+        });
+        errdefer req.deinit();
 
-        try req.send(.{});
-        try req.wait();
+        try req.sendBodiless();
 
-        // Verify handshake response
-        if (req.response.status != .switching_protocols) {
+        var redirect_buf: [4096]u8 = undefined;
+        const response = try req.receiveHead(&redirect_buf);
+        if (response.head.status != .switching_protocols) {
             return error.WebSocketHandshakeFailed;
         }
 
-        // Verify Sec-WebSocket-Accept header
-        const accept_header = req.response.headers.getFirstValue("Sec-WebSocket-Accept") orelse return error.MissingAcceptHeader;
+        // Verify Sec-WebSocket-Accept (RFC 6455 §4.2.2).
+        var accept_value: ?[]const u8 = null;
+        var hit = response.head.iterateHeaders();
+        while (hit.next()) |h| {
+            if (std.ascii.eqlIgnoreCase(h.name, "sec-websocket-accept")) {
+                accept_value = h.value;
+                break;
+            }
+        }
+        const accept_header = accept_value orelse return error.MissingAcceptHeader;
 
-        // Calculate expected accept value
         var hasher = crypto.hash.Sha1.init(.{});
         hasher.update(&ws_key);
-        hasher.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"); // RFC 6455 Section 4.2.2 magic GUID
+        hasher.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"); // RFC 6455 magic GUID
         var hash: [20]u8 = undefined;
         hasher.final(&hash);
         var expected_accept: [28]u8 = undefined;
         _ = std.base64.standard.Encoder.encode(&expected_accept, &hash);
-
         if (!std.mem.eql(u8, accept_header, &expected_accept)) {
             return error.InvalidAcceptHeader;
         }
 
         return WebSocketConnection{
             .allocator = self.allocator,
-            .uri = uri,
-            .token = self.token,
+            .io = self.io,
+            .req = req,
             .subprotocol = try self.allocator.dupe(u8, subprotocol),
             .connected = true,
-            .stream = req.connection.?,
-            .read_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096),
-            .write_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096),
+            .read_buffer = .empty,
+            .write_buffer = .empty,
         };
     }
 };
@@ -127,24 +156,37 @@ pub const OpCode = enum(u8) {
     pong = 0xA,
 };
 
-/// WebSocket connection for Kubernetes streaming
+/// Maximum WebSocket frame payload we will buffer (defends against a malicious
+/// cluster advertising a huge length to force an unbounded allocation).
+const max_frame_payload: u64 = 16 * 1024 * 1024;
+
+/// WebSocket connection for Kubernetes streaming.
+/// Holds the upgraded HTTP request alive so its TLS-aware connection can be used
+/// for raw frame I/O; releasing `req` (in deinit) tears the connection down.
 pub const WebSocketConnection = struct {
     allocator: std.mem.Allocator,
-    uri: std.Uri,
-    token: ?[]const u8,
+    io: std.Io,
+    req: std.http.Client.Request,
     subprotocol: []const u8,
     connected: bool,
-    stream: std.net.Stream,
     read_buffer: std.ArrayList(u8),
     write_buffer: std.ArrayList(u8),
+
+    fn connWriter(self: *WebSocketConnection) *std.Io.Writer {
+        return self.req.connection.?.writer();
+    }
+
+    fn connReader(self: *WebSocketConnection) *std.Io.Reader {
+        return self.req.connection.?.reader();
+    }
 
     pub fn deinit(self: *WebSocketConnection) void {
         self.allocator.free(self.subprotocol);
         self.read_buffer.deinit(self.allocator);
         self.write_buffer.deinit(self.allocator);
-        if (self.connected) {
-            self.stream.close();
-        }
+        // Releasing the (non-keep-alive) request closes the upgraded connection.
+        self.req.deinit();
+        self.connected = false;
     }
 
     /// Send a WebSocket frame
@@ -176,9 +218,10 @@ pub const WebSocketConnection = struct {
             try self.write_buffer.appendSlice(self.allocator, &len_bytes);
         }
 
-        // Generate masking key
+        // Generate masking key (RFC 6455 §5.3 requires client frames be masked
+        // with an unpredictable key).
         var masking_key: [4]u8 = undefined;
-        crypto.random.bytes(&masking_key);
+        try self.io.randomSecure(&masking_key);
         try self.write_buffer.appendSlice(self.allocator, &masking_key);
 
         // Mask and append payload
@@ -188,8 +231,10 @@ pub const WebSocketConnection = struct {
             byte.* ^= masking_key[i % 4];
         }
 
-        // Send frame
-        try self.stream.writeAll(self.write_buffer.items);
+        // Send frame over the (TLS-aware) connection and flush.
+        const w = self.connWriter();
+        try w.writeAll(self.write_buffer.items);
+        try self.req.connection.?.flush();
     }
 
     /// Receive a WebSocket frame
@@ -199,10 +244,11 @@ pub const WebSocketConnection = struct {
         // Clear read buffer
         self.read_buffer.clearRetainingCapacity();
 
+        const r = self.connReader();
+
         // Read frame header (first 2 bytes)
         var header: [2]u8 = undefined;
-        const bytes_read = try self.stream.read(&header);
-        if (bytes_read < 2) return error.ConnectionClosed;
+        try r.readSliceAll(&header);
 
         // Parse header
         const fin = (header[0] & 0x80) != 0;
@@ -213,28 +259,27 @@ pub const WebSocketConnection = struct {
         // Extended payload length
         if (payload_len == 126) {
             var len_bytes: [2]u8 = undefined;
-            _ = try self.stream.read(&len_bytes);
+            try r.readSliceAll(&len_bytes);
             payload_len = std.mem.readInt(u16, &len_bytes, .big);
         } else if (payload_len == 127) {
             var len_bytes: [8]u8 = undefined;
-            _ = try self.stream.read(&len_bytes);
+            try r.readSliceAll(&len_bytes);
             payload_len = std.mem.readInt(u64, &len_bytes, .big);
         }
+
+        // Bound the advertised length so a malicious server cannot force an
+        // unbounded allocation.
+        if (payload_len > max_frame_payload) return error.FrameTooLarge;
 
         // Read masking key (if masked)
         var masking_key: [4]u8 = undefined;
         if (masked) {
-            _ = try self.stream.read(&masking_key);
+            try r.readSliceAll(&masking_key);
         }
 
-        // Read payload (loop to handle partial reads)
-        try self.read_buffer.resize(self.allocator, payload_len);
-        var total_read: usize = 0;
-        while (total_read < payload_len) {
-            const bytes = try self.stream.read(self.read_buffer.items[total_read..]);
-            if (bytes == 0) return error.ConnectionClosed;
-            total_read += bytes;
-        }
+        // Read the full payload.
+        try self.read_buffer.resize(self.allocator, @intCast(payload_len));
+        try r.readSliceAll(self.read_buffer.items);
 
         // Unmask payload (if masked)
         if (masked) {
@@ -304,14 +349,14 @@ pub const WebSocketConnection = struct {
         }
     }
 
-    /// Close the WebSocket connection
+    /// Close the WebSocket connection (sends a close frame). The underlying
+    /// connection is torn down in deinit() via req.deinit().
     pub fn close(self: *WebSocketConnection) void {
         if (!self.connected) return;
 
-        // Send close frame
+        // Send close frame (best-effort).
         self.sendFrame(.close, &[_]u8{}) catch {};
         self.connected = false;
-        self.stream.close();
     }
 };
 

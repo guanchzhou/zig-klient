@@ -62,35 +62,9 @@ pub const K8sClient = struct {
         // Configure custom CA bundle if TLS config provided
         if (config.tls_config) |tls| {
             if (tls.ca_cert_data) |ca_pem| {
-                // The Certificate.Bundle parser only reads from a file, so we stage the
-                // PEM in a temp file. SECURITY: use an UNPREDICTABLE name + exclusive
-                // (O_EXCL) creation and delete it immediately after loading, so a local
-                // attacker on a shared /tmp cannot win a symlink/TOCTOU race to swap in
-                // their own CA (which would let them MITM the entire API session).
-                var rand_bytes: [16]u8 = undefined;
-                try io.randomSecure(&rand_bytes);
-                const rand_hex = std.fmt.bytesToHex(rand_bytes, .lower);
-                const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{s}.pem", .{&rand_hex});
-                defer allocator.free(path);
-
-                {
-                    // .exclusive = true → fails if the path already exists (incl. a
-                    // pre-planted symlink), so creation never follows/overwrites.
-                    const file = std.Io.Dir.createFileAbsolute(io, path, .{ .exclusive = true }) catch |err| {
-                        return err;
-                    };
-                    defer file.close(io);
-                    var write_buf: [4096]u8 = undefined;
-                    var file_writer = file.writer(io, &write_buf);
-                    try file_writer.interface.writeAll(ca_pem);
-                    try file_writer.flush();
-                }
-
-                // Parse into the bundle (which copies the certs into its own memory),
-                // then remove the staging file regardless of outcome.
-                const load_result = http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, path);
-                std.Io.Dir.deleteFileAbsolute(io, path) catch {};
-                load_result catch |err| return err;
+                // Hardened staging (random name + O_EXCL + immediate delete) lives in
+                // tls.addCaCertData; see there for the symlink/TOCTOU rationale.
+                try tls_mod.addCaCertData(&http_client, allocator, io, now, ca_pem);
             } else if (tls.ca_cert_path) |ca_path| {
                 http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, ca_path) catch |err| {
                     // User explicitly provided a CA cert path that failed to load.
@@ -403,7 +377,6 @@ pub const K8sClient = struct {
 
         return try body_buffer.toOwnedSlice(self.allocator);
     }
-
 };
 
 /// Cluster information
