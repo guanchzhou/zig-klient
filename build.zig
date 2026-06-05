@@ -16,11 +16,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Create the zig-klient library module
+    // Create the zig-klient library module.
+    // link_libc is required on Linux: parts of the client use libc-backed std
+    // functions (clock_gettime, threads, file I/O). macOS links libc implicitly,
+    // so this only matters for portable/CI builds.
     const klient_module = b.addModule("klient", .{
         .root_source_file = b.path("src/klient.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     klient_module.addImport("yaml", yaml.module("yaml"));
     klient_module.addImport("protobuf", protobuf_dep.module("protobuf"));
@@ -70,6 +74,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path(t.source),
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
         test_mod.root_module.addImport("klient", klient_module);
@@ -86,6 +91,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path(t.source),
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
         test_mod.root_module.addImport("klient", klient_module);
@@ -118,6 +124,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path(entrypoint.source),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         });
         exe_module.addImport("klient", klient_module);
 
