@@ -280,10 +280,17 @@ pub const KubeconfigParser = struct {
             else => return error.InvalidClusterFormat,
         };
 
+        // errdefer per duped field: a later `return error.*` (e.g. missing server)
+        // must not leak fields already duped. On success these are moved into the
+        // returned Cluster and the errdefers don't fire.
         var name: ?[]const u8 = null;
+        errdefer if (name) |v| self.allocator.free(v);
         var server: ?[]const u8 = null;
+        errdefer if (server) |v| self.allocator.free(v);
         var certificate_authority: ?[]const u8 = null;
+        errdefer if (certificate_authority) |v| self.allocator.free(v);
         var certificate_authority_data: ?[]const u8 = null;
+        errdefer if (certificate_authority_data) |v| self.allocator.free(v);
         var insecure_skip_tls_verify: ?bool = null;
 
         if (node_map.get("name")) |v| {
@@ -340,9 +347,13 @@ pub const KubeconfigParser = struct {
         };
 
         var name: ?[]const u8 = null;
+        errdefer if (name) |v| self.allocator.free(v);
         var cluster: ?[]const u8 = null;
+        errdefer if (cluster) |v| self.allocator.free(v);
         var user: ?[]const u8 = null;
+        errdefer if (user) |v| self.allocator.free(v);
         var namespace: ?[]const u8 = null;
+        errdefer if (namespace) |v| self.allocator.free(v);
 
         if (node_map.get("name")) |v| {
             if (v.asScalar()) |scalar| {
@@ -389,14 +400,24 @@ pub const KubeconfigParser = struct {
             else => return error.InvalidUserFormat,
         };
 
+        // errdefer per duped field so a later `return error.UserMissingName` (or any
+        // mid-parse error) frees what was already duped. On success these move into User.
         var name: ?[]const u8 = null;
+        errdefer if (name) |v| self.allocator.free(v);
         var token: ?[]const u8 = null;
+        errdefer if (token) |v| self.allocator.free(v);
         var client_certificate: ?[]const u8 = null;
+        errdefer if (client_certificate) |v| self.allocator.free(v);
         var client_certificate_data: ?[]const u8 = null;
+        errdefer if (client_certificate_data) |v| self.allocator.free(v);
         var client_key: ?[]const u8 = null;
+        errdefer if (client_key) |v| self.allocator.free(v);
         var client_key_data: ?[]const u8 = null;
+        errdefer if (client_key_data) |v| self.allocator.free(v);
         var username: ?[]const u8 = null;
+        errdefer if (username) |v| self.allocator.free(v);
         var password: ?[]const u8 = null;
+        errdefer if (password) |v| self.allocator.free(v);
 
         if (node_map.get("name")) |v| {
             if (v.asScalar()) |scalar| {
@@ -485,6 +506,10 @@ pub const KubeconfigParser = struct {
                             switch (args_value) {
                                 .list => |list| {
                                     var args_list: std.ArrayList([]const u8) = .empty;
+                                    errdefer {
+                                        for (args_list.items) |a| self.allocator.free(a);
+                                        args_list.deinit(self.allocator);
+                                    }
                                     for (list) |item| {
                                         if (item.asScalar()) |scalar| {
                                             try args_list.append(self.allocator, try self.allocator.dupe(u8, scalar));
