@@ -5,6 +5,38 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-06-05
+
+Critical correctness and security fixes from a full SDLC/design/security review.
+
+### Security
+- **Custom-CA temp file hardening**: the staged CA PEM is now written with an
+  unpredictable random name (`io.randomSecure`) + exclusive (`O_EXCL`) creation and
+  deleted immediately after loading, closing a symlink/TOCTOU race on shared `/tmp`
+  that could inject an attacker CA and MITM the API session. Shared via
+  `tls.addCaCertData`, which also now loads the cluster CA for the WebSocket client
+  (previously ignored — a `wss://` trust gap).
+
+### Fixed
+- **Streaming subsystem now compiles on Zig 0.16.** websocket/exec/attach/port-forward
+  used removed APIs (`std.http.Headers`, `http_client.open`, `std.net.Stream`, managed
+  `ArrayList`, `std.crypto.random`) and never type-checked — masked by a shallow
+  `refAllDecls` probe. Rewritten against 0.16 `std.http` (request + `extra_headers` +
+  `receiveHead`, framing over the TLS-aware connection). **Live-verified**: pod `exec`
+  round-trips stdout + exit code against K8s 1.36.1.
+- **exec()** no longer returns empty stdout: it treated Kubernetes' initial
+  zero-length channel frame as EOF. Now terminates on the terminal status / close and
+  parses the real exit code.
+- **Informer cache use-after-free**: cached objects (and `resourceVersion`) pointed
+  into a freed parse arena. The cache now owns each entry (`std.json.Parsed(T)`),
+  freed on overwrite/delete/deinit.
+
+### Added
+- Migration probe now forces every streaming method body (`_ = &T.method`) so
+  lazy-compilation breakage fails the build, not downstream consumers. (It immediately
+  caught a masked `bool and optional` type error in exec.)
+- `test-pod-exec` integration entrypoint (live exec over `kubectl proxy`).
+
 ## [0.2.1] - 2026-06-05
 
 Verification, CI, and portability follow-ups to 0.2.0. No library API changes.
@@ -68,5 +100,6 @@ First tagged release. Builds on the completed Zig 0.16 migration with Kubernetes
   logic, exec-credential plugins, and Protobuf serialization. Completed the
   Zig 0.15 → 0.16 migration.
 
+[0.2.2]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.2
 [0.2.1]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.1
 [0.2.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.0

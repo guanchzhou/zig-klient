@@ -1,22 +1,35 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:35313bae-712b-4a0c-985e-4a15eb94df0c",
+  "serialNumber": "urn:uuid:4c23f81e-a94b-4ac0-91af-ae30d7b81a2c",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-06-05T11:53:32Z",
+    "timestamp": "2026-06-05T12:54:01Z",
     "tools": [
-      { "vendor": "zig-klient", "name": "hand-authored-from-build.zig.zon", "version": "0.2.1" }
+      {
+        "vendor": "zig-klient",
+        "name": "hand-authored-from-build.zig.zon",
+        "version": "0.2.2"
+      }
     ],
     "component": {
       "type": "library",
-      "bom-ref": "pkg:generic/zig-klient@0.2.1",
+      "bom-ref": "pkg:generic/zig-klient@0.2.2",
       "name": "zig-klient",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "Kubernetes client library for Zig (65 resource types, through K8s 1.36)",
-      "licenses": [ { "license": { "id": "MIT" } } ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
       "externalReferences": [
-        { "type": "vcs", "url": "https://github.com/guanchzhou/zig-klient" }
+        {
+          "type": "vcs",
+          "url": "https://github.com/guanchzhou/zig-klient"
+        }
       ]
     }
   },
@@ -29,7 +42,10 @@
       "scope": "required",
       "description": "YAML 1.2 parser/serializer for Zig (path dependency: ../zig-yaml)",
       "externalReferences": [
-        { "type": "vcs", "url": "https://github.com/guanchzhou/zig-yaml" }
+        {
+          "type": "vcs",
+          "url": "https://github.com/guanchzhou/zig-yaml"
+        }
       ]
     },
     {
@@ -40,18 +56,42 @@
       "scope": "required",
       "description": "Protocol Buffers for Zig",
       "externalReferences": [
-        { "type": "vcs", "url": "git+https://github.com/Arwalk/zig-protobuf" },
-        { "type": "distribution", "url": "https://github.com/Arwalk/zig-protobuf/commit/7673d62b2909f1ffb687d83a646cded09212b73f" }
+        {
+          "type": "vcs",
+          "url": "git+https://github.com/Arwalk/zig-protobuf"
+        },
+        {
+          "type": "distribution",
+          "url": "https://github.com/Arwalk/zig-protobuf/commit/7673d62b2909f1ffb687d83a646cded09212b73f"
+        }
       ],
       "properties": [
-        { "name": "zig:zon:ref", "value": "zig-master" },
-        { "name": "zig:zon:hash", "value": "protobuf-3.0.0-0e82auyUKACQqyLICPhWm6kJoAru5DNP-idAJMP1W94r" }
+        {
+          "name": "zig:zon:ref",
+          "value": "zig-master"
+        },
+        {
+          "name": "zig:zon:hash",
+          "value": "protobuf-3.0.0-0e82auyUKACQqyLICPhWm6kJoAru5DNP-idAJMP1W94r"
+        }
       ]
     }
   ],
   "dependencies": [
-    { "ref": "pkg:generic/zig-klient@0.2.1", "dependsOn": [ "pkg:generic/zig-yaml@0.3.0", "pkg:generic/zig-protobuf@3.0.0" ] },
-    { "ref": "pkg:generic/zig-yaml@0.3.0", "dependsOn": [] },
-    { "ref": "pkg:generic/zig-protobuf@3.0.0", "dependsOn": [] }
+    {
+      "ref": "pkg:generic/zig-klient@0.2.2",
+      "dependsOn": [
+        "pkg:generic/zig-yaml@0.3.0",
+        "pkg:generic/zig-protobuf@3.0.0"
+      ]
+    },
+    {
+      "ref": "pkg:generic/zig-yaml@0.3.0",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:generic/zig-protobuf@3.0.0",
+      "dependsOn": []
+    }
   ]
 }
