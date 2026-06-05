@@ -1,22 +1,22 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:4c23f81e-a94b-4ac0-91af-ae30d7b81a2c",
+  "serialNumber": "urn:uuid:f071321b-614e-41b8-a158-cbabfb6a9a8c",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-06-05T12:54:01Z",
+    "timestamp": "2026-06-05T13:25:46Z",
     "tools": [
       {
         "vendor": "zig-klient",
         "name": "hand-authored-from-build.zig.zon",
-        "version": "0.2.2"
+        "version": "0.3.0"
       }
     ],
     "component": {
       "type": "library",
-      "bom-ref": "pkg:generic/zig-klient@0.2.2",
+      "bom-ref": "pkg:generic/zig-klient@0.3.0",
       "name": "zig-klient",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "description": "Kubernetes client library for Zig (65 resource types, through K8s 1.36)",
       "licenses": [
         {
@@ -40,11 +40,21 @@
       "name": "zig-yaml",
       "version": "0.3.0",
       "scope": "required",
-      "description": "YAML 1.2 parser/serializer for Zig (path dependency: ../zig-yaml)",
+      "description": "YAML 1.2 parser/serializer for Zig (git-pinned dependency)",
       "externalReferences": [
         {
           "type": "vcs",
-          "url": "https://github.com/guanchzhou/zig-yaml"
+          "url": "git+https://github.com/guanchzhou/zig-yaml"
+        },
+        {
+          "type": "distribution",
+          "url": "https://github.com/guanchzhou/zig-yaml/commit/18719fb0f65a669ec153820e2c3024a44fd67e3a"
+        }
+      ],
+      "properties": [
+        {
+          "name": "zig:zon:hash",
+          "value": "zig_yaml-0.3.0-C1161ni3AgCU8PR6Pl79eGSqiVd67GumYWIQXF4eWVEQ"
         }
       ]
     },
@@ -79,7 +89,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:generic/zig-klient@0.2.2",
+      "ref": "pkg:generic/zig-klient@0.3.0",
       "dependsOn": [
         "pkg:generic/zig-yaml@0.3.0",
         "pkg:generic/zig-protobuf@3.0.0"

@@ -717,6 +717,18 @@ See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed break
   - `gke-gcloud-auth-plugin` for GKE
   - `kubelogin` for AKS
 
+## Stability
+
+zig-klient is **pre-1.0**, so the API may change between minor versions. Following
+SemVer for `0.x`:
+
+- **minor** (`0.2 → 0.3`) may include breaking changes (signatures, removed symbols);
+- **patch** (`0.2.1 → 0.2.2`) is backward-compatible bug/security fixes.
+
+The 1.0 line will stabilize the public surface once the resource API and the
+streaming/TLS paths have soaked. Each release's breaking changes are called out in
+[CHANGELOG.md](CHANGELOG.md). Targets Zig 0.16.0 and Kubernetes through 1.36.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details

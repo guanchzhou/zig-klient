@@ -5,6 +5,48 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-06-05
+
+Functional-bug, correctness, and SDLC fixes from a full code review. Two more masked
+Zig-0.16 build breaks (same class as the 0.2.2 streaming fix) were found and fixed.
+
+### Breaking
+- Removed the connection-pool API (`ConnectionPool`, `PoolManager`, `PoolStats`). It
+  was never wired into `K8sClient`, leaked connections, and `std.http.Client` already
+  pools internally. (H2)
+
+### Fixed
+- **JSON field binding**: `List(T).metadata.continue` and `ServiceSpec`/`SecretData`/
+  deployment-strategy `type` (and `WatchEvent.type`) now bind the real wire names —
+  Zig's `std.json` does no underscore stripping, so pagination tokens and Service
+  `type` were silently dropped/mis-serialized. (H1)
+- **Retry actually runs**: idempotent CRUD (GET/PUT/DELETE/PATCH) is retried per
+  `retry_config`; previously every operation used the non-retrying path. POST stays
+  single-attempt. (H3)
+- **apply/auth/crd JSON serialization** didn't compile on 0.16 (used removed
+  `std.json.stringify`, `ArrayList.writer`, and managed map/list APIs) — masked by
+  lazy compilation. Migrated to `std.json.Stringify.valueAlloc` + unmanaged
+  collections; `StrategicMergePatch` now stores a serializable `ObjectMap`.
+- Plugged error-path memory leaks in the kubeconfig parse helpers (errdefer per
+  duped field). Added `ClusterInfo.deinit`.
+
+### Security / hardening
+- `exec_credential` logs via `std.log` instead of stderr; documented that
+  `ExecConfig.env` is not yet applied. `proxy_fallback` now logs the TLS→plaintext
+  downgrade instead of failing open silently. Documented that `K8sClient` is
+  single-threaded (`last_api_error` is unsynchronized).
+
+### CI / DevEx
+- `build.zig.zon` git-pins zig-yaml (was a relative path) so a clean clone builds;
+  CI drops the sibling checkout.
+- CI: `zig fmt --check` gate, `{ubuntu, macos}` build matrix, non-blocking Zig-master
+  canary. Release attaches `SHA256SUMS`.
+- Added `SECURITY.md`, `CONTRIBUTING.md`, `CODEOWNERS`, a PR template, a README
+  Stability section; rewrote the stale `docs/TESTING.md`; removed dead
+  `websocket_live_test.zig`; `zig fmt` across the tree.
+- The migration probe now force-compiles every public method body (`_ = &T.method`),
+  so removed-API breakage fails the build instead of a downstream consumer.
+
 ## [0.2.2] - 2026-06-05
 
 Critical correctness and security fixes from a full SDLC/design/security review.
@@ -100,6 +142,7 @@ First tagged release. Builds on the completed Zig 0.16 migration with Kubernetes
   logic, exec-credential plugins, and Protobuf serialization. Completed the
   Zig 0.15 → 0.16 migration.
 
+[0.3.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.0
 [0.2.2]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.2
 [0.2.1]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.1
 [0.2.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.2.0
