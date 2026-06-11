@@ -221,7 +221,9 @@ pub const gcpGkeConfig = exec_credential.gcpGkeConfig;
 pub const azureAksConfig = exec_credential.azureAksConfig;
 
 // Kubeconfig parsing (direct YAML parsing, no kubectl required)
-pub const KubeconfigParser = @import("k8s/kubeconfig_yaml.zig").KubeconfigParser;
+const kubeconfig_yaml = @import("k8s/kubeconfig_yaml.zig");
+pub const KubeconfigParser = kubeconfig_yaml.KubeconfigParser;
+pub const Kubeconfig = kubeconfig_yaml.Kubeconfig;
 
 // In-cluster configuration
 pub const incluster = @import("k8s/incluster_config.zig");
