@@ -6,12 +6,23 @@ const Resource = meta.Resource;
 const core = @import("core.zig");
 const ResourceRequirements = core.ResourceRequirements;
 
+/// PersistentVolume claimRef (the PVC bound to this PV, if any).
+pub const ObjectReference = struct {
+    kind: ?[]const u8 = null,
+    namespace: ?[]const u8 = null,
+    name: ?[]const u8 = null,
+    uid: ?[]const u8 = null,
+    apiVersion: ?[]const u8 = null,
+    resourceVersion: ?[]const u8 = null,
+};
+
 /// PersistentVolume specification
 pub const PersistentVolumeSpec = struct {
     capacity: ?std.json.Value = null,
     accessModes: ?[][]const u8 = null,
     persistentVolumeReclaimPolicy: ?[]const u8 = null,
     storageClassName: ?[]const u8 = null,
+    claimRef: ?ObjectReference = null,
     mountOptions: ?[][]const u8 = null,
 };
 

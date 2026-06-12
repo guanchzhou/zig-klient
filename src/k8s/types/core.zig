@@ -188,21 +188,37 @@ pub const EndpointsSpec = struct {
 /// Endpoints (service endpoints)
 pub const Endpoints = Resource(EndpointsSpec);
 
-/// Event specification (cluster events)
-pub const EventSpec = struct {
-    action: ?[]const u8 = null,
+/// Event involvedObject reference (the object an Event regards).
+pub const EventInvolvedObject = struct {
+    kind: ?[]const u8 = null,
+    namespace: ?[]const u8 = null,
+    name: ?[]const u8 = null,
+    uid: ?[]const u8 = null,
+    apiVersion: ?[]const u8 = null,
+    resourceVersion: ?[]const u8 = null,
+    fieldPath: ?[]const u8 = null,
+};
+
+/// Event (core/v1). Unlike most resources, core/v1 Events carry their payload
+/// (type/reason/message/involvedObject/count/timestamps) as TOP-LEVEL fields,
+/// not under spec/status — so this is a custom struct rather than Resource(T).
+pub const Event = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
+    involvedObject: ?EventInvolvedObject = null,
     reason: ?[]const u8 = null,
     message: ?[]const u8 = null,
     type: ?[]const u8 = null,
+    count: ?i32 = null,
+    firstTimestamp: ?[]const u8 = null,
+    lastTimestamp: ?[]const u8 = null,
     eventTime: ?[]const u8 = null,
-    reportingController: ?[]const u8 = null,
+    action: ?[]const u8 = null,
+    source: ?std.json.Value = null,
+    reportingComponent: ?[]const u8 = null,
     reportingInstance: ?[]const u8 = null,
-    regarding: ?std.json.Value = null,
-    related: ?std.json.Value = null,
 };
-
-/// Event (cluster events)
-pub const Event = Resource(EventSpec);
 
 /// ResourceQuota specification
 pub const ResourceQuotaSpec = struct {
