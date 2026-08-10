@@ -96,11 +96,12 @@ pub const RollingUpdateDaemonSet = struct {
 /// DaemonSet type alias
 pub const DaemonSet = Resource(DaemonSetSpec);
 
-/// ControllerRevision specification (for StatefulSet/DaemonSet history)
-pub const ControllerRevisionSpec = struct {
+/// ControllerRevision (apps/v1, StatefulSet/DaemonSet history). Has no `spec` —
+/// `revision`/`data` are TOP-LEVEL.
+pub const ControllerRevision = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
     revision: i64,
     data: ?std.json.Value = null,
 };
-
-/// ControllerRevision (workload history)
-pub const ControllerRevision = Resource(ControllerRevisionSpec);

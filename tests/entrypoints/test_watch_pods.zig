@@ -65,13 +65,7 @@ pub fn main() !void {
             std.debug.print("    Pod: {s}\n", .{event.object.metadata.name});
 
             if (event.object.status) |status| {
-                if (status == .object) {
-                    if (status.object.get("phase")) |phase| {
-                        if (phase == .string) {
-                            std.debug.print("    Phase: {s}\n", .{phase.string});
-                        }
-                    }
-                }
+                std.debug.print("    Phase: {s}\n", .{status.phase orelse "unknown"});
             }
 
             std.debug.print("\n", .{});

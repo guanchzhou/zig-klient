@@ -56,12 +56,13 @@ pub const IngressClass = struct {
     parameters: ?std.json.Value = null,
 };
 
-/// EndpointSlice specification (for efficient service discovery)
-pub const EndpointSliceSpec = struct {
+/// EndpointSlice (discovery/v1, efficient service discovery). Has no `spec` —
+/// `addressType`/`endpoints`/`ports` are TOP-LEVEL.
+pub const EndpointSlice = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
     addressType: []const u8,
     endpoints: ?[]std.json.Value = null,
     ports: ?[]std.json.Value = null,
 };
-
-/// EndpointSlice (efficient service discovery)
-pub const EndpointSlice = Resource(EndpointSliceSpec);

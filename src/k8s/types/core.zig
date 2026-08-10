@@ -2,6 +2,7 @@ const std = @import("std");
 const meta = @import("meta.zig");
 const ObjectMeta = meta.ObjectMeta;
 const Resource = meta.Resource;
+const ResourceWithStatus = meta.ResourceWithStatus;
 
 /// Pod specification
 pub const PodSpec = struct {
@@ -89,22 +90,78 @@ pub const ResourceRequirements = struct {
     requests: ?std.json.Value = null,
 };
 
-pub const PodStatus = struct {
-    phase: ?[]const u8 = null,
-    podIP: ?[]const u8 = null,
-    hostIP: ?[]const u8 = null,
-    containerStatuses: ?[]ContainerStatus = null,
+/// One entry of `status.podIPs` / `status.hostIPs`.
+pub const PodIP = struct {
+    ip: ?[]const u8 = null,
+};
+
+pub const PodCondition = struct {
+    type: []const u8,
+    status: []const u8,
+    lastProbeTime: ?[]const u8 = null,
+    lastTransitionTime: ?[]const u8 = null,
+    reason: ?[]const u8 = null,
+    message: ?[]const u8 = null,
+};
+
+pub const ContainerStateWaiting = struct {
+    reason: ?[]const u8 = null,
+    message: ?[]const u8 = null,
+};
+
+pub const ContainerStateRunning = struct {
+    startedAt: ?[]const u8 = null,
+};
+
+pub const ContainerStateTerminated = struct {
+    exitCode: i32,
+    signal: ?i32 = null,
+    reason: ?[]const u8 = null,
+    message: ?[]const u8 = null,
+    startedAt: ?[]const u8 = null,
+    finishedAt: ?[]const u8 = null,
+    containerID: ?[]const u8 = null,
+};
+
+/// Exactly one of the three is set. `waiting.reason` is what kubectl renders in
+/// the STATUS column for a non-running container (CrashLoopBackOff, ImagePullBackOff, …).
+pub const ContainerState = struct {
+    waiting: ?ContainerStateWaiting = null,
+    running: ?ContainerStateRunning = null,
+    terminated: ?ContainerStateTerminated = null,
 };
 
 pub const ContainerStatus = struct {
     name: []const u8,
     ready: bool,
     restartCount: i32,
-    state: ?std.json.Value = null,
+    image: ?[]const u8 = null,
+    imageID: ?[]const u8 = null,
+    containerID: ?[]const u8 = null,
+    started: ?bool = null,
+    state: ?ContainerState = null,
+    lastState: ?ContainerState = null,
 };
 
-/// Pod type alias
-pub const Pod = Resource(PodSpec);
+pub const PodStatus = struct {
+    phase: ?[]const u8 = null,
+    reason: ?[]const u8 = null,
+    message: ?[]const u8 = null,
+    podIP: ?[]const u8 = null,
+    podIPs: ?[]PodIP = null,
+    hostIP: ?[]const u8 = null,
+    hostIPs: ?[]PodIP = null,
+    startTime: ?[]const u8 = null,
+    qosClass: ?[]const u8 = null,
+    nominatedNodeName: ?[]const u8 = null,
+    conditions: ?[]PodCondition = null,
+    containerStatuses: ?[]ContainerStatus = null,
+    initContainerStatuses: ?[]ContainerStatus = null,
+    ephemeralContainerStatuses: ?[]ContainerStatus = null,
+};
+
+/// Pod type alias. Uses a typed status — see `meta.ResourceWithStatus` for why.
+pub const Pod = ResourceWithStatus(PodSpec, PodStatus);
 
 /// Service specification
 pub const ServiceSpec = struct {
@@ -126,14 +183,16 @@ pub const ServicePort = struct {
 /// Service type alias
 pub const Service = Resource(ServiceSpec);
 
-/// ConfigMap data
-pub const ConfigMapData = struct {
+/// ConfigMap (core/v1). Has no `spec` — `data`/`binaryData` are TOP-LEVEL,
+/// like Secret. See the note on `Event`.
+pub const ConfigMap = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
     data: ?std.json.Value = null,
     binaryData: ?std.json.Value = null,
+    immutable: ?bool = null,
 };
-
-/// ConfigMap type alias
-pub const ConfigMap = Resource(ConfigMapData);
 
 /// Secret data
 pub const SecretData = struct {
@@ -167,8 +226,55 @@ pub const NodeSpec = struct {
     unschedulable: ?bool = null,
 };
 
-/// Node type alias
-pub const Node = Resource(NodeSpec);
+pub const NodeAddress = struct {
+    type: []const u8,
+    address: []const u8,
+};
+
+pub const NodeCondition = struct {
+    type: []const u8,
+    status: []const u8,
+    lastHeartbeatTime: ?[]const u8 = null,
+    lastTransitionTime: ?[]const u8 = null,
+    reason: ?[]const u8 = null,
+    message: ?[]const u8 = null,
+};
+
+pub const NodeSystemInfo = struct {
+    machineID: ?[]const u8 = null,
+    systemUUID: ?[]const u8 = null,
+    bootID: ?[]const u8 = null,
+    kernelVersion: ?[]const u8 = null,
+    osImage: ?[]const u8 = null,
+    containerRuntimeVersion: ?[]const u8 = null,
+    kubeletVersion: ?[]const u8 = null,
+    kubeProxyVersion: ?[]const u8 = null,
+    operatingSystem: ?[]const u8 = null,
+    architecture: ?[]const u8 = null,
+};
+
+/// One entry of `status.images` — every image cached on the node. Routinely the
+/// largest part of a Node object, which is why it is typed rather than a DOM.
+pub const NodeImage = struct {
+    names: ?[][]const u8 = null,
+    sizeBytes: ?i64 = null,
+};
+
+pub const NodeStatus = struct {
+    /// Resource maps keep arbitrary keys (cpu, memory, hugepages-*, vendor
+    /// devices), so they stay dynamic.
+    capacity: ?std.json.Value = null,
+    allocatable: ?std.json.Value = null,
+    phase: ?[]const u8 = null,
+    conditions: ?[]NodeCondition = null,
+    addresses: ?[]NodeAddress = null,
+    nodeInfo: ?NodeSystemInfo = null,
+    images: ?[]NodeImage = null,
+    daemonEndpoints: ?std.json.Value = null,
+};
+
+/// Node type alias. Uses a typed status — see `meta.ResourceWithStatus` for why.
+pub const Node = ResourceWithStatus(NodeSpec, NodeStatus);
 
 /// ServiceAccount (custom struct)
 pub const ServiceAccount = struct {
@@ -180,13 +286,13 @@ pub const ServiceAccount = struct {
     automountServiceAccountToken: ?bool = null,
 };
 
-/// Endpoints specification
-pub const EndpointsSpec = struct {
+/// Endpoints (core/v1). Has no `spec` — `subsets` is TOP-LEVEL.
+pub const Endpoints = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
     subsets: ?[]std.json.Value = null,
 };
-
-/// Endpoints (service endpoints)
-pub const Endpoints = Resource(EndpointsSpec);
 
 /// Event involvedObject reference (the object an Event regards).
 pub const EventInvolvedObject = struct {
@@ -197,6 +303,15 @@ pub const EventInvolvedObject = struct {
     apiVersion: ?[]const u8 = null,
     resourceVersion: ?[]const u8 = null,
     fieldPath: ?[]const u8 = null,
+};
+
+/// Aggregation state for a repeating Event. The modern `client-go/tools/events`
+/// recorder (kubelet BackOff/Unhealthy, …) collapses repeats into `series` and
+/// leaves the deprecated `count`/`lastTimestamp` unset — so consumers rendering
+/// COUNT / LAST-SEEN must prefer this when present, as kubectl does.
+pub const EventSeries = struct {
+    count: ?i32 = null,
+    lastObservedTime: ?[]const u8 = null,
 };
 
 /// Event (core/v1). Unlike most resources, core/v1 Events carry their payload
@@ -211,6 +326,7 @@ pub const Event = struct {
     message: ?[]const u8 = null,
     type: ?[]const u8 = null,
     count: ?i32 = null,
+    series: ?EventSeries = null,
     firstTimestamp: ?[]const u8 = null,
     lastTimestamp: ?[]const u8 = null,
     eventTime: ?[]const u8 = null,
@@ -249,21 +365,22 @@ pub const ReplicationControllerSpec = struct {
 /// ReplicationController (legacy pod controller)
 pub const ReplicationController = Resource(ReplicationControllerSpec);
 
-/// PodTemplate resource specification
-pub const PodTemplateResourceSpec = struct {
+/// PodTemplate (core/v1). Has no `spec` — `template` is TOP-LEVEL.
+pub const PodTemplate = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
     template: ?std.json.Value = null,
 };
 
-/// PodTemplate (reusable pod templates)
-pub const PodTemplate = Resource(PodTemplateResourceSpec);
-
-/// Binding specification (pod-to-node binding)
-pub const BindingSpec = struct {
+/// Binding (core/v1, pod-to-node). Has no `spec` — `target` (an ObjectReference)
+/// is TOP-LEVEL and required; nesting it under `spec` makes the bind a no-op.
+pub const Binding = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
     target: std.json.Value,
 };
-
-/// Binding (pod-to-node binding)
-pub const Binding = Resource(BindingSpec);
 
 /// ComponentStatus specification (cluster component health) - cluster-scoped
 pub const ComponentStatusSpec = struct {

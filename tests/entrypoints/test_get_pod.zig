@@ -63,44 +63,16 @@ pub fn main() !void {
     }
 
     if (pod.status) |status| {
-        if (status == .object) {
-            std.debug.print("\n  Status:\n", .{});
+        std.debug.print("\n  Status:\n", .{});
+        std.debug.print("    Phase: {s}\n", .{status.phase orelse "unknown"});
+        std.debug.print("    Pod IP: {s}\n", .{status.podIP orelse "unknown"});
+        std.debug.print("    Host IP: {s}\n", .{status.hostIP orelse "unknown"});
+        std.debug.print("    Start Time: {s}\n", .{status.startTime orelse "unknown"});
 
-            if (status.object.get("phase")) |phase| {
-                if (phase == .string) {
-                    std.debug.print("    Phase: {s}\n", .{phase.string});
-                }
-            }
-
-            if (status.object.get("podIP")) |ip| {
-                if (ip == .string) {
-                    std.debug.print("    Pod IP: {s}\n", .{ip.string});
-                }
-            }
-
-            if (status.object.get("hostIP")) |ip| {
-                if (ip == .string) {
-                    std.debug.print("    Host IP: {s}\n", .{ip.string});
-                }
-            }
-
-            if (status.object.get("startTime")) |start_time| {
-                if (start_time == .string) {
-                    std.debug.print("    Start Time: {s}\n", .{start_time.string});
-                }
-            }
-
-            if (status.object.get("conditions")) |conditions| {
-                if (conditions == .array) {
-                    std.debug.print("    Conditions:\n", .{});
-                    for (conditions.array.items) |condition| {
-                        if (condition == .object) {
-                            const ctype = if (condition.object.get("type")) |t| (if (t == .string) t.string else "Unknown") else "Unknown";
-                            const status_str = if (condition.object.get("status")) |s| (if (s == .string) s.string else "Unknown") else "Unknown";
-                            std.debug.print("      {s}: {s}\n", .{ ctype, status_str });
-                        }
-                    }
-                }
+        if (status.conditions) |conditions| {
+            std.debug.print("    Conditions:\n", .{});
+            for (conditions) |condition| {
+                std.debug.print("      {s}: {s}\n", .{ condition.type, condition.status });
             }
         }
     }

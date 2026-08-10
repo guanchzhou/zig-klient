@@ -61,13 +61,7 @@ pub fn main() !void {
         defer parsed.deinit();
         std.debug.print("⚠️  Pod still exists (may be terminating)\n", .{});
         if (parsed.value.status) |status| {
-            if (status == .object) {
-                if (status.object.get("phase")) |phase| {
-                    if (phase == .string) {
-                        std.debug.print("   Current phase: {s}\n", .{phase.string});
-                    }
-                }
-            }
+            std.debug.print("   Current phase: {s}\n", .{status.phase orelse "unknown"});
         }
     } else |err| {
         if (err == error.NotFound) {

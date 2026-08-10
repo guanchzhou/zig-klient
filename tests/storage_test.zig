@@ -127,16 +127,14 @@ test "CSIStorageCapacity - create structure" {
             .name = "test-capacity",
             .namespace = "default",
         },
-        .spec = .{
-            .storageClassName = "fast-ssd",
-            .capacity = "100Gi",
-            .maximumVolumeSize = "50Gi",
-            .nodeTopology = .null,
-        },
+        .storageClassName = "fast-ssd",
+        .capacity = "100Gi",
+        .maximumVolumeSize = "50Gi",
+        .nodeTopology = .null,
     };
 
     try std.testing.expectEqualStrings("storage.k8s.io/v1", capacity.apiVersion.?);
     try std.testing.expectEqualStrings("CSIStorageCapacity", capacity.kind.?);
     try std.testing.expectEqualStrings("test-capacity", capacity.metadata.name);
-    try std.testing.expectEqualStrings("fast-ssd", capacity.spec.?.storageClassName);
+    try std.testing.expectEqualStrings("fast-ssd", capacity.storageClassName);
 }

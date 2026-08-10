@@ -108,16 +108,17 @@ pub const CSINode = struct {
     spec: CSINodeSpec,
 };
 
-/// CSIStorageCapacity specification
-pub const CSIStorageCapacitySpec = struct {
+/// CSIStorageCapacity (storage/v1). Has no `spec` — `storageClassName`,
+/// `capacity`, `maximumVolumeSize` and `nodeTopology` are TOP-LEVEL.
+pub const CSIStorageCapacity = struct {
+    apiVersion: ?[]const u8 = null,
+    kind: ?[]const u8 = null,
+    metadata: ObjectMeta,
     storageClassName: []const u8,
     capacity: ?[]const u8 = null,
     maximumVolumeSize: ?[]const u8 = null,
     nodeTopology: ?std.json.Value = null,
 };
-
-/// CSIStorageCapacity (CSI storage capacity)
-pub const CSIStorageCapacity = Resource(CSIStorageCapacitySpec);
 
 /// VolumeAttributesClass (storage.k8s.io/v1) - no spec, top-level fields
 pub const VolumeAttributesClass = struct {
