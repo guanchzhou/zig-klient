@@ -17,8 +17,8 @@ test "ListOptions - buildQueryString with all options" {
     defer allocator.free(query_string);
 
     // Check that all options are present
-    try testing.expect(std.mem.indexOf(u8, query_string, "fieldSelector=metadata.name=my-pod") != null);
-    try testing.expect(std.mem.indexOf(u8, query_string, "labelSelector=app=nginx") != null);
+    try testing.expect(std.mem.indexOf(u8, query_string, "fieldSelector=metadata.name%3Dmy-pod") != null);
+    try testing.expect(std.mem.indexOf(u8, query_string, "labelSelector=app%3Dnginx") != null);
     try testing.expect(std.mem.indexOf(u8, query_string, "limit=10") != null);
     try testing.expect(std.mem.indexOf(u8, query_string, "timeoutSeconds=30") != null);
     try testing.expect(std.mem.indexOf(u8, query_string, "pretty=true") != null);
