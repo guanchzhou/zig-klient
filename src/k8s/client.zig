@@ -9,8 +9,14 @@ const tls_mod = @import("tls.zig");
 /// Note: This library is logging-agnostic. Wrap API calls with your own
 /// logging if needed.
 ///
-/// Thread-safety: a `K8sClient` is NOT safe to share across threads — `last_api_error`
-/// is unsynchronized mutable state updated on each request. Use one client per thread.
+/// Thread-safety: a `K8sClient` may be shared across threads. It holds no per-request
+/// mutable state, and the underlying `std.http.Client` opens and pools connections
+/// under a mutex ("Connections are opened in a thread-safe manner"). Sharing one
+/// client therefore shares one connection pool.
+///
+/// Error detail is returned, not stored: pass storage to `requestCapturing`, or set
+/// `ResourceClient.error_sink`. (A previous `last_api_error` field on this struct made
+/// the client un-shareable and handed out strings that the next request freed.)
 pub const K8sClient = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -21,10 +27,11 @@ pub const K8sClient = struct {
     retry_config: retry_mod.RetryConfig,
     tls_config: ?tls_mod.TlsConfig,
     max_response_size: usize,
-    /// Last K8s API error response (populated on K8sApiError)
-    last_api_error: ?ApiError = null,
 
-    /// Structured Kubernetes API error (owns its string memory)
+    /// Structured Kubernetes API error. The strings are allocated with the client's
+    /// allocator but owned by whoever captured it — call `deinit` with that same
+    /// allocator. Capture one by passing storage to a `*Capturing` request variant
+    /// or by setting `ResourceClient.error_sink`.
     pub const ApiError = struct {
         status: ?[]const u8 = null,
         message: ?[]const u8 = null,
@@ -50,11 +57,73 @@ pub const K8sClient = struct {
         max_response_size: usize = 16 * 1024 * 1024,
     };
 
+    /// Zig 0.16's `std.crypto.tls.Client` implements none of these, and
+    /// `std.http.Client` exposes no hook to supply them. Previously they were
+    /// accepted and silently dropped, so a caller configuring client-certificate
+    /// auth got an unauthenticated connection and, later, an opaque
+    /// `error.TlsInitializationFailed`. Fail at construction with a reason instead.
+    ///
+    /// Note this is not why HTTPS fails against a cluster — see `tlsUnsupportedHint`.
+    fn rejectUnsupportedTlsOptions(tls: tls_mod.TlsConfig) !void {
+        if (tls.client_cert_data != null or tls.client_cert_path != null or
+            tls.client_key_data != null or tls.client_key_path != null)
+        {
+            log.warn(
+                "client-certificate auth is not supported: Zig {s} std.crypto.tls has no " ++
+                    "client-certificate support. Authenticate with a bearer token, or reach the " ++
+                    "API through `kubectl proxy` (see connectWithFallback).",
+                .{@import("builtin").zig_version_string},
+            );
+            return error.ClientCertificatesUnsupported;
+        }
+        if (tls.insecure_skip_verify) {
+            log.warn(
+                "insecure_skip_verify is not supported: std.http.Client does not expose TLS " ++
+                    "verification settings. Supply the cluster CA via ca_cert_data/ca_cert_path.",
+                .{},
+            );
+            return error.InsecureSkipVerifyUnsupported;
+        }
+        if (tls.server_name != null) {
+            log.warn(
+                "server_name (SNI override) is not supported: std.http.Client derives SNI from " ++
+                    "the request URL. Point `server` at the name the certificate carries.",
+                .{},
+            );
+            return error.TlsServerNameUnsupported;
+        }
+    }
+
+    /// Explains `error.TlsInitializationFailed`, which `std.http.Client` returns for
+    /// every handshake failure with the cause discarded.
+    ///
+    /// The usual cause is not a bad CA: Zig 0.16's TLS client has no handling for the
+    /// `certificate_request` handshake message (it appears nowhere in
+    /// `std/crypto/tls/Client.zig`), and a Kubernetes API server sends one whenever it
+    /// is started with `--client-ca-file` — the default for every distribution. The
+    /// handshake then aborts with `TlsUnexpectedMessage`, which surfaces here masked.
+    fn tlsUnsupportedHint(self: *K8sClient, path: []const u8) void {
+        if (!std.mem.startsWith(u8, self.api_server, "https://")) return;
+        log.err(
+            "TLS handshake with {s} failed while requesting {s}. Zig {s} cannot complete a " ++
+                "handshake with an API server that requests client certificates, which is the " ++
+                "default. Run `kubectl proxy` and point `server` at http://127.0.0.1:8001, or " ++
+                "use connectWithFallback().",
+            .{ self.api_server, path, @import("builtin").zig_version_string },
+        );
+    }
+
     pub fn init(allocator: std.mem.Allocator, io: std.Io, config: Config) !K8sClient {
+        // Validate before allocating anything: the CA bundle rescan below owns heap
+        // memory, so bailing out after it would leak the whole system trust store.
+        if (config.tls_config) |tls| try rejectUnsupportedTlsOptions(tls);
+
         var http_client = std.http.Client{
             .allocator = allocator,
             .io = io,
         };
+        // Every failure path past this point must release the bundle.
+        errdefer http_client.deinit();
 
         // Force an upfront certificate rescan so the first HTTPS request
         // doesn't silently fail on platforms with non-standard CA paths (macOS).
@@ -90,19 +159,10 @@ pub const K8sClient = struct {
     }
 
     pub fn deinit(self: *K8sClient) void {
-        self.clearLastApiError();
         self.allocator.free(self.api_server);
         if (self.token) |t| self.allocator.free(t);
         self.allocator.free(self.namespace);
         self.destroyHttpClient();
-    }
-
-    /// Free previous API error strings before storing a new one
-    fn clearLastApiError(self: *K8sClient) void {
-        if (self.last_api_error) |*err| {
-            err.deinit(self.allocator);
-            self.last_api_error = null;
-        }
     }
 
     fn dupStatusField(self: *K8sClient, obj: std.json.ObjectMap, key: []const u8) ?[]const u8 {
@@ -111,19 +171,19 @@ pub const K8sClient = struct {
         return self.allocator.dupe(u8, v.string) catch null;
     }
 
-    /// Best-effort: parse a Kubernetes `Status` JSON error body into last_api_error.
-    /// Strings are duped so they outlive the temporary parse. No-op if the body is
-    /// empty or not a JSON object (e.g. a protobuf error body) — the caller then keeps
-    /// whatever fallback it set. Caller must have cleared the previous error first.
-    fn setApiErrorFromStatusJson(self: *K8sClient, body: []const u8) void {
-        if (body.len == 0) return;
+    /// Best-effort parse of a Kubernetes `Status` error body. Returns null when the
+    /// body is empty or is not a JSON object (a protobuf error body, or the HTML a
+    /// load balancer serves) — the caller then falls back to the HTTP status code.
+    /// Strings are duped so they outlive the temporary parse.
+    fn parseStatusJson(self: *K8sClient, body: []const u8) ?ApiError {
+        if (body.len == 0) return null;
         const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, body, .{
             .ignore_unknown_fields = true,
-        }) catch return;
+        }) catch return null;
         defer parsed.deinit();
-        if (parsed.value != .object) return;
+        if (parsed.value != .object) return null;
         const obj = parsed.value.object;
-        self.last_api_error = .{
+        return .{
             .status = self.dupStatusField(obj, "status"),
             .message = self.dupStatusField(obj, "message"),
             .reason = self.dupStatusField(obj, "reason"),
@@ -162,19 +222,31 @@ pub const K8sClient = struct {
     /// Count cluster nodes (best-effort). Returns null when the count could not be
     /// determined (request/parse failure or unexpected shape) — distinct from a real
     /// empty cluster (0).
+    ///
+    /// Asks for a single item and reads `metadata.remainingItemCount` rather than
+    /// downloading every Node. A Node object is several KB (status.images alone
+    /// often dominates it), so the full list costs O(cluster) bytes and parse time
+    /// to produce one integer.
     fn getNodeCount(self: *K8sClient) ?u32 {
-        const nodes_response = self.request(.GET, "/api/v1/nodes", null) catch return null;
+        // `limit` forces a paginated (etcd-backed) list, which is what makes the
+        // API server populate remainingItemCount. Do NOT add resourceVersion=0
+        // here: a watch-cache read returns the full list and omits the count.
+        const nodes_response = self.request(.GET, "/api/v1/nodes?limit=1", null) catch return null;
         defer self.allocator.free(nodes_response);
 
-        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, nodes_response, .{
+        const Page = struct {
+            metadata: struct { remainingItemCount: ?i64 = null } = .{},
+            items: []struct {} = &.{},
+        };
+        const parsed = std.json.parseFromSlice(Page, self.allocator, nodes_response, .{
             .ignore_unknown_fields = true,
         }) catch return null;
         defer parsed.deinit();
 
-        if (parsed.value != .object) return null;
-        const items = parsed.value.object.get("items") orelse return null;
-        if (items != .array) return null;
-        return @intCast(items.array.items.len);
+        // remainingItemCount is absent on the last (or only) page.
+        const remaining = parsed.value.metadata.remainingItemCount orelse 0;
+        if (remaining < 0) return null;
+        return std.math.cast(u32, @as(i64, @intCast(parsed.value.items.len)) + remaining);
     }
 
     /// HTTP method alias for convenience
@@ -186,6 +258,51 @@ pub const K8sClient = struct {
     /// duplicating a non-idempotent write. Use requestWithRetry to force retries.
     pub fn request(self: *K8sClient, method: std.http.Method, path: []const u8, body: ?[]const u8) ![]u8 {
         return self.requestWithContentType(method, path, body, "application/json");
+    }
+
+    /// Like `request`, but captures the Kubernetes `Status` detail of a failure.
+    ///
+    /// `err_out` is caller-owned storage: on `error.K8sApiError` it receives an
+    /// `ApiError` whose strings were allocated with this client's allocator, and the
+    /// caller must `deinit` it with that allocator. It is left untouched on success
+    /// and on transport-level failures.
+    ///
+    /// This replaces the old `client.last_api_error` field. That was mutable state on
+    /// the shared client, which made `K8sClient` un-shareable across threads even
+    /// though `std.http.Client` underneath is thread-safe, and its strings were freed
+    /// by the following request.
+    pub fn requestCapturing(
+        self: *K8sClient,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        err_out: *?ApiError,
+    ) ![]u8 {
+        return self.sendWithRetry(method, path, body, .json, false, err_out);
+    }
+
+    /// `requestWithContentType` with the same error capture as `requestCapturing`.
+    /// This is what `ResourceClient.error_sink` routes through.
+    pub fn requestCapturingWithContentType(
+        self: *K8sClient,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        content_type: []const u8,
+        err_out: *?ApiError,
+    ) ![]u8 {
+        return self.sendWithRetry(method, path, body, .{ .content_type = content_type }, false, err_out);
+    }
+
+    /// `requestWithProtobuf` with the same error capture as `requestCapturing`.
+    pub fn requestWithProtobufCapturing(
+        self: *K8sClient,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        err_out: *?ApiError,
+    ) ![]u8 {
+        return self.sendWithRetry(method, path, body, .protobuf, false, err_out);
     }
 
     /// Whether a duplicate of this method has no additional observable effect, so
@@ -204,25 +321,45 @@ pub const K8sClient = struct {
         method: std.http.Method,
         path: []const u8,
         body: ?[]const u8,
-        content_type: []const u8,
+        format: WireFormat,
         force: bool,
+        err_out: ?*?ApiError,
     ) ![]u8 {
         if (!force and !isIdempotent(method)) {
-            return self.sendOnce(method, path, body, content_type);
+            return self.sendOnce(method, path, body, format, err_out);
         }
 
         var retry_ctx = retry_mod.RetryContext.init(self.retry_config);
         while (true) {
-            const result = self.sendOnce(method, path, body, content_type) catch |err| {
-                const status_code: ?u16 = if (err == error.K8sApiError)
-                    if (self.last_api_error) |api_err|
-                        if (api_err.code) |code| @intCast(code) else null
-                    else
-                        null
+            // The retry decision needs the status code even when the caller does not
+            // want the detail, so always capture locally and hand over at the end.
+            var attempt_err: ?ApiError = null;
+            const result = self.sendOnce(method, path, body, format, &attempt_err) catch |err| {
+                // A failed TLS handshake is deterministic — the CA, the URL and the
+                // peer's capabilities do not change between attempts. Retrying only
+                // burns the backoff budget and repeats the diagnostic N times.
+                if (err == error.TlsInitializationFailed) {
+                    if (attempt_err) |*e| e.deinit(self.allocator);
+                    return err;
+                }
+
+                const status_code: ?u16 = if (attempt_err) |api_err|
+                    if (api_err.code) |code| std.math.cast(u16, code) else null
                 else
                     null;
 
-                if (!retry_ctx.shouldRetry(status_code)) return err;
+                if (!retry_ctx.shouldRetry(status_code)) {
+                    // Last attempt: give the detail to the caller, or drop it.
+                    if (err_out) |out| {
+                        out.* = attempt_err;
+                    } else if (attempt_err) |*e| {
+                        e.deinit(self.allocator);
+                    }
+                    return err;
+                }
+
+                // Another attempt follows; this attempt's detail is superseded.
+                if (attempt_err) |*e| e.deinit(self.allocator);
 
                 retry_ctx.nextAttempt();
                 try retry_ctx.backoff();
@@ -235,7 +372,7 @@ pub const K8sClient = struct {
     /// Force retries regardless of method idempotency. Use only when a duplicate
     /// write is known to be safe (e.g. a POST guarded by a server-side dedup).
     pub fn requestWithRetry(self: *K8sClient, method: std.http.Method, path: []const u8, body: ?[]const u8) ![]u8 {
-        return self.sendWithRetry(method, path, body, "application/json", true);
+        return self.sendWithRetry(method, path, body, .json, true, null);
     }
 
     /// Make HTTP request with custom Content-Type (idempotent methods auto-retry).
@@ -246,8 +383,23 @@ pub const K8sClient = struct {
         body: ?[]const u8,
         content_type: []const u8,
     ) ![]u8 {
-        return self.sendWithRetry(method, path, body, content_type, false);
+        return self.sendWithRetry(method, path, body, .{ .content_type = content_type }, false, null);
     }
+
+    /// Wire format for one attempt. The JSON and Protobuf paths differ only in these
+    /// two headers; everything else — auth, redirects, status handling, decompression,
+    /// size limiting — is identical and lives in `sendOnce`.
+    pub const WireFormat = struct {
+        content_type: []const u8,
+        /// Sent as `Accept`. Null leaves the server to its default (JSON).
+        accept: ?[]const u8 = null,
+
+        pub const json: WireFormat = .{ .content_type = "application/json" };
+        pub const protobuf: WireFormat = .{
+            .content_type = "application/vnd.kubernetes.protobuf;charset=utf-8",
+            .accept = "application/vnd.kubernetes.protobuf",
+        };
+    };
 
     /// A single HTTP attempt with no retry. The retry wrappers call this.
     fn sendOnce(
@@ -255,7 +407,8 @@ pub const K8sClient = struct {
         method: std.http.Method,
         path: []const u8,
         body: ?[]const u8,
-        content_type: []const u8,
+        format: WireFormat,
+        err_out: ?*?ApiError,
     ) ![]u8 {
         // Stack-allocated URL buffer (K8s API URLs are bounded in length)
         var url_buf: [4096]u8 = undefined;
@@ -273,15 +426,28 @@ pub const K8sClient = struct {
         }
 
         if (body != null) {
-            headers.content_type = .{ .override = content_type };
+            headers.content_type = .{ .override = format.content_type };
+        }
+
+        // Stack-local, so it outlives `req`, which is torn down before we return.
+        var accept_header: [1]std.http.Header = undefined;
+        var extra_headers: []const std.http.Header = &.{};
+        if (format.accept) |accept| {
+            accept_header[0] = .{ .name = "Accept", .value = accept };
+            extra_headers = accept_header[0..1];
         }
 
         // Make request to Kubernetes API
         var req = self.http_client.request(method, uri, .{
             .redirect_behavior = @enumFromInt(3),
             .headers = headers,
+            .extra_headers = extra_headers,
         }) catch |err| {
-            log.warn("HTTP request init failed for {s}: {}", .{ path, err });
+            if (err == error.TlsInitializationFailed) {
+                self.tlsUnsupportedHint(path);
+            } else {
+                log.warn("HTTP request init failed for {s}: {}", .{ path, err });
+            }
             return err;
         };
         defer req.deinit();
@@ -320,9 +486,14 @@ pub const K8sClient = struct {
             const err_reader = response.readerDecompressing(&err_transfer_buffer, &err_decompress, &err_decompress_buffer);
             err_reader.appendRemaining(self.allocator, &error_buffer, .limited(65536)) catch {};
 
-            // Try to parse structured K8s API error
-            self.clearLastApiError();
-            self.setApiErrorFromStatusJson(error_buffer.items);
+            if (err_out) |out| {
+                // Not every error body is a Kubernetes Status: a load balancer or
+                // ingress in front of the API server answers with HTML, and a
+                // protobuf request may get a protobuf body. Fall back to the status
+                // code so the caller always learns something.
+                out.* = self.parseStatusJson(error_buffer.items) orelse
+                    ApiError{ .code = @intFromEnum(response.head.status) };
+            }
             return error.K8sApiError;
         }
 
@@ -343,95 +514,19 @@ pub const K8sClient = struct {
         return try body_buffer.toOwnedSlice(self.allocator);
     }
 
-    /// Make HTTP request with Protobuf serialization
-    /// Returns raw Protobuf-encoded response data
+    /// Make a request using Kubernetes' Protobuf wire format.
+    /// Returns the raw Protobuf-encoded response body.
+    ///
+    /// Goes through the same retry policy as `request`: idempotent methods are
+    /// retried, POST is sent once. Previously this path had its own copy of the
+    /// send/receive logic with no retries at all, and the two copies had drifted.
     pub fn requestWithProtobuf(
         self: *K8sClient,
         method: std.http.Method,
         path: []const u8,
         body: ?[]const u8,
     ) ![]u8 {
-        // Stack-allocated URL buffer
-        var url_buf: [4096]u8 = undefined;
-        const url = try std.fmt.bufPrint(&url_buf, "{s}{s}", .{ self.api_server, path });
-
-        const uri = try std.Uri.parse(url);
-
-        // Build headers with Protobuf Content-Type and authorization
-        var header_buffer: [4096]u8 = undefined;
-        var headers = std.http.Client.Request.Headers{};
-
-        if (self.token) |token| {
-            const auth_value = try std.fmt.bufPrint(&header_buffer, "Bearer {s}", .{token});
-            headers.authorization = .{ .override = auth_value };
-        }
-
-        // Set Protobuf Content-Type for request body
-        if (body != null) {
-            headers.content_type = .{ .override = "application/vnd.kubernetes.protobuf;charset=utf-8" };
-        }
-
-        // Make request to Kubernetes API with Protobuf Accept header
-        var req = try self.http_client.request(method, uri, .{
-            .redirect_behavior = @enumFromInt(3),
-            .headers = headers,
-            .extra_headers = &.{
-                .{ .name = "Accept", .value = "application/vnd.kubernetes.protobuf" },
-            },
-        });
-        defer req.deinit();
-
-        // Send request with or without body
-        if (body) |request_body| {
-            req.transfer_encoding = .{ .content_length = request_body.len };
-            var proto_body_buf: [8192]u8 = undefined;
-            var send_body = try req.sendBody(&proto_body_buf);
-            try send_body.writer.writeAll(request_body);
-            try send_body.end();
-        } else {
-            try req.sendBodiless();
-        }
-
-        // Receive response headers
-        var redirect_buffer: [2048]u8 = undefined;
-        var response = try req.receiveHead(&redirect_buffer);
-
-        // Check response status
-        const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
-        if (!is_success) {
-            self.clearLastApiError();
-            // Read the (small) error body. The API server usually returns a JSON
-            // Status even for a protobuf request; parse it for message/reason/code.
-            var err_buf = try std.ArrayList(u8).initCapacity(self.allocator, 1024);
-            defer err_buf.deinit(self.allocator);
-            var err_transfer_buffer: [16384]u8 = undefined;
-            var err_decompress: std.http.Decompress = undefined;
-            var err_decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
-            const err_reader = response.readerDecompressing(&err_transfer_buffer, &err_decompress, &err_decompress_buffer);
-            err_reader.appendRemaining(self.allocator, &err_buf, .limited(65536)) catch {};
-            self.setApiErrorFromStatusJson(err_buf.items);
-            // Fall back to the HTTP status code if the body wasn't a JSON Status.
-            if (self.last_api_error == null) {
-                self.last_api_error = .{ .code = @intFromEnum(response.head.status) };
-            }
-            return error.K8sApiError;
-        }
-
-        // Read response body (Protobuf-encoded) with decompression and size limit
-        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 8192);
-        errdefer body_buffer.deinit(self.allocator);
-
-        var transfer_buffer: [16384]u8 = undefined;
-        var decompress: std.http.Decompress = undefined;
-        var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
-        const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
-
-        reader.appendRemaining(self.allocator, &body_buffer, .limited(self.max_response_size)) catch |err| switch (err) {
-            error.ReadFailed => return response.bodyErr().?,
-            else => |e| return e,
-        };
-
-        return try body_buffer.toOwnedSlice(self.allocator);
+        return self.sendWithRetry(method, path, body, .protobuf, false, null);
     }
 };
 

@@ -32,9 +32,13 @@ pub fn main() !void {
         \\{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"zig-klient-test","labels":{"created-by":"zig-klient-test"}}}
     ;
 
-    const ns_result = client.request(.POST, "/api/v1/namespaces", ns_manifest) catch |err| blk: {
+    // Error detail is caller-owned now: pass storage in, free it yourself.
+    var ns_err: ?klient.K8sClient.ApiError = null;
+    defer if (ns_err) |*e| e.deinit(allocator);
+
+    const ns_result = client.requestCapturing(.POST, "/api/v1/namespaces", ns_manifest, &ns_err) catch |err| blk: {
         if (err == error.K8sApiError) {
-            if (client.last_api_error) |api_err| {
+            if (ns_err) |api_err| {
                 if (api_err.code != null and api_err.code.? == 409) {
                     std.debug.print("⚠️  Namespace already exists (continuing...)\n", .{});
                 } else {
@@ -78,13 +82,7 @@ pub fn main() !void {
     std.debug.print("   Namespace: {s}\n", .{pod.metadata.namespace orelse "default"});
 
     if (pod.status) |status| {
-        if (status == .object) {
-            if (status.object.get("phase")) |phase| {
-                if (phase == .string) {
-                    std.debug.print("   Phase: {s}\n", .{phase.string});
-                }
-            }
-        }
+        std.debug.print("   Phase: {s}\n", .{status.phase orelse "unknown"});
     }
 
     std.debug.print("\n💡 Tip: Run test_get_pod.zig to check pod status\n", .{});

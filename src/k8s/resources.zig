@@ -20,6 +20,24 @@ pub fn ResourceClient(comptime T: type) type {
         resource: []const u8, // e.g., "pods", "deployments"
         is_cluster_scoped: bool = false,
 
+        /// Optional caller-owned storage for the Kubernetes `Status` behind an
+        /// `error.K8sApiError`. Left null, failures carry no detail.
+        ///
+        /// A `ResourceClient` is a value, so this lives at the call site rather than
+        /// on the shared `K8sClient` — two threads can drive the same client through
+        /// their own `ResourceClient` and their own sinks.
+        ///
+        /// The strings are allocated with `client.allocator`; you own them:
+        ///
+        ///     var api_err: ?K8sClient.ApiError = null;
+        ///     defer if (api_err) |*e| e.deinit(allocator);
+        ///     var pods = klient.Pods.init(&client);
+        ///     pods.client.error_sink = &api_err;
+        ///     _ = pods.client.get("missing", "default") catch {
+        ///         if (api_err) |e| std.debug.print("{?d}\n", .{e.code});
+        ///     };
+        error_sink: ?*?K8sClient.ApiError = null,
+
         const Self = @This();
 
         /// Initialize from the resource registry (auto-configures api_path, resource, scope).
@@ -43,6 +61,21 @@ pub fn ResourceClient(comptime T: type) type {
                 .ignore_unknown_fields = true,
                 .allocate = .alloc_always,
             });
+        }
+
+        /// All requests this client makes funnel through here so a configured
+        /// `error_sink` applies uniformly.
+        fn send(
+            self: Self,
+            method: std.http.Method,
+            path: []const u8,
+            body: ?[]const u8,
+            content_type: []const u8,
+        ) ![]u8 {
+            if (self.error_sink) |sink| {
+                return self.client.requestCapturingWithContentType(method, path, body, content_type, sink);
+            }
+            return self.client.requestWithContentType(method, path, body, content_type);
         }
 
         /// Serialize a Zig value to a JSON byte slice. Caller must free the result.
@@ -91,75 +124,106 @@ pub fn ResourceClient(comptime T: type) type {
 
         // --- List operations ---
 
-        /// List resources in a namespace (or cluster-wide for cluster-scoped resources).
-        /// NOTE: Caller must call deinit() on the returned Parsed object
-        pub fn list(self: Self, namespace: ?[]const u8) !std.json.Parsed(types.List(T)) {
+        /// The cross-namespace collection path: no `/namespaces/<ns>` segment.
+        fn buildAllNamespacesPath(self: Self) ![]const u8 {
+            return std.fmt.allocPrint(self.client.allocator, "{s}/{s}", .{
+                self.api_path,
+                self.resource,
+            });
+        }
+
+        /// The one place a collection is fetched and parsed. The four public list
+        /// entry points differ only in which base path they hand over.
+        fn listFrom(
+            self: Self,
+            base_path: []const u8,
+            options: list_opts.ListOptions,
+        ) !std.json.Parsed(types.List(T)) {
             const allocator = self.client.allocator;
-            const path = try self.buildCollectionPath(namespace);
+
+            const qs = try options.buildQueryString(allocator);
+            defer allocator.free(qs);
+
+            const path = try appendQueryString(allocator, base_path, qs);
             defer allocator.free(path);
 
-            const body = try self.client.request(.GET, path, null);
+            const body = try self.send(.GET, path, null, "application/json");
             defer allocator.free(body);
 
             return parseResponse(types.List(T), allocator, body);
+        }
+
+        /// List resources in a namespace (or cluster-wide for cluster-scoped resources).
+        /// NOTE: Caller must call deinit() on the returned Parsed object
+        pub fn list(self: Self, namespace: ?[]const u8) !std.json.Parsed(types.List(T)) {
+            return self.listWithOptions(namespace, .{});
         }
 
         /// List all resources across all namespaces
         /// NOTE: Caller must call deinit() on the returned Parsed object
         pub fn listAll(self: Self) !std.json.Parsed(types.List(T)) {
-            const allocator = self.client.allocator;
-            const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{
-                self.api_path,
-                self.resource,
-            });
-            defer allocator.free(path);
-
-            const body = try self.client.request(.GET, path, null);
-            defer allocator.free(body);
-
-            return parseResponse(types.List(T), allocator, body);
+            return self.listAllWithOptions(.{});
         }
 
         /// List resources with options (field/label selectors, pagination, etc.)
         /// NOTE: Caller must call deinit() on the returned Parsed object
         pub fn listWithOptions(self: Self, namespace: ?[]const u8, options: list_opts.ListOptions) !std.json.Parsed(types.List(T)) {
-            const allocator = self.client.allocator;
             const base_path = try self.buildCollectionPath(namespace);
-            defer allocator.free(base_path);
-
-            const qs = try options.buildQueryString(allocator);
-            defer allocator.free(qs);
-
-            const path = try appendQueryString(allocator, base_path, qs);
-            defer allocator.free(path);
-
-            const body = try self.client.request(.GET, path, null);
-            defer allocator.free(body);
-
-            return parseResponse(types.List(T), allocator, body);
+            defer self.client.allocator.free(base_path);
+            return self.listFrom(base_path, options);
         }
 
         /// List all resources across all namespaces with options
         /// NOTE: Caller must call deinit() on the returned Parsed object
         pub fn listAllWithOptions(self: Self, options: list_opts.ListOptions) !std.json.Parsed(types.List(T)) {
+            const base_path = try self.buildAllNamespacesPath();
+            defer self.client.allocator.free(base_path);
+            return self.listFrom(base_path, options);
+        }
+
+        /// Walk a collection page by page, following `continue` tokens.
+        ///
+        /// `list()` fetches the whole collection in one response, so both the
+        /// response buffer and the parsed arena scale with the cluster — and past
+        /// `client.max_response_size` (16 MB by default, roughly 3k pods) it fails
+        /// outright. This keeps both O(page).
+        ///
+        /// The callback sees one page at a time; that page's memory is released as
+        /// soon as it returns, so copy anything that must outlive the call. Return
+        /// an error from the callback to stop early.
+        ///
+        /// Pass `namespace = null` with a cluster-scoped resource, or use
+        /// `listAllPages` to span namespaces.
+        pub fn listPages(
+            self: Self,
+            namespace: ?[]const u8,
+            page_size: i64,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, []T) anyerror!void,
+        ) !void {
             const allocator = self.client.allocator;
+            var next_token: ?[]const u8 = null;
+            defer if (next_token) |tok| allocator.free(tok);
 
-            const base_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{
-                self.api_path,
-                self.resource,
-            });
-            defer allocator.free(base_path);
+            while (true) {
+                var page = try self.listWithOptions(namespace, .{
+                    .limit = page_size,
+                    .continue_token = next_token,
+                });
+                defer page.deinit();
 
-            const qs = try options.buildQueryString(allocator);
-            defer allocator.free(qs);
+                try callback(context, page.value.items);
 
-            const path = try appendQueryString(allocator, base_path, qs);
-            defer allocator.free(path);
+                // The token lives in the page's arena, which dies at the end of
+                // this iteration — copy it out before that happens.
+                if (next_token) |tok| allocator.free(tok);
+                next_token = null;
 
-            const body = try self.client.request(.GET, path, null);
-            defer allocator.free(body);
-
-            return parseResponse(types.List(T), allocator, body);
+                const cont = page.value.metadata.@"continue" orelse return;
+                if (cont.len == 0) return;
+                next_token = try allocator.dupe(u8, cont);
+            }
         }
 
         // --- Single-resource operations ---
@@ -171,7 +235,7 @@ pub fn ResourceClient(comptime T: type) type {
             const path = try self.buildResourcePath(name, namespace);
             defer allocator.free(path);
 
-            const body = try self.client.request(.GET, path, null);
+            const body = try self.send(.GET, path, null, "application/json");
             defer allocator.free(body);
 
             return parseResponse(T, allocator, body);
@@ -187,7 +251,7 @@ pub fn ResourceClient(comptime T: type) type {
             const json_body = try serializeJson(allocator, resource);
             defer allocator.free(json_body);
 
-            const body = try self.client.request(.POST, path, json_body);
+            const body = try self.send(.POST, path, json_body, "application/json");
             defer allocator.free(body);
 
             return parseResponse(T, allocator, body);
@@ -215,7 +279,7 @@ pub fn ResourceClient(comptime T: type) type {
             const json_body = try serializeJson(allocator, resource);
             defer allocator.free(json_body);
 
-            const body = try self.client.request(.POST, path, json_body);
+            const body = try self.send(.POST, path, json_body, "application/json");
             defer allocator.free(body);
 
             return parseResponse(T, allocator, body);
@@ -231,7 +295,7 @@ pub fn ResourceClient(comptime T: type) type {
             const json_body = try serializeJson(allocator, resource);
             defer allocator.free(json_body);
 
-            const body = try self.client.request(.PUT, path, json_body);
+            const body = try self.send(.PUT, path, json_body, "application/json");
             defer allocator.free(body);
 
             return parseResponse(T, allocator, body);
@@ -259,7 +323,7 @@ pub fn ResourceClient(comptime T: type) type {
             const json_body = try serializeJson(allocator, resource);
             defer allocator.free(json_body);
 
-            const body = try self.client.request(.PUT, path, json_body);
+            const body = try self.send(.PUT, path, json_body, "application/json");
             defer allocator.free(body);
 
             return parseResponse(T, allocator, body);
@@ -271,7 +335,7 @@ pub fn ResourceClient(comptime T: type) type {
             const path = try self.buildResourcePath(name, namespace);
             defer allocator.free(path);
 
-            const body = try self.client.request(.DELETE, path, null);
+            const body = try self.send(.DELETE, path, null, "application/json");
             defer allocator.free(body);
         }
 
@@ -299,7 +363,7 @@ pub fn ResourceClient(comptime T: type) type {
                 null;
             defer if (delete_body) |b| allocator.free(b);
 
-            const response = try self.client.request(.DELETE, path, delete_body);
+            const response = try self.send(.DELETE, path, delete_body, "application/json");
             defer allocator.free(response);
         }
 
@@ -341,7 +405,7 @@ pub fn ResourceClient(comptime T: type) type {
             const path = try appendQueryString(allocator, base_path, qs);
             defer allocator.free(path);
 
-            const response = try self.client.request(.DELETE, path, null);
+            const response = try self.send(.DELETE, path, null, "application/json");
             defer allocator.free(response);
         }
 
@@ -354,7 +418,7 @@ pub fn ResourceClient(comptime T: type) type {
             const path = try self.buildResourcePath(name, namespace);
             defer allocator.free(path);
 
-            const body = try self.client.requestWithContentType(
+            const body = try self.send(
                 .PATCH,
                 path,
                 patch_data,
@@ -378,7 +442,7 @@ pub fn ResourceClient(comptime T: type) type {
             const path = try self.buildResourcePath(name, namespace);
             defer allocator.free(path);
 
-            const body = try self.client.requestWithContentType(
+            const body = try self.send(
                 .PATCH,
                 path,
                 patch_data,
@@ -409,7 +473,7 @@ pub fn ResourceClient(comptime T: type) type {
             const path = try std.fmt.allocPrint(allocator, "{s}?{s}", .{ base_path, qs });
             defer allocator.free(path);
 
-            const body = try self.client.requestWithContentType(
+            const body = try self.send(
                 .PATCH,
                 path,
                 resource_json,

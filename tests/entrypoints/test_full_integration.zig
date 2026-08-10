@@ -35,9 +35,11 @@ pub fn main() !void {
         const ns_manifest =
             \\{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"zig-klient-integration"}}
         ;
-        const result = client.request(.POST, "/api/v1/namespaces", ns_manifest) catch |err| blk: {
+        var ns_err: ?klient.K8sClient.ApiError = null;
+        defer if (ns_err) |*e| e.deinit(allocator);
+        const result = client.requestCapturing(.POST, "/api/v1/namespaces", ns_manifest, &ns_err) catch |err| blk: {
             if (err == error.K8sApiError) {
-                if (client.last_api_error) |api_err| {
+                if (ns_err) |api_err| {
                     if (api_err.code != null and api_err.code.? == 409) {
                         std.debug.print("  ⚠️  Namespace exists (continuing)\n", .{});
                         test_passed += 1;
@@ -73,9 +75,11 @@ pub fn main() !void {
         const path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/pods", .{test_namespace});
         defer allocator.free(path);
 
-        const result = client.request(.POST, path, pod_manifest) catch |err| blk: {
+        var pod_err: ?klient.K8sClient.ApiError = null;
+        defer if (pod_err) |*e| e.deinit(allocator);
+        const result = client.requestCapturing(.POST, path, pod_manifest, &pod_err) catch |err| blk: {
             std.debug.print("  ❌ FAILED: {}\n", .{err});
-            if (client.last_api_error) |api_err| {
+            if (pod_err) |api_err| {
                 if (api_err.message) |msg| std.debug.print("     K8s: {s}\n", .{msg});
             }
             test_failed += 1;
@@ -102,13 +106,7 @@ pub fn main() !void {
             defer p.deinit();
             std.debug.print("  ✅ PASSED - Found: {s}\n", .{p.value.metadata.name});
             if (p.value.status) |status| {
-                if (status == .object) {
-                    if (status.object.get("phase")) |phase| {
-                        if (phase == .string) {
-                            std.debug.print("     Phase: {s}\n", .{phase.string});
-                        }
-                    }
-                }
+                std.debug.print("     Phase: {s}\n", .{status.phase orelse "unknown"});
             }
             test_passed += 1;
         }

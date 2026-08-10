@@ -60,9 +60,6 @@ pub fn main() !void {
         passed += 1;
     } else |err| {
         std.debug.print("  ❌ FAILED: {}\n", .{err});
-        if (client.last_api_error) |api_err| {
-            if (api_err.message) |msg| std.debug.print("     K8s: {s}\n", .{msg});
-        }
         failed += 1;
     }
 
@@ -124,7 +121,14 @@ fn runCreatePod(client: *klient.K8sClient) !void {
     const manifest =
         \\{"apiVersion":"v1","kind":"Pod","metadata":{"name":"zig-klient-test","labels":{"app":"zig-klient-test"}},"spec":{"containers":[{"name":"busybox","image":"busybox:latest","command":["sleep","30"]}]}}
     ;
-    const result = try client.request(.POST, "/api/v1/namespaces/default/pods", manifest);
+    var api_err: ?klient.K8sClient.ApiError = null;
+    defer if (api_err) |*e| e.deinit(client.allocator);
+    const result = client.requestCapturing(.POST, "/api/v1/namespaces/default/pods", manifest, &api_err) catch |err| {
+        if (api_err) |e| {
+            if (e.message) |msg| std.debug.print("     K8s: {s}\n", .{msg});
+        }
+        return err;
+    };
     defer client.allocator.free(result);
     std.debug.print("  ✅ PASSED - Pod created\n", .{});
 }
