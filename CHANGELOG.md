@@ -5,6 +5,198 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-10
+
+### Fixed
+- **A non-JSON error body no longer discards the status code.** `setApiErrorFromStatusJson`
+  is best-effort, and the JSON request path had no fallback: when a load balancer or
+  ingress in front of the API server answered `503` with an HTML body, the caller got
+  `error.K8sApiError` with `last_api_error == null` — no reason, no message, not even
+  the status. The Protobuf path already handled this; both now do.
+- **`last_api_error` no longer leaks across requests.** It was cleared only when a
+  *new* Kubernetes `Status` error replaced it, so a successful call — or any
+  transport-level failure, which never populates it — left the previous call's error
+  in place. A caller inspecting the field after catching an error (the documented
+  way to get error detail, and what the integration entrypoints do) reported a
+  stale, unrelated cause. It is now cleared at the start of every request attempt,
+  so it describes the current request or is null.
+- **TLS options that cannot be honoured are now rejected instead of silently
+  dropped.** `K8sClient.init` accepted `client_cert_data`, `client_key_data`,
+  `client_cert_path`, `client_key_path`, `insecure_skip_verify` and `server_name`
+  and then used none of them — only the CA was ever wired up. A caller configuring
+  client-certificate auth got an unauthenticated client and, much later, an opaque
+  `error.TlsInitializationFailed`. These now fail at construction with
+  `error.ClientCertificatesUnsupported`, `error.InsecureSkipVerifyUnsupported` or
+  `error.TlsServerNameUnsupported`.
+  - Zig 0.16's `std.crypto.tls.Client` has no client-certificate support, and
+    `std.http.Client` exposes no verification or SNI overrides, so none of these
+    can be implemented here today.
+  - The README advertised mTLS as a supported feature with a worked example. That
+    claim is withdrawn.
+- **`error.TlsInitializationFailed` now explains itself.** `std.http.Client` returns
+  it for every handshake failure with the cause discarded. The real cause against a
+  Kubernetes cluster is that `std.crypto.tls.Client` has no handling for the
+  `certificate_request` handshake message (it appears nowhere in
+  `std/crypto/tls/Client.zig`), and an API server sends one whenever started with
+  `--client-ca-file` — the default everywhere. The handshake aborts with
+  `TlsUnexpectedMessage`. The client now logs the cause and the `kubectl proxy`
+  workaround. The README previously blamed self-signed certificates, which was
+  wrong: a publicly-trusted managed cluster fails identically.
+- **A failed TLS handshake is no longer retried.** It is deterministic, so the retry
+  loop only burned the backoff budget and repeated the diagnostic four times.
+- **`K8sClient.init` no longer leaks the system trust store on error paths.** The CA
+  bundle rescan allocates before any later failure could return; added an `errdefer`
+  and moved config validation ahead of all allocation.
+
+### Fixed (earlier in this release)
+- **Query values are now percent-encoded.** `QueryWriter.addString` emitted values
+  raw, so any value containing a space or reserved character corrupted the HTTP
+  request target. This made the library's own `LabelSelector.addIn`/`addNotIn`
+  unusable: `app in (traefik,coredns)` produced the request line
+  `GET /...?labelSelector=app in (traefik,coredns) HTTP/1.1`, which a spec-compliant
+  server rejects with **400 Bad Request** — and the retry loop then repeated it
+  four times. Verified fixed against a live apiserver.
+  - Continue tokens were never affected: the apiserver emits them with base64
+    `RawURLEncoding`, which is already URL-safe.
+  - Query strings now read `fieldSelector=metadata.name%3Dmy-pod`. The apiserver
+    decodes before parsing selectors, so behaviour is unchanged for values that
+    previously worked.
+
+### Performance
+- **`Pod.status` and `Node.status` are typed** rather than `std.json.Value`. An
+  untyped status is parsed into a DOM — one hash map per object, per item.
+  Measured on a 500-pod / 2.5 MB list: **5.33 ms -> 4.46 ms (-16%)** and
+  **10.5 MB -> 5.25 MB resident (-50%)**.
+  - `PodStatus`/`ContainerStatus` already existed but nothing referenced them —
+    `Pod` was `Resource(PodSpec)`, whose `status` is dynamic. They are now used,
+    and extended to cover what real objects carry (conditions, podIPs/hostIPs,
+    qosClass, startTime, container state/lastState, image, containerID).
+  - `ContainerState` is typed too, so `state.waiting.reason` — the reason kubectl
+    prints in the STATUS column (`CrashLoopBackOff`, `ImagePullBackOff`) — no
+    longer needs a DOM lookup.
+  - `NodeStatus` covers conditions, addresses, nodeInfo and images. `capacity`/
+    `allocatable` stay dynamic: their keys are open-ended (`hugepages-*`, vendor
+    devices). `status.images` is routinely the largest part of a Node object.
+  - Reads of `pod.status.?.object.get("phase").?.string` become `pod.status.?.phase`.
+- **`getNodeCount` no longer downloads the cluster.** It listed every Node in full
+  and DOM-parsed the result to return one integer; it now requests `?limit=1` and
+  reads `metadata.remainingItemCount`, so cost is independent of cluster size.
+- **`ResourceClient.listPages`** walks a collection page by page, following
+  `continue` tokens. `list()` buffers the entire collection, so memory scales with
+  the cluster and the request fails outright past `max_response_size` (16 MB by
+  default — roughly 3k pods). `listPages` keeps both O(page). Covered by
+  `tests/entrypoints/test_list_pages.zig`, which needs no cluster.
+
+### Changed (breaking)
+- **`client.last_api_error` is removed; error detail is returned, not stored.**
+  Capture it with `requestCapturing` / `requestCapturingWithContentType` /
+  `requestWithProtobufCapturing`, or by setting `ResourceClient.error_sink`. The
+  storage and the strings belong to the caller (`ApiError.deinit(allocator)`).
+
+  The field was mutable per-request state on a shared object, with three consequences:
+  - `K8sClient` could not be shared across threads, even though the `std.http.Client`
+    underneath is thread-safe ("Connections are opened in a thread-safe manner").
+    Every thread therefore needed its own client and its own connection pool. A
+    `ResourceClient` is a value, so `error_sink` lives at the call site: one client now
+    serves many threads, each with its own sink. Exercised by
+    `tests/entrypoints/test_error_capture.zig`.
+  - The strings were freed by the following request, so anything a caller kept became
+    a dangling reference.
+  - It survived across calls (fixed earlier in this release, and now structurally
+    impossible).
+
+  Migration:
+  ```zig
+  // before
+  _ = client.request(.GET, path, null) catch |err| {
+      if (client.last_api_error) |e| { ... }
+  };
+
+  // after
+  var api_err: ?klient.K8sClient.ApiError = null;
+  defer if (api_err) |*e| e.deinit(allocator);
+  _ = client.requestCapturing(.GET, path, null, &api_err) catch |err| {
+      if (api_err) |e| { ... }
+  };
+  ```
+  `request`, `requestWithContentType`, `requestWithProtobuf` and `requestWithRetry`
+  keep their signatures and simply report no detail.
+
+### Changed
+- **The JSON and Protobuf request paths now share one implementation.**
+  `requestWithProtobuf` carried its own ~90-line copy of the send/receive logic —
+  URL building, auth, redirects, status handling, decompression, size limiting —
+  differing only in two headers. The copies had already drifted (only one had the
+  status-code fallback above, and a fix earlier in this release had to be applied
+  twice). `K8sClient.WireFormat` now carries the `Content-Type`/`Accept` pair and
+  `sendOnce` takes it.
+  - Protobuf requests consequently follow the same retry policy as JSON ones
+    (idempotent methods retried, POST sent once). Previously they were never
+    retried, which was an accident of the duplication rather than a decision.
+- **The four list entry points share one fetch-and-parse body.** `list`,
+  `listAll`, `listWithOptions` and `listAllWithOptions` each repeated the same
+  request/parse block; they are now thin wrappers that differ only in base path.
+  Verified against a logging server to produce byte-identical URLs.
+
+### Removed
+- `PaginatedList` — declared but never constructed by anything; `listPages`
+  supersedes it.
+- `src/k8s/kubeconfig_json.zig` (212 LOC) — self-marked deprecated, shadowed by
+  `kubeconfig_yaml.zig`, and referenced by nothing: not by `build.zig`, not
+  re-exported from `klient.zig`, not imported by any module or test.
+- `tls.TlsBundle`, `tls.createBundle`, `tls.CertInfo`, `tls.loadFromFiles` and
+  `tls.validateCertKeyPair` — all existed to assemble or check a client
+  certificate/key pair, which `K8sClient.init` now rejects outright. `createBundle`,
+  `CertInfo` and `loadFromFiles` additionally had no callers at all, and
+  `loadFromFiles` produced a `TlsConfig` that `init` would refuse. Supply a CA with
+  `TlsConfig.ca_cert_path` / `ca_cert_data` instead. `tls.decodeBase64Cert` stays —
+  it is still useful for CA data out of a kubeconfig.
+  - `src/k8s/tls.zig` shrank from 201 to 80 lines.
+
+### Added
+- `EventSeries` (`count`, `lastObservedTime`) and `Event.series`. The modern
+  `client-go/tools/events` recorder (kubelet `BackOff`, `Unhealthy`, …) collapses
+  repeated events into `series` and leaves the deprecated `count`/`lastTimestamp`
+  unset. Consumers rendering COUNT / LAST-SEEN must prefer `series` when present,
+  as kubectl does — otherwise an aggregated series renders as count `0` with a
+  last-seen stuck at the first occurrence.
+- `PersistentVolumeSpec.claimRef` (`ObjectReference`) for the PV CLAIM column.
+
+### Changed (breaking)
+- `Event` is no longer `Resource(EventSpec)`. core/v1 Events carry
+  `type`/`reason`/`message`/`involvedObject`/`count`/timestamps as **top-level**
+  fields, which the generic spec/status wrapper silently dropped via
+  `ignore_unknown_fields`. `Event` is now a flat struct with those fields.
+  - `types.EventSpec` is **removed**. Reads of `event.spec.?.reason` become
+    `event.reason`.
+  - `reportingController` → `reportingComponent` (the former is the
+    `events.k8s.io/v1` spelling; core/v1 uses the latter).
+- New exports: `types.Event`, `types.EventInvolvedObject`, `types.EventSeries`.
+- Seven more kinds had the same defect and are now flat structs. Each has **no
+  `spec`** in the Kubernetes API — their payload is top-level — so modelling them
+  as `Resource(T)` parsed without error while dropping every field (`spec` bound
+  to `null`, the real keys eaten by `ignore_unknown_fields`). Most visibly,
+  **every `ConfigMap` read returned no data**.
+
+  | Type | Fields recovered |
+  |---|---|
+  | `ConfigMap` | `data`, `binaryData`, `immutable` (new) |
+  | `Endpoints` | `subsets` |
+  | `PodTemplate` | `template` |
+  | `Binding` | `target` |
+  | `ControllerRevision` | `revision`, `data` |
+  | `EndpointSlice` | `addressType`, `endpoints`, `ports` |
+  | `CSIStorageCapacity` | `storageClassName`, `capacity`, `maximumVolumeSize`, `nodeTopology` |
+
+  `Binding` was also broken on the write path: it serialized as
+  `{"spec":{"target":…}}`, which the API server accepts and ignores, so binding a
+  pod to a node silently did nothing.
+
+  Removed with them: `types.ConfigMapData`, `types.EndpointsSpec`,
+  `types.PodTemplateResourceSpec`, `types.BindingSpec`,
+  `types.ControllerRevisionSpec`, `types.EndpointSliceSpec`,
+  `types.CSIStorageCapacitySpec`. Reads of `cm.spec.?.data` become `cm.data`.
+
 ## [0.3.2] - 2026-06-05
 
 ### Fixed

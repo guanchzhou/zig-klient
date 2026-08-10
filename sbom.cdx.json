@@ -4,19 +4,19 @@
   "serialNumber": "urn:uuid:0574934c-f1f9-4618-837c-f2bf3234fb63",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-06-05T18:54:54Z",
+    "timestamp": "2026-08-10T00:00:00Z",
     "tools": [
       {
         "vendor": "zig-klient",
         "name": "hand-authored-from-build.zig.zon",
-        "version": "0.3.2"
+        "version": "0.4.0"
       }
     ],
     "component": {
       "type": "library",
-      "bom-ref": "pkg:generic/zig-klient@0.3.2",
+      "bom-ref": "pkg:generic/zig-klient@0.4.0",
       "name": "zig-klient",
-      "version": "0.3.2",
+      "version": "0.4.0",
       "description": "Kubernetes client library for Zig (65 resource types, through K8s 1.36)",
       "licenses": [
         {
@@ -89,7 +89,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:generic/zig-klient@0.3.2",
+      "ref": "pkg:generic/zig-klient@0.4.0",
       "dependsOn": [
         "pkg:generic/zig-yaml@0.3.0",
         "pkg:generic/zig-protobuf@3.0.0"
