@@ -262,10 +262,14 @@ pub const K8sClient = struct {
 
     /// Like `request`, but captures the Kubernetes `Status` detail of a failure.
     ///
-    /// `err_out` is caller-owned storage: on `error.K8sApiError` it receives an
-    /// `ApiError` whose strings were allocated with this client's allocator, and the
-    /// caller must `deinit` it with that allocator. It is left untouched on success
-    /// and on transport-level failures.
+    /// `err_out` is caller-owned storage holding the detail of the most recent
+    /// request made through it, or null. On `error.K8sApiError` it receives an
+    /// `ApiError` whose strings were allocated with this client's allocator; the
+    /// caller must `deinit` it with that allocator. It is set to null on success and
+    /// on transport-level failures, which never produce a `Status`.
+    ///
+    /// A sink may be reused across calls: each request frees what the previous one
+    /// left there. Copy anything you need to outlive the next request through it.
     ///
     /// This replaces the old `client.last_api_error` field. That was mutable state on
     /// the shared client, which made `K8sClient` un-shareable across threads even
@@ -325,6 +329,15 @@ pub const K8sClient = struct {
         force: bool,
         err_out: ?*?ApiError,
     ) ![]u8 {
+        // The sink describes THIS request. Release whatever a previous one left in
+        // it: overwriting without freeing leaks the old status/message/reason, and
+        // leaving it in place lets a later success — or a transport failure, which
+        // never writes here — be read as carrying the earlier call's Status.
+        if (err_out) |out| {
+            if (out.*) |*prev| prev.deinit(self.allocator);
+            out.* = null;
+        }
+
         if (!force and !isIdempotent(method)) {
             return self.sendOnce(method, path, body, format, err_out);
         }

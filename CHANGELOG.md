@@ -105,6 +105,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - It survived across calls (fixed earlier in this release, and now structurally
     impossible).
 
+  A sink holds the detail of the most recent call made through it, or null. Each
+  call frees whatever the previous one left there, so a sink is safe to reuse and a
+  success clears it. (Assigning without freeing leaked the earlier status/message/
+  reason — reported by Cursor Bugbot on the PR — and leaving it in place brought
+  back the staleness this change set out to remove.)
+
   Migration:
   ```zig
   // before

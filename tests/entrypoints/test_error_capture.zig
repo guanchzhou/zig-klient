@@ -7,7 +7,8 @@
 //!
 //! Covers what replaced the old `client.last_api_error` field:
 //!   * `requestCapturing` fills caller-owned storage on a Kubernetes Status error;
-//!   * a success leaves that storage untouched, so nothing goes stale;
+//!   * a sink can be reused: each call frees what the last one left, so repeated
+//!     failures do not leak and a success does not leave a stale error behind;
 //!   * `ResourceClient.error_sink` carries detail out of the typed resource methods;
 //!   * one `K8sClient` drives concurrent threads, each with its own sink — the field
 //!     it replaced was unsynchronised state that made this unsound.
@@ -71,16 +72,23 @@ pub fn main() !void {
     });
     if (captured.code != 404) return error.WrongStatusCaptured;
 
-    // 2. A success must not write into the caller's storage.
-    var after_success: ?klient.K8sClient.ApiError = null;
-    const version = try client.requestCapturing(.GET, "/version", null, &after_success);
-    allocator.free(version);
-    if (after_success != null) {
-        std.debug.print("FAIL: success wrote into the error sink\n", .{});
-        return error.SuccessPollutedSink;
+    // 2. Reusing one sink across failures must not leak the earlier detail. Under
+    //    DebugAllocator a regression here shows up as leaked status/message/reason.
+    for (0..3) |_| {
+        _ = client.requestCapturing(.GET, missing, null, &api_err) catch {};
+        if (api_err == null) return error.NoDetailCaptured;
     }
 
-    // 3. Concurrent use of one client, one sink per thread.
+    // 3. A success clears the sink, so an earlier failure cannot be misread as this
+    //    call's cause.
+    const version = try client.requestCapturing(.GET, "/version", null, &api_err);
+    allocator.free(version);
+    if (api_err != null) {
+        std.debug.print("FAIL: a stale error survived a successful call\n", .{});
+        return error.StaleErrorSurvived;
+    }
+
+    // 4. Concurrent use of one client, one sink per thread.
     var workers: [thread_count]Worker = undefined;
     var threads: [thread_count]std.Thread = undefined;
     for (&workers) |*w| w.* = .{ .client = &client, .allocator = allocator };

@@ -255,6 +255,11 @@ _ = pods.client.get("nope", "default") catch {
 If the error body is not a `Status` — the HTML a load balancer serves, or a protobuf
 body — the HTTP status code is reported instead, so a failure always carries something.
 
+The sink holds the detail of the **most recent** call made through it, or null. Each
+call frees whatever the previous one left there, so it is safe to reuse across many
+calls, and a success clears it rather than leaving a stale error to be misread as the
+cause of a later transport failure. Copy anything you need to outlive the next call.
+
 > **Replaces `client.last_api_error`.** That field was mutable state on the client: it
 > made `K8sClient` unsafe to share even though `std.http.Client` beneath it is
 > thread-safe, its strings were freed by the following request, and it survived across

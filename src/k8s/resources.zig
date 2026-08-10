@@ -23,6 +23,11 @@ pub fn ResourceClient(comptime T: type) type {
         /// Optional caller-owned storage for the Kubernetes `Status` behind an
         /// `error.K8sApiError`. Left null, failures carry no detail.
         ///
+        /// It holds the detail of the most recent call made through it, or null:
+        /// each call frees what the previous one left there, so a sink may be reused
+        /// and a success does not leave a stale error behind. Copy anything you need
+        /// to outlive the next call.
+        ///
         /// A `ResourceClient` is a value, so this lives at the call site rather than
         /// on the shared `K8sClient` — two threads can drive the same client through
         /// their own `ResourceClient` and their own sinks.
