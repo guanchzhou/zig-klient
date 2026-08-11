@@ -12,7 +12,29 @@ A Kubernetes client library for **Zig** — 65 resource types across 20 API grou
 
 **Contents:** [Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Resource Operations](#resource-operations) · [Testing](#testing) · [Architecture](#architecture) · [Requirements](#requirements) · [Roadmap](#roadmap)
 
-> **Connecting & TLS.** Custom CA certificates are supported via `tls_config.ca_cert_data` / `tls_config.ca_cert_path`, and client-certificate auth via `client_cert_data` / `client_key_data`. Against clusters with self-signed certificates the direct TLS path may currently fail with `error.TlsInitializationFailed` (a `std.crypto.tls` limitation). Workaround: use `connectWithFallback()`, or run `kubectl proxy` and connect to `http://127.0.0.1:8080`.
+> **Connecting & TLS — read this first.** On Zig 0.16 the direct HTTPS path does not
+> work against a normal Kubernetes API server. `std.crypto.tls.Client` has no handling
+> for the `certificate_request` handshake message, and an API server sends one whenever
+> it is started with `--client-ca-file` — the default for every distribution, managed or
+> not. The handshake aborts with `TlsUnexpectedMessage`, which `std.http.Client` reports
+> as `error.TlsInitializationFailed`. This is not caused by self-signed certificates and
+> supplying a CA does not avoid it.
+>
+> **Connect through `kubectl proxy`**, which is what the integration tests do:
+>
+> ```bash
+> kubectl proxy --port=8001 &
+> ```
+> ```zig
+> var client = try klient.K8sClient.init(allocator, io, .{ .server = "http://127.0.0.1:8001" });
+> ```
+>
+> or call `connectWithFallback()` to find a running proxy automatically.
+>
+> Custom CA certificates (`tls_config.ca_cert_data` / `ca_cert_path`) are wired into the
+> trust store and work as documented — they simply are not sufficient on their own.
+> Client certificates, `insecure_skip_verify` and `server_name` cannot be honoured at
+> all; passing them now fails fast from `K8sClient.init` rather than being ignored.
 
 ## Features
 
@@ -88,7 +110,8 @@ StorageVersionMigration
 
 ### Authentication
 - **Bearer token** — static token or in-cluster service-account token
-- **mTLS** — client certificate authentication
+- **mTLS** — *not supported on Zig 0.16* (`std.crypto.tls` cannot present a client
+  certificate); `K8sClient.init` rejects client-cert options rather than ignoring them
 - **Exec credential plugins** — AWS EKS, GCP GKE, Azure AKS, generic OIDC
 - **In-cluster config** — automatic service-account detection inside a pod
 - Kubeconfig is parsed natively (YAML; no `kubectl` required). HTTP basic auth
@@ -113,7 +136,10 @@ StorageVersionMigration
 - **Field/Label Selectors**: Advanced filtering and search capabilities
 - **Pagination**: Efficient handling of large result sets
 - **Server-Side Apply**: Declarative resource management with field ownership
-- **Structured API Errors**: K8s API error responses parsed into status/message/reason/code
+- **Structured API Errors**: K8s `Status` responses parsed into status/message/reason/code,
+  returned into caller-owned storage (see [Error detail](#error-detail))
+- **Shareable client**: one `K8sClient` — and so one connection pool — may be used
+  from several threads
 - **Response Size Limits**: Configurable max response size (default 16MB) to prevent OOM
 
 ### Quality
@@ -197,23 +223,73 @@ pub fn main() !void {
 > The snippets below assume `allocator`, `io`, and (where used) `client` from the
 > setup above.
 
-### With mTLS Authentication
+### Error detail
+
+A failed API call returns `error.K8sApiError`. The Kubernetes `Status` behind it goes
+into storage you provide, and you own what lands there:
+
+```zig
+var api_err: ?klient.K8sClient.ApiError = null;
+defer if (api_err) |*e| e.deinit(allocator);
+
+_ = client.requestCapturing(.GET, "/api/v1/namespaces/default/pods/nope", null, &api_err) catch {
+    if (api_err) |e| std.debug.print("{?d} {s}\n", .{ e.code, e.message orelse "" });
+    // -> 404 pods "nope" not found
+};
+```
+
+For the typed resource methods, set `error_sink` on the `ResourceClient`:
+
+```zig
+var api_err: ?klient.K8sClient.ApiError = null;
+defer if (api_err) |*e| e.deinit(allocator);
+
+var pods = klient.Pods.init(&client);
+pods.client.error_sink = &api_err;
+
+_ = pods.client.get("nope", "default") catch {
+    if (api_err) |e| std.debug.print("{?d}\n", .{e.code});
+};
+```
+
+If the error body is not a `Status` — the HTML a load balancer serves, or a protobuf
+body — the HTTP status code is reported instead, so a failure always carries something.
+
+The sink holds the detail of the **most recent** call made through it, or null. Each
+call frees whatever the previous one left there, so it is safe to reuse across many
+calls, and a success clears it rather than leaving a stale error to be misread as the
+cause of a later transport failure. Copy anything you need to outlive the next call.
+
+> **Replaces `client.last_api_error`.** That field was mutable state on the client: it
+> made `K8sClient` unsafe to share even though `std.http.Client` beneath it is
+> thread-safe, its strings were freed by the following request, and it survived across
+> calls so a transport failure could be misreported with a previous call's `Status`.
+> A `ResourceClient` is a value, so `error_sink` lives at the call site — several
+> threads can drive one client through their own sinks. See
+> `tests/entrypoints/test_error_capture.zig`.
+
+### With a Custom CA
 
 ```zig
 var client = try klient.K8sClient.init(allocator, io, .{
     .server = "https://kubernetes.example.com",
+    .token = service_account_token,
     .tls_config = .{
-        .client_cert_data = client_cert_pem, // or .client_cert_path = "/path/to/client.crt"
-        .client_key_data = client_key_pem, //  or .client_key_path  = "/path/to/client.key"
-        .ca_cert_data = ca_cert_pem, //         or .ca_cert_path     = "/path/to/ca.crt"
+        .ca_cert_data = ca_cert_pem, // or .ca_cert_path = "/path/to/ca.crt"
     },
 });
 defer client.deinit();
 ```
 
-> Note: against clusters with self-signed certificates the direct TLS path may fail
-> with `error.TlsInitializationFailed` (a current `std.crypto.tls` limitation); use
-> `connectWithFallback()` or `kubectl proxy` (see **Connecting & TLS**).
+> **mTLS is not available on Zig 0.16.** Setting `client_cert_data`, `client_key_data`,
+> `client_cert_path`, `client_key_path`, `insecure_skip_verify` or `server_name` returns
+> an error from `init` (`error.ClientCertificatesUnsupported`,
+> `error.InsecureSkipVerifyUnsupported`, `error.TlsServerNameUnsupported`) — these were
+> previously accepted and silently dropped, which left callers believing they were
+> authenticating when they were not.
+>
+> Note also that a CA alone will not get you a working HTTPS connection to an API
+> server — see **Connecting & TLS** at the top.
 
 ### With AWS EKS Authentication
 
@@ -411,8 +487,8 @@ if (klient.isInCluster(io)) {
 
 ```zig
 // Initialize WebSocket client. init(allocator, io, api_server, token, ca_cert_data).
-// Over a self-signed cluster, point this at a `kubectl proxy` (http://127.0.0.1:8080)
-// with token/ca null — see the integration tests.
+// The direct TLS path cannot reach a normal API server (see Connecting & TLS), so
+// point this at a `kubectl proxy` (http://127.0.0.1:8001) with token/ca null.
 var ws_client = try klient.WebSocketClient.init(
     allocator,
     io,
@@ -642,9 +718,9 @@ zig build test-advanced   # TLS + CRD tests
 
 ### Integration Tests
 
-Integration tests run against a real Kubernetes cluster. Because the direct TLS
-path currently fails against self-signed clusters (see **Connecting & TLS**), the
-entrypoints connect through `kubectl proxy`:
+Integration tests run against a real Kubernetes cluster. Because the direct TLS path
+cannot complete a handshake with an API server that requests client certificates (see
+**Connecting & TLS**), the entrypoints connect through `kubectl proxy`:
 
 ```bash
 kubectl proxy --port=8080 &           # expose the API without TLS
@@ -754,7 +830,7 @@ Contributions are welcome! Please:
 - [x] 65 Kubernetes resource types across 20 API groups (current through K8s 1.36)
 - [x] All HTTP methods (GET, POST, PUT, DELETE, PATCH)
 - [x] Bearer token auth
-- [x] mTLS auth
+- [ ] mTLS auth — blocked on `std.crypto.tls` client-certificate support
 - [x] Exec credential plugins (AWS, GCP, Azure)
 - [x] In-cluster configuration with service account
 - [x] Delete options (grace period, propagation policy, preconditions)

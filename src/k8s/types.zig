@@ -19,6 +19,7 @@ pub const api_error = @import("types/api_error.zig");
 // === meta.zig ===
 pub const ObjectMeta = meta.ObjectMeta;
 pub const Resource = meta.Resource;
+pub const ResourceWithStatus = meta.ResourceWithStatus;
 pub const List = meta.List;
 
 // === core.zig ===
@@ -36,12 +37,22 @@ pub const SecretVolumeSource = core.SecretVolumeSource;
 pub const ImageVolumeSource = core.ImageVolumeSource;
 pub const ResourceRequirements = core.ResourceRequirements;
 pub const PodStatus = core.PodStatus;
+pub const PodIP = core.PodIP;
+pub const PodCondition = core.PodCondition;
 pub const ContainerStatus = core.ContainerStatus;
+pub const ContainerState = core.ContainerState;
+pub const ContainerStateWaiting = core.ContainerStateWaiting;
+pub const ContainerStateRunning = core.ContainerStateRunning;
+pub const ContainerStateTerminated = core.ContainerStateTerminated;
+pub const NodeStatus = core.NodeStatus;
+pub const NodeAddress = core.NodeAddress;
+pub const NodeCondition = core.NodeCondition;
+pub const NodeSystemInfo = core.NodeSystemInfo;
+pub const NodeImage = core.NodeImage;
 pub const Pod = core.Pod;
 pub const ServiceSpec = core.ServiceSpec;
 pub const ServicePort = core.ServicePort;
 pub const Service = core.Service;
-pub const ConfigMapData = core.ConfigMapData;
 pub const ConfigMap = core.ConfigMap;
 pub const SecretData = core.SecretData;
 pub const Secret = core.Secret;
@@ -50,9 +61,9 @@ pub const Namespace = core.Namespace;
 pub const NodeSpec = core.NodeSpec;
 pub const Node = core.Node;
 pub const ServiceAccount = core.ServiceAccount;
-pub const EndpointsSpec = core.EndpointsSpec;
 pub const Endpoints = core.Endpoints;
 pub const EventInvolvedObject = core.EventInvolvedObject;
+pub const EventSeries = core.EventSeries;
 pub const Event = core.Event;
 pub const ResourceQuotaSpec = core.ResourceQuotaSpec;
 pub const ResourceQuota = core.ResourceQuota;
@@ -60,9 +71,7 @@ pub const LimitRangeSpec = core.LimitRangeSpec;
 pub const LimitRange = core.LimitRange;
 pub const ReplicationControllerSpec = core.ReplicationControllerSpec;
 pub const ReplicationController = core.ReplicationController;
-pub const PodTemplateResourceSpec = core.PodTemplateResourceSpec;
 pub const PodTemplate = core.PodTemplate;
-pub const BindingSpec = core.BindingSpec;
 pub const Binding = core.Binding;
 pub const ComponentStatusSpec = core.ComponentStatusSpec;
 pub const ComponentStatus = core.ComponentStatus;
@@ -85,7 +94,6 @@ pub const DaemonSetSpec = apps.DaemonSetSpec;
 pub const DaemonSetUpdateStrategy = apps.DaemonSetUpdateStrategy;
 pub const RollingUpdateDaemonSet = apps.RollingUpdateDaemonSet;
 pub const DaemonSet = apps.DaemonSet;
-pub const ControllerRevisionSpec = apps.ControllerRevisionSpec;
 pub const ControllerRevision = apps.ControllerRevision;
 
 // === batch.zig ===
@@ -106,7 +114,6 @@ pub const ServiceCIDRSpec = networking.ServiceCIDRSpec;
 pub const ServiceCIDR = networking.ServiceCIDR;
 pub const IngressClassSpec = networking.IngressClassSpec;
 pub const IngressClass = networking.IngressClass;
-pub const EndpointSliceSpec = networking.EndpointSliceSpec;
 pub const EndpointSlice = networking.EndpointSlice;
 
 // === storage.zig ===
@@ -122,7 +129,6 @@ pub const CSIDriverSpec = storage.CSIDriverSpec;
 pub const CSIDriver = storage.CSIDriver;
 pub const CSINodeSpec = storage.CSINodeSpec;
 pub const CSINode = storage.CSINode;
-pub const CSIStorageCapacitySpec = storage.CSIStorageCapacitySpec;
 pub const CSIStorageCapacity = storage.CSIStorageCapacity;
 pub const VolumeAttributesClass = storage.VolumeAttributesClass;
 

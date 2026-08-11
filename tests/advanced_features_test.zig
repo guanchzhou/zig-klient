@@ -17,35 +17,120 @@ test "TLS Config - Basic structure" {
     try std.testing.expect(!config.insecure_skip_verify);
 }
 
-test "TLS - PEM validation" {
-    const valid_cert =
-        \\-----BEGIN CERTIFICATE-----
-        \\MIIDXTCCAkWgAwIBAgIJAKL0UG+mRkSsMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV
-        \\-----END CERTIFICATE-----
-    ;
+// Zig 0.16's std.crypto.tls cannot present a client certificate, and
+// std.http.Client exposes no verification switches. These options used to be
+// accepted and silently dropped, so the caller believed they were authenticating.
+test "TLS - unsupported options are rejected at construction, not ignored" {
+    const allocator = std.testing.allocator;
 
-    const valid_key =
-        \\-----BEGIN PRIVATE KEY-----
-        \\MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj
-        \\-----END PRIVATE KEY-----
-    ;
+    try std.testing.expectError(error.ClientCertificatesUnsupported, klient.K8sClient.init(allocator, std.testing.io, .{
+        .server = "https://example.invalid",
+        .tls_config = .{ .client_cert_data = "-----BEGIN CERTIFICATE-----" },
+    }));
 
-    const invalid_cert = "This is not a certificate";
-    const invalid_key = "This is not a key";
+    try std.testing.expectError(error.ClientCertificatesUnsupported, klient.K8sClient.init(allocator, std.testing.io, .{
+        .server = "https://example.invalid",
+        .tls_config = .{ .client_key_path = "/path/to/key.pem" },
+    }));
 
-    // Valid pair should pass
-    tls.validateCertKeyPair(valid_cert, valid_key) catch |err| {
-        std.debug.print("Unexpected error for valid pair: {}\n", .{err});
-        return err;
-    };
+    try std.testing.expectError(error.InsecureSkipVerifyUnsupported, klient.K8sClient.init(allocator, std.testing.io, .{
+        .server = "https://example.invalid",
+        .tls_config = .{ .insecure_skip_verify = true },
+    }));
 
-    // Invalid cert should fail
-    const invalid_cert_result = tls.validateCertKeyPair(invalid_cert, valid_key);
-    try std.testing.expectError(error.InvalidCertificate, invalid_cert_result);
+    try std.testing.expectError(error.TlsServerNameUnsupported, klient.K8sClient.init(allocator, std.testing.io, .{
+        .server = "https://example.invalid",
+        .tls_config = .{ .server_name = "kubernetes.default" },
+    }));
+}
 
-    // Invalid key should fail
-    const invalid_key_result = tls.validateCertKeyPair(valid_cert, invalid_key);
-    try std.testing.expectError(error.InvalidPrivateKey, invalid_key_result);
+// Error detail is returned, not stored on the client. There is no shared field to go
+// stale, and the caller owns what it captures. (The old `last_api_error` field was
+// cleared only when a new Status replaced it, so a success — or a transport failure,
+// which never set it — left the previous call's error readable as the cause.)
+test "error detail is caller-owned, and a transport failure yields none" {
+    const allocator = std.testing.allocator;
+    var client = try klient.K8sClient.init(allocator, std.testing.io, .{
+        // Nothing listens here, so this fails below the HTTP layer.
+        .server = "http://127.0.0.1:1",
+        // One attempt — the default 3 retries only add backoff and log noise here.
+        .retry_config = .{ .max_attempts = 0 },
+    });
+    defer client.deinit();
+
+    // A pre-existing value must not be mistaken for this request's outcome, and a
+    // transport failure must leave the caller's storage untouched.
+    var api_err: ?klient.K8sClient.ApiError = null;
+    _ = client.requestCapturing(.GET, "/api/v1/namespaces/default/pods", null, &api_err) catch {};
+    try std.testing.expect(api_err == null);
+
+    // The client itself holds no error state to leak into the next call.
+    try std.testing.expect(!@hasField(klient.K8sClient, "last_api_error"));
+}
+
+// The JSON and Protobuf request paths were separate ~90-line copies that had
+// drifted: only the Protobuf one fell back to the HTTP status when the error body
+// was not a Kubernetes Status. A load balancer in front of the API server answers
+// 503 with HTML, and on the JSON path that produced K8sApiError carrying nothing.
+test "both wire formats share one implementation" {
+    const C = klient.K8sClient;
+    // If these drift apart again, the shared path is gone.
+    try std.testing.expectEqualStrings("application/json", C.WireFormat.json.content_type);
+    try std.testing.expect(C.WireFormat.json.accept == null);
+    try std.testing.expectEqualStrings(
+        "application/vnd.kubernetes.protobuf;charset=utf-8",
+        C.WireFormat.protobuf.content_type,
+    );
+    try std.testing.expectEqualStrings(
+        "application/vnd.kubernetes.protobuf",
+        C.WireFormat.protobuf.accept.?,
+    );
+}
+
+// `error_sink` lives on the ResourceClient value, not on the shared K8sClient, which
+// is what lets several threads drive one client. Capture against a live API server is
+// covered by tests/entrypoints/test_error_capture.zig.
+test "ResourceClient carries a caller-owned error sink" {
+    const allocator = std.testing.allocator;
+    var client = try klient.K8sClient.init(allocator, std.testing.io, .{
+        .server = "http://127.0.0.1:1",
+        .retry_config = .{ .max_attempts = 0 },
+    });
+    defer client.deinit();
+
+    var api_err: ?klient.K8sClient.ApiError = null;
+    var pods = klient.Pods.init(&client);
+
+    // Default is opt-out: no sink, no detail.
+    try std.testing.expect(pods.client.error_sink == null);
+
+    pods.client.error_sink = &api_err;
+    try std.testing.expect(pods.client.error_sink != null);
+
+    // Two ResourceClients over the same K8sClient keep independent sinks — the
+    // property the removed shared field could not provide.
+    var other_err: ?klient.K8sClient.ApiError = null;
+    var other = klient.Pods.init(&client);
+    other.client.error_sink = &other_err;
+    try std.testing.expect(pods.client.error_sink.? != other.client.error_sink.?);
+
+    // Transport failure: nothing to report, so the sink stays empty.
+    if (pods.client.list("default")) |p| {
+        var q = p;
+        q.deinit();
+    } else |_| {}
+    try std.testing.expect(api_err == null);
+}
+
+test "TLS - a CA-only config is still accepted" {
+    const allocator = std.testing.allocator;
+    // No client cert, no verification overrides: nothing to reject.
+    var client = try klient.K8sClient.init(allocator, std.testing.io, .{
+        .server = "http://127.0.0.1:1",
+        .tls_config = .{},
+    });
+    defer client.deinit();
+    try std.testing.expectEqualStrings("http://127.0.0.1:1", client.api_server);
 }
 
 test "TLS - Base64 decoding" {

@@ -19,38 +19,17 @@ pub fn initClientFromKubeconfig(allocator: std.mem.Allocator, io: std.Io) !klien
     const cluster = config.getClusterByName(context.cluster) orelse return error.ClusterNotFound;
     const user = config.getUserByName(context.user) orelse return error.UserNotFound;
 
-    // Build TLS config from the cluster CA and (for cert-auth clusters like
-    // Rancher Desktop) the user's client certificate / key.
+    // Build TLS config from the cluster CA only.
+    //
+    // The kubeconfig user may also carry a client certificate/key, but Zig's
+    // std.crypto.tls cannot present one, so passing it would now be rejected by
+    // K8sClient.init. Against a cert-auth cluster (Rancher Desktop, kind, k3s) run
+    // `kubectl proxy` and point `server` at http://127.0.0.1:8001 instead.
     var tls_config: ?klient.TlsConfig = null;
-    {
-        var cfg = klient.TlsConfig{};
-        var configured = false;
-
-        if (cluster.certificate_authority_data) |ca_b64| {
-            cfg.ca_cert_data = try decodeBase64(allocator, ca_b64);
-            configured = true;
-        } else if (cluster.certificate_authority) |ca_path| {
-            cfg.ca_cert_path = ca_path;
-            configured = true;
-        }
-
-        if (user.client_certificate_data) |cert_b64| {
-            cfg.client_cert_data = try decodeBase64(allocator, cert_b64);
-            configured = true;
-        } else if (user.client_certificate) |cert_path| {
-            cfg.client_cert_path = cert_path;
-            configured = true;
-        }
-
-        if (user.client_key_data) |key_b64| {
-            cfg.client_key_data = try decodeBase64(allocator, key_b64);
-            configured = true;
-        } else if (user.client_key) |key_path| {
-            cfg.client_key_path = key_path;
-            configured = true;
-        }
-
-        if (configured) tls_config = cfg;
+    if (cluster.certificate_authority_data) |ca_b64| {
+        tls_config = .{ .ca_cert_data = try decodeBase64(allocator, ca_b64) };
+    } else if (cluster.certificate_authority) |ca_path| {
+        tls_config = .{ .ca_cert_path = ca_path };
     }
 
     // Create client config

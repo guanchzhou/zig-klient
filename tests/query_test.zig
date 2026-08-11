@@ -21,7 +21,36 @@ test "QueryWriter: single field selector" {
     const qs = try opts.buildQueryString(allocator);
     defer allocator.free(qs);
 
-    try std.testing.expectEqualStrings("fieldSelector=metadata.name=test", qs);
+    try std.testing.expectEqualStrings("fieldSelector=metadata.name%3Dtest", qs);
+}
+
+// A set-based selector contains spaces and parentheses. Emitted raw, they landed
+// in the HTTP request target and every such query came back 400 Bad Request.
+test "QueryWriter: set-based label selector is percent-encoded" {
+    const allocator = std.testing.allocator;
+
+    var sel = try klient.LabelSelector.init(allocator);
+    defer sel.deinit();
+    try sel.addIn("app", &.{ "traefik", "coredns" });
+    const built = try sel.build();
+    defer allocator.free(built);
+    try std.testing.expectEqualStrings("app in (traefik,coredns)", built);
+
+    const qs = try (klient.ListOptions{ .label_selector = built }).buildQueryString(allocator);
+    defer allocator.free(qs);
+
+    try std.testing.expectEqualStrings("labelSelector=app%20in%20%28traefik%2Ccoredns%29", qs);
+    // Nothing that would terminate or split the request target may survive raw.
+    try std.testing.expect(std.mem.indexOfAny(u8, qs["labelSelector=".len..], " ()") == null);
+}
+
+test "QueryWriter: continue token round-trips unencoded (URL-safe base64)" {
+    const allocator = std.testing.allocator;
+    // Real token shape: the API server uses RawURLEncoding, so it is already safe.
+    const token = "eyJ2IjoibWV0YS5rOHMuaW8vdjEiLCJydiI6MTA3MDM2fQ";
+    const qs = try (klient.ListOptions{ .continue_token = token }).buildQueryString(allocator);
+    defer allocator.free(qs);
+    try std.testing.expectEqualStrings("continue=eyJ2IjoibWV0YS5rOHMuaW8vdjEiLCJydiI6MTA3MDM2fQ", qs);
 }
 
 test "QueryWriter: multiple options combined with &" {
@@ -35,8 +64,8 @@ test "QueryWriter: multiple options combined with &" {
     defer allocator.free(qs);
 
     // Verify all parts present
-    try std.testing.expect(std.mem.indexOf(u8, qs, "fieldSelector=metadata.name=test") != null);
-    try std.testing.expect(std.mem.indexOf(u8, qs, "labelSelector=app=nginx") != null);
+    try std.testing.expect(std.mem.indexOf(u8, qs, "fieldSelector=metadata.name%3Dtest") != null);
+    try std.testing.expect(std.mem.indexOf(u8, qs, "labelSelector=app%3Dnginx") != null);
     try std.testing.expect(std.mem.indexOf(u8, qs, "limit=10") != null);
     // Verify & separators
     try std.testing.expect(std.mem.indexOf(u8, qs, "&") != null);

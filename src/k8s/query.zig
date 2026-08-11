@@ -18,13 +18,39 @@ pub const QueryWriter = struct {
         self.buf.deinit(self.allocator);
     }
 
-    /// Add a string parameter: key=value
+    /// RFC 3986 unreserved set. Everything else in a *value* is percent-encoded:
+    /// anything structural (`&`, `=`) would corrupt the query, and a raw space
+    /// terminates the HTTP request target outright.
+    fn isUnreserved(c: u8) bool {
+        return switch (c) {
+            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => true,
+            else => false,
+        };
+    }
+
+    /// Add a string parameter: key=value.
+    ///
+    /// The value is percent-encoded. Set-based label selectors (`app in (a,b)`,
+    /// produced by `LabelSelector.addIn`) contain spaces and parentheses; emitted
+    /// raw they produced a malformed request line and the API server answered
+    /// 400 Bad Request on every such query.
     pub fn addString(self: *QueryWriter, key: []const u8, value: []const u8) !void {
         if (self.has_param) try self.buf.append(self.allocator, '&');
         try self.buf.appendSlice(self.allocator, key);
         try self.buf.append(self.allocator, '=');
-        try self.buf.appendSlice(self.allocator, value);
+        try self.appendEncoded(value);
         self.has_param = true;
+    }
+
+    fn appendEncoded(self: *QueryWriter, value: []const u8) !void {
+        const hex = "0123456789ABCDEF";
+        for (value) |c| {
+            if (isUnreserved(c)) {
+                try self.buf.append(self.allocator, c);
+            } else {
+                try self.buf.appendSlice(self.allocator, &.{ '%', hex[c >> 4], hex[c & 0x0F] });
+            }
+        }
     }
 
     /// Add an integer parameter: key=123

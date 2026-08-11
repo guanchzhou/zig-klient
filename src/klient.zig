@@ -200,7 +200,6 @@ pub const WatchOptions = watch.WatchOptions;
 
 pub const tls = @import("k8s/tls.zig");
 pub const TlsConfig = tls.TlsConfig;
-pub const TlsBundle = tls.TlsBundle;
 
 pub const crd = @import("k8s/crd.zig");
 pub const CRDInfo = crd.CRDInfo;
@@ -236,7 +235,6 @@ pub const list_options = @import("k8s/list_options.zig");
 pub const ListOptions = list_options.ListOptions;
 pub const LabelSelector = list_options.LabelSelector;
 pub const FieldSelector = list_options.FieldSelector;
-pub const PaginatedList = list_options.PaginatedList;
 
 // Delete, create, and update options
 pub const delete_options = @import("k8s/delete_options.zig");

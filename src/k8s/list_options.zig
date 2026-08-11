@@ -56,21 +56,6 @@ pub const ListOptions = struct {
     }
 };
 
-/// Pagination helper for listing resources in chunks
-pub fn PaginatedList(comptime T: type) type {
-    return struct {
-        items: []T,
-        continue_token: ?[]const u8,
-        resource_version: ?[]const u8,
-        remaining_item_count: ?i64,
-
-        /// Check if there are more pages
-        pub fn hasMore(self: @This()) bool {
-            return self.continue_token != null;
-        }
-    };
-}
-
 /// Label selector builder for type-safe label selection
 pub const LabelSelector = struct {
     allocator: std.mem.Allocator,

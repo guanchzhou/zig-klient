@@ -178,9 +178,7 @@ test "Binding - create structure" {
             .name = "test-binding",
             .namespace = "default",
         },
-        .spec = .{
-            .target = .null,
-        },
+        .target = .null,
     };
 
     try std.testing.expectEqualStrings("v1", binding.apiVersion.?);
