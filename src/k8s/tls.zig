@@ -77,4 +77,3 @@ pub fn decodeBase64Cert(allocator: std.mem.Allocator, base64_data: []const u8) !
     const actual_size = decoder.calcSizeForSlice(base64_data) catch max_size;
     return allocator.realloc(decoded, actual_size) catch decoded[0..actual_size];
 }
-
