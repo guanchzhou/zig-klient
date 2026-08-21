@@ -64,14 +64,37 @@ jobs:
 
   # Non-blocking early warning for the next Zig release (this project just lived
   # through a painful 0.15->0.16 migration; a canary catches breakage early).
+  #
+  # Installs directly from ziglang.org rather than via mlugg/setup-zig, whose
+  # mirrors return 404/503/502 and left this job dying at "Unable to locate
+  # executable file: zig" without ever compiling -- i.e. silently useless. The
+  # real build jobs above were already switched to direct installs; this one was
+  # missed. master floats, so unlike those jobs it cannot pin a URL and digest:
+  # both are read from the download index and the tarball is verified against the
+  # shasum published next to it.
   zig-master-canary:
     name: Zig master (canary)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v1
-        with:
-          version: master
+      - name: Install Zig master
+        run: |
+          set -euo pipefail
+          curl -fsSL https://ziglang.org/download/index.json -o index.json
+          url=$(jq -er '.master."x86_64-linux".tarball' index.json)
+          sha=$(jq -er '.master."x86_64-linux".shasum' index.json)
+          ver=$(jq -er '.master.version' index.json)
+          echo "Zig master is $ver"
+          echo "ZIG_MASTER_VERSION=$ver" >> "$GITHUB_ENV"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | shasum -a 256 -c -
+          mkdir -p zig-master
+          tar -xf zig.tar.xz -C zig-master --strip-components=1
+          echo "$PWD/zig-master" >> "$GITHUB_PATH"
+      - name: Verify Zig
+        run: |
+          zig version
+          test "$(zig version)" = "$ZIG_MASTER_VERSION"
       - run: zig build
       - run: zig build test
