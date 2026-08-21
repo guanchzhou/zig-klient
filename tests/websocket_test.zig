@@ -149,3 +149,58 @@ test "WebSocket - PortForwardOptions with multiple mappings" {
     try std.testing.expectEqual(@as(u16, 8080), options.ports[0].local);
     try std.testing.expectEqual(@as(u16, 80), options.ports[0].remote);
 }
+
+// --- Regression guards for query encoding (2026-08-21) ----------------------
+
+test "buildExecPath: percent-encodes argv instead of interpolating it raw" {
+    const allocator = std.testing.allocator;
+
+    // A perfectly ordinary shell invocation. Interpolated raw this produced spaces
+    // (which terminate the HTTP request target) and a literal `&`.
+    const path = try ws.buildExecPath(
+        allocator,
+        "default",
+        "my-pod",
+        &.{ "sh", "-c", "echo a && echo b" },
+        .{},
+    );
+    defer allocator.free(path);
+
+    try std.testing.expectEqualStrings(
+        "/api/v1/namespaces/default/pods/my-pod/exec" ++
+            "?command=sh&command=-c&command=echo%20a%20%26%26%20echo%20b" ++
+            "&stdout=true&stderr=true",
+        path,
+    );
+    // A raw space terminates the HTTP request target outright.
+    try std.testing.expect(std.mem.indexOfScalar(u8, path, ' ') == null);
+}
+
+test "buildExecPath: a crafted command cannot inject a query parameter" {
+    const allocator = std.testing.allocator;
+
+    // Without encoding, this smuggles `stdin=true` into the request even though
+    // options.stdin is false.
+    const path = try ws.buildExecPath(
+        allocator,
+        "default",
+        "my-pod",
+        &.{"ls&stdin=true"},
+        .{ .stdin = false },
+    );
+    defer allocator.free(path);
+
+    try std.testing.expect(std.mem.indexOf(u8, path, "ls%26stdin%3Dtrue") != null);
+    try std.testing.expect(std.mem.indexOf(u8, path, "&stdin=true") == null);
+}
+
+test "buildPortForwardPath: emits one encoded ports param per port" {
+    const allocator = std.testing.allocator;
+    const path = try ws.buildPortForwardPath(allocator, "default", "my-pod", &.{ 8080, 9090 });
+    defer allocator.free(path);
+
+    try std.testing.expectEqualStrings(
+        "/api/v1/namespaces/default/pods/my-pod/portforward?ports=8080&ports=9090",
+        path,
+    );
+}

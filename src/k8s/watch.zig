@@ -2,6 +2,7 @@ const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
 const types = @import("types.zig");
 const ResourceClient = @import("resources.zig").ResourceClient;
+const QueryWriter = @import("query.zig").QueryWriter;
 
 const log = std.log.scoped(.klient_watch);
 
@@ -268,48 +269,42 @@ pub fn Watcher(comptime T: type) type {
             }
         }
 
-        /// Build watch path with query parameters
+        /// Build watch path with query parameters.
+        ///
+        /// Values go through QueryWriter, which percent-encodes them. This previously
+        /// hand-built the query with raw `&key={s}` prints, so it never received the
+        /// encoding fix that ListOptions did: a set-based selector from
+        /// `LabelSelector.addIn` ("app in (a,b)") carries spaces and parentheses and
+        /// produced a malformed request line -- 400 on every such watch.
         fn buildWatchPath(self: *Self) ![]const u8 {
             const allocator = self.client.allocator;
-            var path_list = try std.ArrayList(u8).initCapacity(allocator, 0);
-            errdefer path_list.deinit(allocator);
 
-            // Zig 0.16: unmanaged ArrayList uses .print(gpa, fmt, args) directly;
-            // the .writer() method was removed.
+            var query = try QueryWriter.init(allocator);
+            defer query.deinit();
+
+            try query.addFlag("watch");
+            try query.addOptionalString("resourceVersion", self.resource_version);
+            try query.addOptionalInt("timeoutSeconds", self.options.timeout_seconds);
+            try query.addOptionalString("labelSelector", self.options.label_selector);
+            try query.addOptionalString("fieldSelector", self.options.field_selector);
+            try query.addBoolFlag("allowWatchBookmarks", self.options.allow_watch_bookmarks);
+
+            const query_string = try query.toOwnedSlice();
+            defer allocator.free(query_string);
+
             if (self.namespace) |ns| {
-                try path_list.print(allocator, "{s}/namespaces/{s}/{s}?watch=true", .{
+                return std.fmt.allocPrint(allocator, "{s}/namespaces/{s}/{s}?{s}", .{
                     self.api_path,
                     ns,
                     self.resource,
-                });
-            } else {
-                try path_list.print(allocator, "{s}/{s}?watch=true", .{
-                    self.api_path,
-                    self.resource,
+                    query_string,
                 });
             }
-
-            if (self.resource_version) |rv| {
-                try path_list.print(allocator, "&resourceVersion={s}", .{rv});
-            }
-
-            if (self.options.timeout_seconds) |timeout| {
-                try path_list.print(allocator, "&timeoutSeconds={d}", .{timeout});
-            }
-
-            if (self.options.label_selector) |selector| {
-                try path_list.print(allocator, "&labelSelector={s}", .{selector});
-            }
-
-            if (self.options.field_selector) |selector| {
-                try path_list.print(allocator, "&fieldSelector={s}", .{selector});
-            }
-
-            if (self.options.allow_watch_bookmarks) {
-                try path_list.appendSlice(allocator, "&allowWatchBookmarks=true");
-            }
-
-            return try path_list.toOwnedSlice(allocator);
+            return std.fmt.allocPrint(allocator, "{s}/{s}?{s}", .{
+                self.api_path,
+                self.resource,
+                query_string,
+            });
         }
 
         /// Parse a watch event from a JSON line.

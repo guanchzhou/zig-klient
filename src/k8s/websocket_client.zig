@@ -1,4 +1,5 @@
 const std = @import("std");
+const QueryWriter = @import("query.zig").QueryWriter;
 const crypto = std.crypto;
 const tls = @import("tls.zig");
 
@@ -383,7 +384,33 @@ pub const Channel = enum(u8) {
     }
 };
 
-/// Build WebSocket path for exec operation
+/// Join a pod subresource path with an already-built query string.
+///
+/// Shared by exec / attach / port-forward, which previously each carried their own
+/// copy of the ArrayList-join-allocPrint scaffold.
+fn buildStreamPath(
+    allocator: std.mem.Allocator,
+    namespace: []const u8,
+    pod_name: []const u8,
+    subresource: []const u8,
+    query: *QueryWriter,
+) ![]const u8 {
+    const query_string = try query.toOwnedSlice();
+    defer allocator.free(query_string);
+
+    return std.fmt.allocPrint(
+        allocator,
+        "/api/v1/namespaces/{s}/pods/{s}/{s}?{s}",
+        .{ namespace, pod_name, subresource, query_string },
+    );
+}
+
+/// Build WebSocket path for exec operation.
+///
+/// Every value is percent-encoded via QueryWriter. These builders used to
+/// interpolate raw: `exec(&.{"sh", "-c", "a && b"})` emitted spaces and a literal
+/// `&`, which both malformed the URL and let a command string inject query
+/// parameters the caller never asked for (e.g. a trailing `&stdin=true`).
 pub fn buildExecPath(
     allocator: std.mem.Allocator,
     namespace: []const u8,
@@ -391,37 +418,17 @@ pub fn buildExecPath(
     command: []const []const u8,
     options: ExecPathOptions,
 ) ![]const u8 {
-    var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
-    defer {
-        for (query_parts.items) |part| allocator.free(part);
-        query_parts.deinit(allocator);
-    }
+    var query = try QueryWriter.init(allocator);
+    defer query.deinit();
 
-    // Add command parts
-    for (command) |cmd| {
-        const part = try std.fmt.allocPrint(allocator, "command={s}", .{cmd});
-        try query_parts.append(allocator, part);
-    }
+    for (command) |cmd| try query.addString("command", cmd);
+    try query.addBoolFlag("stdin", options.stdin);
+    try query.addBoolFlag("stdout", options.stdout);
+    try query.addBoolFlag("stderr", options.stderr);
+    try query.addBoolFlag("tty", options.tty);
+    try query.addOptionalString("container", options.container);
 
-    // Add stream options
-    if (options.stdin) try query_parts.append(allocator, try allocator.dupe(u8, "stdin=true"));
-    if (options.stdout) try query_parts.append(allocator, try allocator.dupe(u8, "stdout=true"));
-    if (options.stderr) try query_parts.append(allocator, try allocator.dupe(u8, "stderr=true"));
-    if (options.tty) try query_parts.append(allocator, try allocator.dupe(u8, "tty=true"));
-
-    if (options.container) |container| {
-        const part = try std.fmt.allocPrint(allocator, "container={s}", .{container});
-        try query_parts.append(allocator, part);
-    }
-
-    const query = try std.mem.join(allocator, "&", query_parts.items);
-    defer allocator.free(query);
-
-    return try std.fmt.allocPrint(
-        allocator,
-        "/api/v1/namespaces/{s}/pods/{s}/exec?{s}",
-        .{ namespace, pod_name, query },
-    );
+    return buildStreamPath(allocator, namespace, pod_name, "exec", &query);
 }
 
 pub const ExecPathOptions = struct {
@@ -432,37 +439,23 @@ pub const ExecPathOptions = struct {
     container: ?[]const u8 = null,
 };
 
-/// Build WebSocket path for attach operation
+/// Build WebSocket path for attach operation. See buildExecPath on encoding.
 pub fn buildAttachPath(
     allocator: std.mem.Allocator,
     namespace: []const u8,
     pod_name: []const u8,
     options: AttachPathOptions,
 ) ![]const u8 {
-    var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
-    defer {
-        for (query_parts.items) |part| allocator.free(part);
-        query_parts.deinit(allocator);
-    }
+    var query = try QueryWriter.init(allocator);
+    defer query.deinit();
 
-    if (options.stdin) try query_parts.append(allocator, try allocator.dupe(u8, "stdin=true"));
-    if (options.stdout) try query_parts.append(allocator, try allocator.dupe(u8, "stdout=true"));
-    if (options.stderr) try query_parts.append(allocator, try allocator.dupe(u8, "stderr=true"));
-    if (options.tty) try query_parts.append(allocator, try allocator.dupe(u8, "tty=true"));
+    try query.addBoolFlag("stdin", options.stdin);
+    try query.addBoolFlag("stdout", options.stdout);
+    try query.addBoolFlag("stderr", options.stderr);
+    try query.addBoolFlag("tty", options.tty);
+    try query.addOptionalString("container", options.container);
 
-    if (options.container) |container| {
-        const part = try std.fmt.allocPrint(allocator, "container={s}", .{container});
-        try query_parts.append(allocator, part);
-    }
-
-    const query = try std.mem.join(allocator, "&", query_parts.items);
-    defer allocator.free(query);
-
-    return try std.fmt.allocPrint(
-        allocator,
-        "/api/v1/namespaces/{s}/pods/{s}/attach?{s}",
-        .{ namespace, pod_name, query },
-    );
+    return buildStreamPath(allocator, namespace, pod_name, "attach", &query);
 }
 
 pub const AttachPathOptions = struct {
@@ -473,32 +466,19 @@ pub const AttachPathOptions = struct {
     container: ?[]const u8 = null,
 };
 
-/// Build WebSocket path for port-forward operation
+/// Build WebSocket path for port-forward operation.
 pub fn buildPortForwardPath(
     allocator: std.mem.Allocator,
     namespace: []const u8,
     pod_name: []const u8,
     ports: []const u16,
 ) ![]const u8 {
-    var query_parts = try std.ArrayList([]const u8).initCapacity(allocator, 0);
-    defer {
-        for (query_parts.items) |part| allocator.free(part);
-        query_parts.deinit(allocator);
-    }
+    var query = try QueryWriter.init(allocator);
+    defer query.deinit();
 
-    for (ports) |port| {
-        const part = try std.fmt.allocPrint(allocator, "ports={d}", .{port});
-        try query_parts.append(allocator, part);
-    }
+    for (ports) |port| try query.addInt("ports", port);
 
-    const query = try std.mem.join(allocator, "&", query_parts.items);
-    defer allocator.free(query);
-
-    return try std.fmt.allocPrint(
-        allocator,
-        "/api/v1/namespaces/{s}/pods/{s}/portforward?{s}",
-        .{ namespace, pod_name, query },
-    );
+    return buildStreamPath(allocator, namespace, pod_name, "portforward", &query);
 }
 
 /// Kubernetes WebSocket subprotocols
