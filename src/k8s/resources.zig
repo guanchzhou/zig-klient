@@ -559,6 +559,11 @@ pub const Gateways = SimpleResource(types.Gateway);
 pub const HTTPRoutes = SimpleResource(types.HTTPRoute);
 pub const GRPCRoutes = SimpleResource(types.GRPCRoute);
 pub const ReferenceGrants = SimpleResource(types.ReferenceGrant);
+pub const TCPRoutes = SimpleResource(types.TCPRoute);
+pub const TLSRoutes = SimpleResource(types.TLSRoute);
+pub const UDPRoutes = SimpleResource(types.UDPRoute);
+pub const BackendTLSPolicies = SimpleResource(types.BackendTLSPolicy);
+pub const ListenerSets = SimpleResource(types.ListenerSet);
 
 // Dynamic Resource Allocation
 pub const ResourceClaims = SimpleResource(types.ResourceClaim);

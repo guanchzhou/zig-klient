@@ -52,6 +52,59 @@ pub const ReferenceGrantSpec = struct {
 /// ReferenceGrant type alias
 pub const ReferenceGrant = Resource(ReferenceGrantSpec);
 
+/// TCPRoute specification (gateway.networking.k8s.io/v1).
+/// `rules` is required by the CRD; kept optional here because a client should be
+/// lenient on read -- a non-optional field that the server omits fails the whole parse.
+pub const TCPRouteSpec = struct {
+    parentRefs: ?[]std.json.Value = null,
+    rules: ?[]std.json.Value = null,
+};
+
+/// TCPRoute type alias
+pub const TCPRoute = Resource(TCPRouteSpec);
+
+/// TLSRoute specification (gateway.networking.k8s.io/v1).
+/// `hostnames` and `rules` are required by the CRD; see TCPRouteSpec on leniency.
+pub const TLSRouteSpec = struct {
+    parentRefs: ?[]std.json.Value = null,
+    hostnames: ?[][]const u8 = null,
+    rules: ?[]std.json.Value = null,
+};
+
+/// TLSRoute type alias
+pub const TLSRoute = Resource(TLSRouteSpec);
+
+/// UDPRoute specification (gateway.networking.k8s.io/v1).
+/// `rules` is required by the CRD; see TCPRouteSpec on leniency.
+pub const UDPRouteSpec = struct {
+    parentRefs: ?[]std.json.Value = null,
+    rules: ?[]std.json.Value = null,
+};
+
+/// UDPRoute type alias
+pub const UDPRoute = Resource(UDPRouteSpec);
+
+/// BackendTLSPolicy specification (gateway.networking.k8s.io/v1).
+/// `targetRefs` and `validation` are required by the CRD; see TCPRouteSpec on leniency.
+pub const BackendTLSPolicySpec = struct {
+    targetRefs: ?[]std.json.Value = null,
+    validation: ?std.json.Value = null,
+    options: ?std.json.Value = null,
+};
+
+/// BackendTLSPolicy type alias
+pub const BackendTLSPolicy = Resource(BackendTLSPolicySpec);
+
+/// ListenerSet specification (gateway.networking.k8s.io/v1).
+/// `parentRef` and `listeners` are required by the CRD; see TCPRouteSpec on leniency.
+pub const ListenerSetSpec = struct {
+    parentRef: ?std.json.Value = null,
+    listeners: ?[]std.json.Value = null,
+};
+
+/// ListenerSet type alias
+pub const ListenerSet = Resource(ListenerSetSpec);
+
 /// ResourceClaim specification (resource.k8s.io/v1)
 pub const ResourceClaimSpec = struct {
     devices: ?std.json.Value = null,

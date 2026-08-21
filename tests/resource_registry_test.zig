@@ -73,3 +73,59 @@ test "registry: custom wrapper types have specialized methods" {
     // CronJobs has setSuspend
     try std.testing.expect(@hasDecl(klient.CronJobs, "setSuspend"));
 }
+
+// --- Gateway API registry values (2026-08-22) --------------------------------
+// The registry's whole purpose is to be ONE reviewed list of API paths instead of
+// URL strings scattered through callers. Until now this suite only made structural
+// @hasField/@hasDecl checks, so a wrong group or plural in the table would ship
+// silently -- exactly the failure that left c3s probing a nonexistent
+// `cedar.k8s.io` group. These assert the actual values.
+//
+// Verified against Gateway API v1.6.1 standard channel (released 2026-07-16) by
+// reading each CRD's served/storage versions, not by inference.
+
+/// Read the REAL registry entry for T.
+///
+/// `initFromRegistry` derives every field from `comptime metaFor(T)` and only stores
+/// the client pointer, so `undefined` is safe here -- nothing dereferences it. This
+/// matters: the older tests in this file construct a ResourceClient from hand-written
+/// literals and then assert those same literals, so they pass no matter what the
+/// table says. These read the table.
+fn expectMeta(
+    comptime T: type,
+    expected_path: []const u8,
+    expected_plural: []const u8,
+    comptime cluster_scoped: bool,
+) !void {
+    const rc = klient.resources.ResourceClient(T).initFromRegistry(undefined);
+    try std.testing.expectEqualStrings(expected_path, rc.api_path);
+    try std.testing.expectEqualStrings(expected_plural, rc.resource);
+    try std.testing.expectEqual(cluster_scoped, rc.is_cluster_scoped);
+}
+
+test "registry: Gateway API standard channel paths and scopes" {
+    const gw = "/apis/gateway.networking.k8s.io/v1";
+
+    try expectMeta(klient.GatewayClass, gw, "gatewayclasses", true);
+    try expectMeta(klient.Gateway, gw, "gateways", false);
+    try expectMeta(klient.HTTPRoute, gw, "httproutes", false);
+    try expectMeta(klient.GRPCRoute, gw, "grpcroutes", false);
+    try expectMeta(klient.TCPRoute, gw, "tcproutes", false);
+    try expectMeta(klient.TLSRoute, gw, "tlsroutes", false);
+    try expectMeta(klient.UDPRoute, gw, "udproutes", false);
+    try expectMeta(klient.BackendTLSPolicy, gw, "backendtlspolicies", false);
+    try expectMeta(klient.ListenerSet, gw, "listenersets", false);
+}
+
+test "registry: ReferenceGrant stays on v1beta1, which is still the storage version" {
+    // Gateway API v1.6.1 serves ReferenceGrant at BOTH v1 and v1beta1, and v1beta1
+    // is still marked `storage: true`. This is deliberately NOT bumped to v1 --
+    // pinning the storage version is correct, and "modernising" it would be churn.
+    // Flip this test when upstream moves storage to v1.
+    try expectMeta(
+        klient.ReferenceGrant,
+        "/apis/gateway.networking.k8s.io/v1beta1",
+        "referencegrants",
+        false,
+    );
+}
