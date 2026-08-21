@@ -76,11 +76,23 @@ pub fn executeCredentialPlugin(
     // merged Map from a library context. Replacing the env with only config.env would
     // drop PATH/HOME and break the plugins, so we inherit until a parent-env accessor
     // is available. Plugins that need extra env can be invoked with it pre-set.
+    // stderr is INHERITED, not piped. A pipe nobody drains deadlocks: once the plugin
+    // writes more than the pipe buffer (~64 KiB -- easily reached by `aws eks get-token`
+    // emitting warnings) it blocks on write while we block in child.wait(), forever.
+    // Inheriting lets the plugin's diagnostics reach the caller's stderr, which is also
+    // where a human wants them.
     var child = try std.process.spawn(io, .{
         .argv = cmd_args.items,
         .stdout = .pipe,
-        .stderr = .pipe,
+        .stderr = .inherit,
     });
+    // Reap the child on every failure path below, or we leak a zombie and its fds.
+    // Guarded so it cannot double-wait once the explicit wait() below has succeeded
+    // and a later statement (a plugin non-zero exit, a JSON parse failure) errors out.
+    var reaped = false;
+    errdefer if (!reaped) {
+        _ = child.wait(io) catch {};
+    };
 
     // Read stdout through the File reader. allocRemaining with a 10MiB limit
     // replaces the old readToEndAlloc.
@@ -91,6 +103,7 @@ pub fn executeCredentialPlugin(
 
     // Wait for completion
     const term = try child.wait(io);
+    reaped = true;
 
     if (term != .exited or term.exited != 0) {
         if (config.installHint) |hint| {
