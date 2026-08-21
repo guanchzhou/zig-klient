@@ -175,7 +175,14 @@ pub const K8sClient = struct {
     /// body is empty or is not a JSON object (a protobuf error body, or the HTML a
     /// load balancer serves) — the caller then falls back to the HTTP status code.
     /// Strings are duped so they outlive the temporary parse.
-    fn parseStatusJson(self: *K8sClient, body: []const u8) ?ApiError {
+    /// Parse a Kubernetes `Status` error body.
+    ///
+    /// `fallback_code` is the HTTP status and is used whenever the body omits a
+    /// usable `code`. That default matters: a null code is indistinguishable from a
+    /// transport failure to `retry.shouldRetry`, which treats it as retryable — so a
+    /// `Status` without `code` previously made a 404 or 403 burn the entire retry
+    /// budget with backoff.
+    fn parseStatusJson(self: *K8sClient, body: []const u8, fallback_code: i64) ?ApiError {
         if (body.len == 0) return null;
         const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, body, .{
             .ignore_unknown_fields = true,
@@ -183,11 +190,15 @@ pub const K8sClient = struct {
         defer parsed.deinit();
         if (parsed.value != .object) return null;
         const obj = parsed.value.object;
+        const code: i64 = if (obj.get("code")) |v|
+            (if (v == .integer) v.integer else fallback_code)
+        else
+            fallback_code;
         return .{
             .status = self.dupStatusField(obj, "status"),
             .message = self.dupStatusField(obj, "message"),
             .reason = self.dupStatusField(obj, "reason"),
-            .code = if (obj.get("code")) |v| (if (v == .integer) v.integer else null) else null,
+            .code = code,
         };
     }
 
@@ -504,8 +515,9 @@ pub const K8sClient = struct {
                 // ingress in front of the API server answers with HTML, and a
                 // protobuf request may get a protobuf body. Fall back to the status
                 // code so the caller always learns something.
-                out.* = self.parseStatusJson(error_buffer.items) orelse
-                    ApiError{ .code = @intFromEnum(response.head.status) };
+                const http_code: i64 = @intFromEnum(response.head.status);
+                out.* = self.parseStatusJson(error_buffer.items, http_code) orelse
+                    ApiError{ .code = http_code };
             }
             return error.K8sApiError;
         }
@@ -553,13 +565,4 @@ pub const ClusterInfo = struct {
     pub fn deinit(self: ClusterInfo, allocator: std.mem.Allocator) void {
         allocator.free(self.k8s_version);
     }
-};
-
-/// Kubeconfig structure
-pub const KubeConfig = struct {
-    server: []const u8,
-    token: ?[]const u8 = null,
-    namespace: ?[]const u8 = null,
-    cert_path: ?[]const u8 = null,
-    key_path: ?[]const u8 = null,
 };

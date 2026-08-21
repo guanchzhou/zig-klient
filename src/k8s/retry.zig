@@ -136,33 +136,6 @@ pub const RetryContext = struct {
     }
 };
 
-/// Retry a function with exponential backoff
-pub fn retryWithBackoff(
-    comptime T: type,
-    config: RetryConfig,
-    operation: anytype,
-) !T {
-    var ctx = RetryContext.init(config);
-
-    while (true) {
-        // Try the operation
-        const result = operation() catch |err| {
-            // Check if we should retry
-            if (!ctx.shouldRetry(null)) {
-                return err; // No more retries, return error
-            }
-
-            // Backoff before retry
-            ctx.nextAttempt();
-            try ctx.backoff();
-            continue;
-        };
-
-        // Success!
-        return result;
-    }
-}
-
 /// Default retry configuration for production use
 pub const defaultConfig = RetryConfig{
     .max_attempts = 3,

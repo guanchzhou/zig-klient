@@ -2,6 +2,9 @@ const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
 const types = @import("types.zig");
 const ResourceClient = @import("resources.zig").ResourceClient;
+const QueryWriter = @import("query.zig").QueryWriter;
+
+const log = std.log.scoped(.klient_watch);
 
 /// Spin-wait until the mutex is acquired.
 /// std.atomic.Mutex in 0.16 only provides tryLock; there is no blocking lock().
@@ -69,13 +72,38 @@ pub fn Watcher(comptime T: type) type {
         namespace: ?[]const u8,
         options: WatchOptions,
         resource_version: ?[]const u8,
+        /// True once `resource_version` points at an allocation this watcher owns
+        /// (set when a BOOKMARK advances it). The initial value is borrowed from
+        /// `WatchOptions` and must not be freed.
+        resource_version_owned: bool,
 
         const Self = @This();
 
-        /// Watch event envelope for JSON parsing
+        /// Watch event envelope for JSON parsing.
+        ///
+        /// `object` is optional rather than `undefined`: a line whose `object` key is
+        /// absent must not leave this field holding uninitialised memory, since the
+        /// event type is only known after parsing.
         pub const WatchEnvelope = struct {
             type: []const u8 = "",
-            object: T = undefined,
+            object: ?T = null,
+        };
+
+        /// Type-only view, parsed first so control events (BOOKMARK / ERROR) are
+        /// dispatched without ever binding their `object` to `T`. A BOOKMARK's object
+        /// carries only `resourceVersion`, and an ERROR's is a `Status` -- neither
+        /// satisfies `ObjectMeta.name`, so binding either to `T` fails outright.
+        const TypeEnvelope = struct {
+            type: []const u8 = "",
+        };
+
+        /// Minimal view for extracting a BOOKMARK's resourceVersion.
+        const BookmarkEnvelope = struct {
+            object: struct {
+                metadata: struct {
+                    resourceVersion: ?[]const u8 = null,
+                } = .{},
+            } = .{},
         };
 
         pub fn init(
@@ -92,7 +120,30 @@ pub fn Watcher(comptime T: type) type {
                 .namespace = namespace,
                 .options = options,
                 .resource_version = options.resource_version,
+                .resource_version_owned = false,
             };
+        }
+
+        /// Free the resourceVersion if this watcher owns it. Safe to call when it
+        /// does not, and safe to call more than once.
+        pub fn deinit(self: *Self) void {
+            if (self.resource_version_owned) {
+                if (self.resource_version) |rv| self.client.allocator.free(rv);
+                self.resource_version = null;
+                self.resource_version_owned = false;
+            }
+        }
+
+        /// Replace `resource_version` with an owned copy of `rv`.
+        ///
+        /// The source slice lives in a parse arena that is freed as soon as the event
+        /// is released, so storing it directly would dangle -- and the stale pointer
+        /// would then be interpolated into the next watch URL.
+        fn setResourceVersion(self: *Self, rv: []const u8) !void {
+            const owned = try self.client.allocator.dupe(u8, rv);
+            self.deinit();
+            self.resource_version = owned;
+            self.resource_version_owned = true;
         }
 
         /// Start watching for resource changes (stateless callback).
@@ -186,64 +237,74 @@ pub fn Watcher(comptime T: type) type {
 
                 if (line.len == 0) continue;
 
-                var event = try self.parseWatchEvent(line);
-
-                if (event.type_ == .BOOKMARK) {
-                    if (@hasField(T, "metadata")) {
-                        if (event.object.metadata.resourceVersion) |rv| {
-                            self.resource_version = rv;
-                        }
-                    }
-                    event.deinit();
+                // Dispatch on the event type before binding `object` to `T`.
+                const event_type = self.peekEventType(line) orelse {
+                    log.warn("watch: skipping line with unreadable event type", .{});
                     continue;
+                };
+
+                switch (event_type) {
+                    .BOOKMARK => {
+                        self.applyBookmark(line) catch |err| {
+                            log.warn("watch: bookmark ignored: {t}", .{err});
+                        };
+                        continue;
+                    },
+                    // An ERROR carries a Status, not a T. Surfacing it properly needs a
+                    // separate envelope; until then do not abort the stream over it.
+                    .ERROR => {
+                        log.warn("watch: server sent an ERROR event", .{});
+                        continue;
+                    },
+                    .ADDED, .MODIFIED, .DELETED => {},
                 }
+
+                // A single malformed object must not tear down the whole watch.
+                var event = self.parseWatchEvent(line) catch |err| {
+                    log.warn("watch: skipping unparseable event: {t}", .{err});
+                    continue;
+                };
 
                 try callback(context, &event);
             }
         }
 
-        /// Build watch path with query parameters
+        /// Build watch path with query parameters.
+        ///
+        /// Values go through QueryWriter, which percent-encodes them. This previously
+        /// hand-built the query with raw `&key={s}` prints, so it never received the
+        /// encoding fix that ListOptions did: a set-based selector from
+        /// `LabelSelector.addIn` ("app in (a,b)") carries spaces and parentheses and
+        /// produced a malformed request line -- 400 on every such watch.
         fn buildWatchPath(self: *Self) ![]const u8 {
             const allocator = self.client.allocator;
-            var path_list = try std.ArrayList(u8).initCapacity(allocator, 0);
-            errdefer path_list.deinit(allocator);
 
-            // Zig 0.16: unmanaged ArrayList uses .print(gpa, fmt, args) directly;
-            // the .writer() method was removed.
+            var query = try QueryWriter.init(allocator);
+            defer query.deinit();
+
+            try query.addFlag("watch");
+            try query.addOptionalString("resourceVersion", self.resource_version);
+            try query.addOptionalInt("timeoutSeconds", self.options.timeout_seconds);
+            try query.addOptionalString("labelSelector", self.options.label_selector);
+            try query.addOptionalString("fieldSelector", self.options.field_selector);
+            try query.addBoolFlag("allowWatchBookmarks", self.options.allow_watch_bookmarks);
+
+            const query_string = try query.toOwnedSlice();
+            defer allocator.free(query_string);
+
             if (self.namespace) |ns| {
-                try path_list.print(allocator, "{s}/namespaces/{s}/{s}?watch=true", .{
+                return std.fmt.allocPrint(allocator, "{s}/namespaces/{s}/{s}?{s}", .{
                     self.api_path,
                     ns,
                     self.resource,
-                });
-            } else {
-                try path_list.print(allocator, "{s}/{s}?watch=true", .{
-                    self.api_path,
-                    self.resource,
+                    query_string,
                 });
             }
-
-            if (self.resource_version) |rv| {
-                try path_list.print(allocator, "&resourceVersion={s}", .{rv});
-            }
-
-            if (self.options.timeout_seconds) |timeout| {
-                try path_list.print(allocator, "&timeoutSeconds={d}", .{timeout});
-            }
-
-            if (self.options.label_selector) |selector| {
-                try path_list.print(allocator, "&labelSelector={s}", .{selector});
-            }
-
-            if (self.options.field_selector) |selector| {
-                try path_list.print(allocator, "&fieldSelector={s}", .{selector});
-            }
-
-            if (self.options.allow_watch_bookmarks) {
-                try path_list.appendSlice(allocator, "&allowWatchBookmarks=true");
-            }
-
-            return try path_list.toOwnedSlice(allocator);
+            return std.fmt.allocPrint(allocator, "{s}/{s}?{s}", .{
+                self.api_path,
+                self.resource,
+                query_string,
+            });
         }
 
         /// Parse a watch event from a JSON line.
@@ -255,14 +316,43 @@ pub fn Watcher(comptime T: type) type {
                 json_line,
                 .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
             );
+            errdefer parsed.deinit();
 
             const event_type = EventType.fromString(parsed.value.type) orelse .ERROR;
+            const object = parsed.value.object orelse return error.WatchEventMissingObject;
 
             return WatchEvent(T){
                 .type_ = event_type,
-                .object = parsed.value.object,
+                .object = object,
                 ._parsed = parsed,
             };
+        }
+
+        /// Read just the `type` field of a watch line.
+        fn peekEventType(self: *Self, json_line: []const u8) ?EventType {
+            const parsed = std.json.parseFromSlice(
+                TypeEnvelope,
+                self.client.allocator,
+                json_line,
+                .{ .ignore_unknown_fields = true },
+            ) catch return null;
+            defer parsed.deinit();
+            return EventType.fromString(parsed.value.type) orelse .ERROR;
+        }
+
+        /// Advance `resource_version` from a BOOKMARK line.
+        fn applyBookmark(self: *Self, json_line: []const u8) !void {
+            const parsed = try std.json.parseFromSlice(
+                BookmarkEnvelope,
+                self.client.allocator,
+                json_line,
+                .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
+            );
+            defer parsed.deinit();
+
+            if (parsed.value.object.metadata.resourceVersion) |rv| {
+                try self.setResourceVersion(rv);
+            }
         }
     };
 }
@@ -322,7 +412,7 @@ pub fn Informer(comptime T: type) type {
         /// independent of the transient list/watch parse arena that gets freed per event.
         fn cachePut(self: *Self, object: T) !void {
             const allocator = self.cache.allocator;
-            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{});
+            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{ .emit_null_optional_fields = false });
             defer allocator.free(json_bytes);
             const parsed = try std.json.parseFromSlice(T, allocator, json_bytes, .{
                 .ignore_unknown_fields = true,
@@ -455,6 +545,8 @@ pub fn Informer(comptime T: type) type {
                     .allow_watch_bookmarks = true,
                 },
             );
+
+            defer watcher.deinit();
 
             try watcher.watchWithContext(*Self, self, handleWatchEvent);
 

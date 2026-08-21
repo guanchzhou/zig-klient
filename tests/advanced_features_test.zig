@@ -243,3 +243,44 @@ test "CRD - Argo and Knative" {
     try std.testing.expectEqualStrings("v1", crd.KnativeService.version);
     try std.testing.expectEqualStrings("services", crd.KnativeService.plural);
 }
+
+// --- Regression guard for JSON-Patch serialization (2026-08-21) -------------
+
+test "JsonPatch: a remove op carries no value/from keys" {
+    // std.json's emit_null_optional_fields defaults to TRUE, which serialized
+    // {"op":"remove","path":"/x","value":null,"from":null}. RFC 6902 forbids
+    // `value` on a remove, and strict JSON-Patch implementations reject it.
+    const allocator = std.testing.allocator;
+
+    var patch = klient.JsonPatch.init(allocator);
+    defer patch.deinit();
+
+    try patch.remove("/metadata/labels/obsolete");
+    const body = try patch.build();
+    defer allocator.free(body);
+
+    try std.testing.expectEqualStrings(
+        \\[{"op":"remove","path":"/metadata/labels/obsolete"}]
+    ,
+        body,
+    );
+    try std.testing.expect(std.mem.indexOf(u8, body, "null") == null);
+}
+
+test "JsonPatch: replace still emits its value" {
+    // Guard the other direction: suppressing nulls must not drop a real value.
+    const allocator = std.testing.allocator;
+
+    var patch = klient.JsonPatch.init(allocator);
+    defer patch.deinit();
+
+    try patch.replace("/spec/replicas", .{ .integer = 3 });
+    const body = try patch.build();
+    defer allocator.free(body);
+
+    try std.testing.expectEqualStrings(
+        \\[{"op":"replace","path":"/spec/replicas","value":3}]
+    ,
+        body,
+    );
+}

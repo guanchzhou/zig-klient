@@ -75,12 +75,15 @@ pub fn loadInClusterConfig(io: Io, allocator: std.mem.Allocator) !InClusterConfi
     const token = readFileAlloc(io, token_file, allocator, 64 * 1024) catch { // 64KB max
         return error.ServiceAccountTokenNotFound;
     };
-    errdefer allocator.free(token);
+    // `defer`, not `errdefer`: the raw token is freed on every path once the trimmed
+    // copy exists. With an errdefer plus an unconditional free below, any later
+    // failure -- e.g. the reachable ServiceAccountCANotFound just underneath --
+    // unwound the errdefer and freed this a second time.
+    defer allocator.free(token);
 
     // Trim whitespace from token
     const trimmed_token = std.mem.trim(u8, token, &std.ascii.whitespace);
     const final_token = try allocator.dupe(u8, trimmed_token);
-    allocator.free(token);
     errdefer allocator.free(final_token);
 
     // Read CA certificate

@@ -68,3 +68,71 @@ test "WatchEvent: type has correct fields" {
     try std.testing.expect(@hasField(PodEvent, "_parsed"));
     try std.testing.expect(@hasDecl(PodEvent, "deinit"));
 }
+
+// --- Regression guards for the 2026-08-21 watch fixes ------------------------
+
+test "watch: envelope object is optional, so a missing object is never undefined" {
+    // WatchEnvelope.object used to be `T = undefined`. A line without an `object`
+    // key left it holding uninitialised memory, which the informer's event handler
+    // then dereferenced for EVERY event type. `== null` would not even compile
+    // against the old declaration, so this test pins the shape as well as the value.
+    const Envelope = watch.Watcher(klient.Pod).WatchEnvelope;
+
+    const parsed = try std.json.parseFromSlice(
+        Envelope,
+        std.testing.allocator,
+        \\{"type":"BOOKMARK"}
+    ,
+        .{ .ignore_unknown_fields = true },
+    );
+    defer parsed.deinit();
+
+    try std.testing.expectEqualStrings("BOOKMARK", parsed.value.type);
+    try std.testing.expect(parsed.value.object == null);
+}
+
+test "watch: a BOOKMARK object cannot bind to T, which is why it is dispatched by type first" {
+    // ObjectMeta.name is required and a BOOKMARK carries only resourceVersion, so
+    // binding a bookmark's object to a concrete T fails outright. Since
+    // allow_watch_bookmarks defaults to TRUE, parsing every line as WatchEnvelope
+    // meant the first bookmark the server sent tore down the whole watch.
+    const Envelope = watch.Watcher(klient.Pod).WatchEnvelope;
+
+    try std.testing.expectError(error.MissingField, std.json.parseFromSlice(
+        Envelope,
+        std.testing.allocator,
+        \\{"type":"BOOKMARK","object":{"kind":"Pod","apiVersion":"v1","metadata":{"resourceVersion":"12345"}}}
+    ,
+        .{ .ignore_unknown_fields = true },
+    ));
+}
+
+test "watch: Watcher.deinit is safe when the resourceVersion is borrowed, and idempotent" {
+    // The initial resource_version is borrowed from WatchOptions and must never be
+    // freed; only a BOOKMARK-supplied one is owned. deinit must therefore be a no-op
+    // here, and safe to call twice.
+    var client = klient.K8sClient{
+        .allocator = std.testing.allocator,
+        .io = std.testing.io,
+        .http_client = undefined,
+        .api_server = "http://127.0.0.1:8080",
+        .token = null,
+        .namespace = "default",
+        .retry_config = .{},
+        .tls_config = .{},
+        .max_response_size = 1024,
+    };
+
+    var watcher = watch.Watcher(klient.Pod).init(
+        &client,
+        "/api/v1",
+        "pods",
+        "default",
+        .{ .resource_version = "borrowed-do-not-free" },
+    );
+
+    try std.testing.expect(!watcher.resource_version_owned);
+    watcher.deinit();
+    watcher.deinit();
+    try std.testing.expectEqualStrings("borrowed-do-not-free", watcher.resource_version.?);
+}

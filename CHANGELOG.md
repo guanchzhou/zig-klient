@@ -5,7 +5,7 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-08-21
 
 ### Changed
 - **Kubeconfig YAML parsing switched from `guanchzhou/zig-yaml` to
@@ -26,6 +26,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corrupt the free.
 
 ### Fixed
+- **Double free in `loadInClusterConfig`.** An `errdefer allocator.free(token)` was
+  paired with an unconditional `allocator.free(token)` a few lines later, so any
+  later failure unwound the errdefer and freed the same allocation twice. The
+  `error.ServiceAccountCANotFound` path immediately below it is reachable in a real
+  pod with no `ca.crt`.
+- **Use-after-free of the watch `resourceVersion`.** A BOOKMARK stored a slice that
+  pointed into the event's parse arena and then freed that arena, leaving a dangling
+  value that was read by the informer and interpolated into the next watch URL — so a
+  garbage `resourceVersion` was sent to the API server. `Watcher` now owns a duped
+  copy and exposes `deinit()` to release it; the borrowed initial value from
+  `WatchOptions` is never freed.
+- **Uninitialised read on every watch event.** `WatchEnvelope.object` was
+  `T = undefined` and the informer dereferenced `event.object.metadata.name` for all
+  event types. It is now `?T = null`.
+- **A single bookmark tore down the whole watch.** `ObjectMeta.name` is required, but
+  a BOOKMARK's object carries only `resourceVersion` and an ERROR's object is a
+  `Status`, so neither binds to `T` — and `allow_watch_bookmarks` defaults to true.
+  Events are now dispatched on a type-only envelope first, and a single malformed
+  object is logged and skipped instead of killing the stream.
+- **Deadlock in the exec credential plugin.** `.stderr = .pipe` was requested and
+  never drained, so a plugin writing past the pipe buffer (~64 KiB, easily reached by
+  `aws eks get-token` emitting warnings) blocked on write while the client blocked in
+  `child.wait()`. stderr is now inherited, and a guarded `errdefer` reaps the child on
+  earlier failure paths.
+- **Watch and pod-stream query parameters are percent-encoded.** The 0.4.0 encoding
+  fix reached `ListOptions` but not `watch`, `exec`, `attach` or `port-forward`, which
+  kept hand-building their query strings. A set-based selector from
+  `LabelSelector.addIn` ("app in (a,b)") produced a malformed request line, so the
+  library's own selector API could not be used with its own watch. For the pod streams
+  it was also an injection: a command ending `ls&stdin=true` turned on stdin even
+  though the caller had not asked for it.
+- **`emit_null_optional_fields` is now false** for resource, patch and cache
+  serialization. Since every Kubernetes type is `?T = null`, bodies were mostly nulls.
+  `JsonPatch.build` emitted `{"op":"remove","path":"/x","value":null,"from":null}`,
+  which RFC 6902 forbids and strict implementations reject.
+- **A `Status` without `code` no longer makes 404s and 403s retry.** The code fell
+  back to `null`, which `retry.shouldRetry` cannot distinguish from a transport
+  failure, so such responses were retried the full budget with backoff. The HTTP
+  status is now used as the fallback.
 - **`insecure-skip-tls-verify` is no longer silently dropped.** The old
   `parseCluster` accepted only a `.boolean` YAML value, but zig-yaml built
   `.boolean` solely on its stringify path and never when parsing, so `true`
@@ -38,6 +77,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the toolchain's own `compiler/test_runner.zig` (`*builtin.StackTrace` vs
   `*const debug.StackTrace`), unrelated to this change and reproducible on an
   unmodified tree. The single-shot fuzz run under `zig build test` still works.
+
+### Removed
+- Dead code, each verified unreferenced across `src/`, `tests/`, `docs/` and the
+  README before deletion: `client.KubeConfig` (superseded by
+  `kubeconfig_yaml.Kubeconfig`), `tls.readFileToAlloc` (whose doc comment cited two
+  functions that do not exist), and `retry.retryWithBackoff` (which duplicated
+  `sendWithRetry`'s loop and took `operation: anytype` but invoked it with no
+  arguments).
+- `version` / `versionString()` in `klient.zig` reported `0.1.0-alpha` while the
+  manifest declared `0.4.0` — three releases stale, in two hand-maintained copies.
+  Both must now be bumped alongside `build.zig.zon`; there is no compile-time link.
+
+### Build
+- **`test-comprehensive` and the WebSocket integration test now actually compile.**
+  The former was `_ = b.step(...)` — a step with no dependencies, so it built and ran
+  nothing — and the latter was never referenced by `build.zig` at all. Between them
+  1,933 lines of test code had silently stopped compiling against Zig 0.16. Both are
+  wired up, and the suites migrated to the 0.16 APIs (`std.process.run`,
+  `std.heap.DebugAllocator`, and threading `std.Io`). They still require a live
+  cluster to run; compiling them in CI is what stops them rotting again.
 
 ## [0.4.0] - 2026-08-10
 

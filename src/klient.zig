@@ -302,15 +302,18 @@ pub const auth = @import("k8s/auth.zig");
 pub const AccessReview = auth.AccessReview;
 
 // Version information
+/// Library version. MUST be kept in step with `.version` in build.zig.zon --
+/// there is no compile-time link between the two, and this copy had drifted three
+/// releases behind (it still read 0.1.0-alpha at 0.4.0).
 pub const version = .{
     .major = 0,
-    .minor = 1,
+    .minor = 5,
     .patch = 0,
-    .pre_release = "alpha",
+    .pre_release = @as(?[]const u8, null),
 };
 
 pub fn versionString() []const u8 {
-    return "0.1.0-alpha";
+    return "0.5.0";
 }
 
 test {
