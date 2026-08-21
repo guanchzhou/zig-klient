@@ -179,18 +179,16 @@ test "kubeconfig - all cluster fields incl. CA path and insecure bool" {
     // CA path and CA data are distinct fields; only one was set here.
     try std.testing.expect(full.certificate_authority_data == null);
 
-    // KNOWN BUG (pinned deliberately, not desired behaviour):
-    // insecure-skip-tls-verify is silently dropped. parseCluster only accepts a
-    // `.boolean` Value, but zig-yaml never produces one when parsing -- the
-    // `.boolean` variant is only constructed on the stringify path
-    // (zig-yaml src/Yaml.zig:650), so `true` arrives as Value{ .scalar = "true" }
-    // and the `else => {}` branch drops it. Currently masked: client.zig:79
-    // rejects insecure_skip_verify as unsupported anyway.
-    // A typed-decode parser resolves this; flip both to true/false when it does.
-    try std.testing.expect(full.insecure_skip_tls_verify == null);
+    // Regression guard: insecure-skip-tls-verify used to be silently dropped.
+    // The old hand-written parseCluster accepted only a `.boolean` Value, but
+    // zig-yaml never produced one when parsing (it built `.boolean` solely on
+    // the stringify path), so `true` arrived as a scalar and hit `else => {}`.
+    // Typed decoding resolves it. Must stay non-null.
+    try std.testing.expectEqual(true, full.insecure_skip_tls_verify.?);
 
+    // false must round-trip as false, not as null-because-falsy.
     const ins_false = config.getClusterByName("insecure-false").?;
-    try std.testing.expect(ins_false.insecure_skip_tls_verify == null);
+    try std.testing.expectEqual(false, ins_false.insecure_skip_tls_verify.?);
 
     // Absent optionals stay null.
     const bare = config.getClusterByName("bare").?;
@@ -350,4 +348,44 @@ test "kubeconfig - multiple contexts and lookup accessors" {
     try std.testing.expect(config.getContextByName("nope") == null);
     try std.testing.expect(config.getClusterByName("nope") == null);
     try std.testing.expect(config.getUserByName("nope") == null);
+}
+
+test "kubeconfig - parses the developer's real ~/.kube/config" {
+    // Skipped when there is no kubeconfig (CI), so this is safe to keep.
+    // Real configs carry many keys we do not model (preferences, extensions,
+    // proxy-url, tls-server-name, exec.env, interactiveMode...) -- the case a
+    // synthetic fixture cannot cover. Only "no config present" is skipped; a
+    // genuine parse failure still fails the test.
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var parser = klient.KubeconfigParser.init(allocator, io);
+    var config = parser.load() catch |err| switch (err) {
+        error.FileNotFound, error.HomeNotFound, error.AccessDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer config.deinit(allocator);
+
+    try std.testing.expect(config.contexts.len > 0);
+
+    // current-context may legitimately be "" (this developer's config is), in
+    // which case it resolves to null. Only a NON-empty current-context is
+    // required to name a real context.
+    if (config.current_context.len > 0) {
+        const current = config.getCurrentContext() orelse return error.CurrentContextUnresolved;
+        try std.testing.expect(config.getClusterByName(current.cluster) != null);
+        try std.testing.expect(config.getUserByName(current.user) != null);
+    }
+
+    // Every entry must be structurally complete: non-empty names, non-empty
+    // server URLs, and every context pointing at a cluster and user that exist.
+    for (config.clusters) |c| {
+        try std.testing.expect(c.name.len > 0);
+        try std.testing.expect(c.server.len > 0);
+    }
+    for (config.contexts) |c| {
+        try std.testing.expect(c.name.len > 0);
+        try std.testing.expect(config.getClusterByName(c.cluster) != null);
+        try std.testing.expect(config.getUserByName(c.user) != null);
+    }
 }
