@@ -1,24 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
 
-/// Read a file at `path` (relative to cwd or absolute) into a newly-allocated
-/// slice, capped at `max_bytes`. Centralises the 0.16 open/read boilerplate
-/// used by loadFromFiles and createBundle.
-fn readFileToAlloc(
-    allocator: std.mem.Allocator,
-    io: Io,
-    path: []const u8,
-    max_bytes: usize,
-) ![]u8 {
-    const file = try Io.Dir.cwd().openFile(io, path, .{});
-    defer file.close(io);
-    var buf: [4096]u8 = undefined;
-    var file_reader = file.reader(io, &buf);
-    const size = try file_reader.getSize();
-    const read_len = @min(@as(usize, @intCast(size)), max_bytes);
-    return file_reader.interface.readAlloc(allocator, read_len);
-}
-
 /// Load custom CA certificate PEM data into an `std.http.Client`'s trust bundle.
 ///
 /// SECURITY: the Certificate.Bundle parser only reads from a file, so the PEM is

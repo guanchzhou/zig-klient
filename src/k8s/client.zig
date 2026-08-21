@@ -566,12 +566,3 @@ pub const ClusterInfo = struct {
         allocator.free(self.k8s_version);
     }
 };
-
-/// Kubeconfig structure
-pub const KubeConfig = struct {
-    server: []const u8,
-    token: ?[]const u8 = null,
-    namespace: ?[]const u8 = null,
-    cert_path: ?[]const u8 = null,
-    key_path: ?[]const u8 = null,
-};
