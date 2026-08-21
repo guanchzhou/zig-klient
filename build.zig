@@ -55,6 +55,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-registry", .source = "tests/resource_registry_test.zig", .desc = "Run resource registry tests" },
         .{ .name = "test-query", .source = "tests/query_test.zig", .desc = "Run query builder tests" },
         .{ .name = "test-watch", .source = "tests/watch_test.zig", .desc = "Run watch/informer tests" },
+        .{ .name = "test-discovery", .source = "tests/discovery_test.zig", .desc = "Run API discovery tests" },
         .{ .name = "test-auth", .source = "tests/auth_test.zig", .desc = "Run auth and options tests" },
         .{ .name = "test-types-meta", .source = "tests/types_meta_test.zig", .desc = "Run types, CRD, metrics, and retry edge case tests" },
         .{ .name = "test-migration-probe", .source = "tests/migration_probe_test.zig", .desc = "Force-compile entire library surface to catch lazy-compilation gaps" },
