@@ -85,7 +85,11 @@ pub fn ResourceClient(comptime T: type) type {
 
         /// Serialize a Zig value to a JSON byte slice. Caller must free the result.
         fn serializeJson(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
-            return try std.json.Stringify.valueAlloc(allocator, value, .{});
+            // Every Kubernetes field is `?T = null`, so with the default
+            // emit_null_optional_fields the body is mostly nulls -- e.g.
+            // `"containers":null`, which the server rejects with a confusing
+            // validation error instead of a clear one.
+            return try std.json.Stringify.valueAlloc(allocator, value, .{ .emit_null_optional_fields = false });
         }
 
         fn buildCollectionPath(self: Self, namespace: ?[]const u8) ![]const u8 {

@@ -258,6 +258,10 @@ pub const JsonPatch = struct {
 
     /// Build the patch JSON
     pub fn build(self: *JsonPatch) ![]const u8 {
-        return std.json.Stringify.valueAlloc(self.allocator, self.operations.items, .{});
+        // RFC 6902 forbids `value` on a `remove` op, but the default
+        // emit_null_optional_fields produced
+        // {"op":"remove","path":"/x","value":null,"from":null} -- which strict
+        // JSON-Patch implementations reject outright.
+        return std.json.Stringify.valueAlloc(self.allocator, self.operations.items, .{ .emit_null_optional_fields = false });
     }
 };

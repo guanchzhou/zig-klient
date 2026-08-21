@@ -412,7 +412,7 @@ pub fn Informer(comptime T: type) type {
         /// independent of the transient list/watch parse arena that gets freed per event.
         fn cachePut(self: *Self, object: T) !void {
             const allocator = self.cache.allocator;
-            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{});
+            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{ .emit_null_optional_fields = false });
             defer allocator.free(json_bytes);
             const parsed = try std.json.parseFromSlice(T, allocator, json_bytes, .{
                 .ignore_unknown_fields = true,
