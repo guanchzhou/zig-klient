@@ -19,6 +19,15 @@ pub const TestConfig = struct {
     verbose: bool = false,
 };
 
+/// Returns the current wall-clock time in milliseconds since the epoch.
+///
+/// Zig 0.16 removed `std.time.milliTimestamp`; wall-clock time is now
+/// obtained through the `Io` interface.
+pub fn nowMillis(io: std.Io) i64 {
+    const ts = std.Io.Timestamp.now(io, .real);
+    return @intCast(@divTrunc(ts.nanoseconds, std.time.ns_per_ms));
+}
+
 /// Test metrics for performance tracking
 pub const TestMetrics = struct {
     start_time: i64,
@@ -27,9 +36,9 @@ pub const TestMetrics = struct {
     errors: usize,
     retries: usize,
 
-    pub fn init() TestMetrics {
+    pub fn init(io: std.Io) TestMetrics {
         return .{
-            .start_time = std.time.milliTimestamp(),
+            .start_time = nowMillis(io),
             .end_time = 0,
             .operations = 0,
             .errors = 0,
@@ -37,8 +46,8 @@ pub const TestMetrics = struct {
         };
     }
 
-    pub fn finish(self: *TestMetrics) void {
-        self.end_time = std.time.milliTimestamp();
+    pub fn finish(self: *TestMetrics, io: std.Io) void {
+        self.end_time = nowMillis(io);
     }
 
     pub fn duration_ms(self: TestMetrics) i64 {
@@ -69,9 +78,8 @@ pub const TestMetrics = struct {
 };
 
 /// Verify we're using the correct Kubernetes context
-pub fn verifyContext(allocator: std.mem.Allocator) !void {
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
+pub fn verifyContext(allocator: std.mem.Allocator, io: std.Io) !void {
+    const result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{ "kubectl", "config", "current-context" },
     });
     defer allocator.free(result.stdout);
@@ -124,7 +132,7 @@ pub fn createTestNamespace(client: *klient.K8sClient, namespace: []const u8) !vo
 }
 
 /// Delete test namespace and all resources (cleanup)
-pub fn deleteTestNamespace(client: *klient.K8sClient, namespace: []const u8) !void {
+pub fn deleteTestNamespace(client: *klient.K8sClient, namespace: []const u8, io: std.Io) !void {
     const path = try std.fmt.allocPrint(client.allocator, "/api/v1/namespaces/{s}", .{namespace});
     defer client.allocator.free(path);
 
@@ -138,12 +146,12 @@ pub fn deleteTestNamespace(client: *klient.K8sClient, namespace: []const u8) !vo
     std.debug.print("✅ Deleted test namespace: {s}\n", .{namespace});
 
     // Wait for namespace to be fully deleted
-    std.time.sleep(2 * std.time.ns_per_s);
+    try io.sleep(.fromSeconds(2), .real);
 }
 
 /// Generate a unique resource name for testing
-pub fn generateUniqueName(allocator: std.mem.Allocator, prefix: []const u8) ![]const u8 {
-    const timestamp = std.time.milliTimestamp();
+pub fn generateUniqueName(allocator: std.mem.Allocator, prefix: []const u8, io: std.Io) ![]const u8 {
+    const timestamp = nowMillis(io);
     const random = std.crypto.random.int(u32);
     return try std.fmt.allocPrint(allocator, "{s}-{d}-{x}", .{ prefix, timestamp, random });
 }
@@ -223,13 +231,13 @@ pub fn createTestDeploymentManifest(allocator: std.mem.Allocator, name: []const 
 }
 
 /// Wait for a Pod to be ready
-pub fn waitForPodReady(client: *klient.K8sClient, name: []const u8, namespace: []const u8, timeout_seconds: u32) !void {
+pub fn waitForPodReady(client: *klient.K8sClient, name: []const u8, namespace: []const u8, timeout_seconds: u32, io: std.Io) !void {
     const allocator = client.allocator;
-    const start = std.time.milliTimestamp();
+    const start = nowMillis(io);
     const timeout_ms = timeout_seconds * 1000;
 
     while (true) {
-        const elapsed = std.time.milliTimestamp() - start;
+        const elapsed = nowMillis(io) - start;
         if (elapsed > timeout_ms) {
             return error.WaitTimeout;
         }
@@ -238,8 +246,8 @@ pub fn waitForPodReady(client: *klient.K8sClient, name: []const u8, namespace: [
         const path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/pods/{s}", .{ namespace, name });
         defer allocator.free(path);
 
-        const response = client.request(.GET, path, null) catch |err| {
-            std.time.sleep(1 * std.time.ns_per_s);
+        const response = client.request(.GET, path, null) catch {
+            try io.sleep(.fromSeconds(1), .real);
             continue;
         };
         defer allocator.free(response);
@@ -251,19 +259,19 @@ pub fn waitForPodReady(client: *klient.K8sClient, name: []const u8, namespace: [
             response,
             .{ .ignore_unknown_fields = true },
         ) catch {
-            std.time.sleep(1 * std.time.ns_per_s);
+            try io.sleep(.fromSeconds(1), .real);
             continue;
         };
         defer parsed.deinit();
 
         // Check if pod is ready
         const status = parsed.value.object.get("status") orelse {
-            std.time.sleep(1 * std.time.ns_per_s);
+            try io.sleep(.fromSeconds(1), .real);
             continue;
         };
 
         const phase = status.object.get("phase") orelse {
-            std.time.sleep(1 * std.time.ns_per_s);
+            try io.sleep(.fromSeconds(1), .real);
             continue;
         };
 
@@ -272,7 +280,7 @@ pub fn waitForPodReady(client: *klient.K8sClient, name: []const u8, namespace: [
             return;
         }
 
-        std.time.sleep(1 * std.time.ns_per_s);
+        try io.sleep(.fromSeconds(1), .real);
     }
 }
 
@@ -297,7 +305,7 @@ pub fn assertEqualStrings(actual: []const u8, expected: []const u8, message: []c
 }
 
 /// Assert that an error occurred
-pub fn assertError(comptime T: type, result: anytype, expected_error: anyerror, message: []const u8) !void {
+pub fn assertError(comptime _: type, result: anytype, expected_error: anyerror, message: []const u8) !void {
     if (result) |_| {
         std.debug.print("❌ Assertion failed: {s}\n", .{message});
         std.debug.print("   Expected error: {s}\n", .{@errorName(expected_error)});
@@ -314,10 +322,9 @@ pub fn assertError(comptime T: type, result: anytype, expected_error: anyerror, 
 }
 
 /// Initialize test client with proper configuration
-pub fn initTestClient(allocator: std.mem.Allocator) !*klient.K8sClient {
+pub fn initTestClient(allocator: std.mem.Allocator, io: std.Io) !*klient.K8sClient {
     // Load configuration from kubeconfig for rancher-desktop context
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const result = try std.process.run(allocator, io, .{
         .argv = &[_][]const u8{
             "kubectl",
             "config",
@@ -330,7 +337,7 @@ pub fn initTestClient(allocator: std.mem.Allocator) !*klient.K8sClient {
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) {
+    if (result.term != .exited or result.term.exited != 0) {
         std.debug.print("❌ Failed to get kubeconfig: {s}\n", .{result.stderr});
         return error.KubeconfigLoadFailed;
     }
@@ -359,13 +366,15 @@ pub fn initTestClient(allocator: std.mem.Allocator) !*klient.K8sClient {
 
     // Initialize with token if available
     if (user.object.get("token")) |token_value| {
-        client.* = try klient.K8sClient.init(allocator, server, .{
+        client.* = try klient.K8sClient.init(allocator, io, .{
+            .server = server,
             .token = token_value.string,
             .namespace = "default",
         });
     } else {
         // Try certificate-based auth
-        client.* = try klient.K8sClient.init(allocator, server, .{
+        client.* = try klient.K8sClient.init(allocator, io, .{
+            .server = server,
             .namespace = "default",
         });
     }
@@ -402,9 +411,9 @@ pub const TestSummary = struct {
     }
 
     pub fn print(self: TestSummary, suite_name: []const u8) void {
-        std.debug.print("\n{'═':<60}\n", .{});
+        std.debug.print("\n════════════════════════════════════════════════════════════\n", .{});
         std.debug.print("  Test Suite: {s}\n", .{suite_name});
-        std.debug.print("{'═':<60}\n", .{});
+        std.debug.print("════════════════════════════════════════════════════════════\n", .{});
         std.debug.print("  Total:   {d}\n", .{self.total});
         std.debug.print("  ✅ Passed: {d}\n", .{self.passed});
         std.debug.print("  ❌ Failed: {d}\n", .{self.failed});
@@ -414,6 +423,6 @@ pub const TestSummary = struct {
             const pass_rate = @as(f64, @floatFromInt(self.passed)) / @as(f64, @floatFromInt(self.total)) * 100.0;
             std.debug.print("  Pass Rate: {d:.1}%\n", .{pass_rate});
         }
-        std.debug.print("{'═':<60}\n\n", .{});
+        std.debug.print("════════════════════════════════════════════════════════════\n\n", .{});
     }
 };

@@ -11,49 +11,53 @@ const CONCURRENT_WORKERS = 100;
 const BATCH_SIZE = 100;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("\n{'═':<80}\n", .{});
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    std.debug.print("\n════════════════════════════════════════════════════════════════════════════\n", .{});
     std.debug.print("  Performance Test: 10,000 Pods\n", .{});
-    std.debug.print("{'═':<80}\n\n", .{});
+    std.debug.print("════════════════════════════════════════════════════════════════════════════\n\n", .{});
 
     // Verify we're using rancher-desktop context
-    try helpers.verifyContext(allocator);
+    try helpers.verifyContext(allocator, io);
 
     // Initialize Kubernetes client
-    const client = try helpers.initTestClient(allocator);
+    const client = try helpers.initTestClient(allocator, io);
     defer helpers.deinitTestClient(client, allocator);
 
     // Create test namespace
     try helpers.createTestNamespace(client, TEST_NAMESPACE);
-    defer helpers.deleteTestNamespace(client, TEST_NAMESPACE) catch {};
+    defer helpers.deleteTestNamespace(client, TEST_NAMESPACE, io) catch {};
 
     var summary = helpers.TestSummary{};
 
     // Run all performance tests
-    testSequentialCreate(allocator, client, &summary) catch |err| {
+    testSequentialCreate(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Sequential create test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testConcurrentCreate(allocator, client, &summary) catch |err| {
+    testConcurrentCreate(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Concurrent create test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testListPagination(allocator, client, &summary) catch |err| {
+    testListPagination(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ List pagination test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testConcurrentUpdate(allocator, client, &summary) catch |err| {
+    testConcurrentUpdate(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Concurrent update test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testConcurrentDelete(allocator, client, &summary) catch |err| {
+    testConcurrentDelete(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Concurrent delete test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
@@ -68,11 +72,11 @@ pub fn main() !void {
 }
 
 /// Test 1: Sequential Creation of 10k Pods
-fn testSequentialCreate(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testSequentialCreate(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     std.debug.print("\n🧪 Test: Sequential Create 10,000 Pods\n", .{});
-    std.debug.print("{'─':<60}\n", .{});
+    std.debug.print("────────────────────────────────────────────────────────────\n", .{});
 
-    var metrics = helpers.TestMetrics.init();
+    var metrics = helpers.TestMetrics.init(io);
 
     const create_count = 1000; // Start with 1k for reasonable test time
     var created: usize = 0;
@@ -106,7 +110,7 @@ fn testSequentialCreate(allocator: std.mem.Allocator, client: *klient.K8sClient,
         }
     }
 
-    metrics.finish();
+    metrics.finish(io);
     metrics.print("Sequential Create");
 
     // Validation
@@ -120,11 +124,11 @@ fn testSequentialCreate(allocator: std.mem.Allocator, client: *klient.K8sClient,
 }
 
 /// Test 2: Concurrent Creation of 10k Pods
-fn testConcurrentCreate(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testConcurrentCreate(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     std.debug.print("\n🧪 Test: Concurrent Create 10,000 Pods ({d} workers)\n", .{CONCURRENT_WORKERS});
-    std.debug.print("{'─':<60}\n", .{});
+    std.debug.print("────────────────────────────────────────────────────────────\n", .{});
 
-    var metrics = helpers.TestMetrics.init();
+    var metrics = helpers.TestMetrics.init(io);
 
     // We'll use threads for concurrent operations
     const create_count = 1000; // 1k for reasonable test time
@@ -180,13 +184,14 @@ fn testConcurrentCreate(allocator: std.mem.Allocator, client: *klient.K8sClient,
                 };
                 defer alloc.free(path);
 
-                k8s_client.request(.POST, path, manifest) catch |err| {
+                const response = k8s_client.request(.POST, path, manifest) catch |err| {
                     if (worker_created % 100 == 0) {
                         std.debug.print("⚠️  Worker {d} error: {s}\n", .{ worker_id, @errorName(err) });
                     }
                     _ = error_counter.fetchAdd(1, .monotonic);
                     continue;
                 };
+                alloc.free(response);
 
                 _ = created_counter.fetchAdd(1, .monotonic);
             }
@@ -212,7 +217,7 @@ fn testConcurrentCreate(allocator: std.mem.Allocator, client: *klient.K8sClient,
 
     metrics.operations = created.load(.monotonic);
     metrics.errors = errors.load(.monotonic);
-    metrics.finish();
+    metrics.finish(io);
     metrics.print("Concurrent Create");
 
     // Validation
@@ -226,11 +231,11 @@ fn testConcurrentCreate(allocator: std.mem.Allocator, client: *klient.K8sClient,
 }
 
 /// Test 3: List with Pagination (10k pods)
-fn testListPagination(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testListPagination(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     std.debug.print("\n🧪 Test: List with Pagination\n", .{});
-    std.debug.print("{'─':<60}\n", .{});
+    std.debug.print("────────────────────────────────────────────────────────────\n", .{});
 
-    var metrics = helpers.TestMetrics.init();
+    var metrics = helpers.TestMetrics.init(io);
 
     var total_pods: usize = 0;
     var continue_token: ?[]const u8 = null;
@@ -290,7 +295,7 @@ fn testListPagination(allocator: std.mem.Allocator, client: *klient.K8sClient, s
         allocator.free(token);
     }
 
-    metrics.finish();
+    metrics.finish(io);
     metrics.print("List Pagination");
 
     std.debug.print("  Total pods retrieved: {d}\n", .{total_pods});
@@ -306,11 +311,11 @@ fn testListPagination(allocator: std.mem.Allocator, client: *klient.K8sClient, s
 }
 
 /// Test 4: Concurrent Update of pods
-fn testConcurrentUpdate(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testConcurrentUpdate(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     std.debug.print("\n🧪 Test: Concurrent Update (label patches)\n", .{});
-    std.debug.print("{'─':<60}\n", .{});
+    std.debug.print("────────────────────────────────────────────────────────────\n", .{});
 
-    var metrics = helpers.TestMetrics.init();
+    var metrics = helpers.TestMetrics.init(io);
 
     // Patch first 500 pods with new label
     const update_count = 500;
@@ -354,10 +359,11 @@ fn testConcurrentUpdate(allocator: std.mem.Allocator, client: *klient.K8sClient,
                 };
                 defer alloc.free(path);
 
-                k8s_client.request(.PATCH, path, patch) catch {
+                const response = k8s_client.request(.PATCH, path, patch) catch {
                     _ = error_counter.fetchAdd(1, .monotonic);
                     continue;
                 };
+                alloc.free(response);
 
                 _ = updated_counter.fetchAdd(1, .monotonic);
             }
@@ -385,7 +391,7 @@ fn testConcurrentUpdate(allocator: std.mem.Allocator, client: *klient.K8sClient,
 
     metrics.operations = updated.load(.monotonic);
     metrics.errors = errors.load(.monotonic);
-    metrics.finish();
+    metrics.finish(io);
     metrics.print("Concurrent Update");
 
     // Validation
@@ -399,11 +405,11 @@ fn testConcurrentUpdate(allocator: std.mem.Allocator, client: *klient.K8sClient,
 }
 
 /// Test 5: Concurrent Delete of all pods
-fn testConcurrentDelete(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testConcurrentDelete(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     std.debug.print("\n🧪 Test: Concurrent Delete (cleanup)\n", .{});
-    std.debug.print("{'─':<60}\n", .{});
+    std.debug.print("────────────────────────────────────────────────────────────\n", .{});
 
-    var metrics = helpers.TestMetrics.init();
+    var metrics = helpers.TestMetrics.init(io);
 
     // Delete using deleteCollection for efficiency
     const path = try std.fmt.allocPrint(
@@ -416,14 +422,14 @@ fn testConcurrentDelete(allocator: std.mem.Allocator, client: *klient.K8sClient,
     const response = client.request(.DELETE, path, null) catch |err| {
         std.debug.print("❌ Failed to delete collection: {s}\n", .{@errorName(err)});
         metrics.errors += 1;
-        metrics.finish();
+        metrics.finish(io);
         summary.recordFail();
         return;
     };
     defer allocator.free(response);
 
     metrics.operations = 1;
-    metrics.finish();
+    metrics.finish(io);
     metrics.print("Delete Collection");
 
     std.debug.print("✅ Concurrent delete test passed\n", .{});

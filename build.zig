@@ -63,7 +63,9 @@ pub fn build(b: *std.Build) void {
     // Tests excluded from default `zig build test` (require a live cluster).
     // Live exec/attach/port-forward are covered by the integration entrypoints
     // below (test-pod-exec, run via kubectl proxy).
-    const live_tests = [_]struct { name: []const u8, source: []const u8, desc: []const u8 }{};
+    const live_tests = [_]struct { name: []const u8, source: []const u8, desc: []const u8 }{
+        .{ .name = "test-websocket-integration", .source = "tests/websocket_integration_test.zig", .desc = "WebSocket exec/attach/port-forward against a live cluster" },
+    };
 
     const test_step = b.step("test", "Run all unit tests");
 
@@ -84,6 +86,9 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run.step);
     }
 
+    // Declared here so the live tests below can attach their *compilation* to it.
+    const build_integration_step = b.step("build-integration-tests", "Build all integration test executables");
+
     inline for (live_tests) |t| {
         const test_mod = b.addTest(.{
             .root_module = b.createModule(.{
@@ -94,6 +99,11 @@ pub fn build(b: *std.Build) void {
             }),
         });
         test_mod.root_module.addImport("klient", klient_module);
+
+        // Compiled by `build-integration-tests` (which CI runs) so these cannot rot
+        // again, but only RUN when their own step is invoked explicitly -- they need a
+        // live cluster and will fail anywhere else.
+        build_integration_step.dependOn(&b.addInstallArtifact(test_mod, .{}).step);
 
         const run = b.addRunArtifact(test_mod);
         const step = b.step(t.name, t.desc);
@@ -116,8 +126,6 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-mutating-admission-policy", .source = "tests/entrypoints/test_mutating_admission_policy.zig", .desc = "MutatingAdmissionPolicy CRUD (requires K8s >= 1.36)" },
         .{ .name = "test-pod-exec", .source = "tests/entrypoints/test_pod_exec.zig", .desc = "Pod exec over WebSocket (requires a running pod + kubectl proxy)" },
     };
-
-    const build_integration_step = b.step("build-integration-tests", "Build all integration test executables");
 
     inline for (test_entrypoints) |entrypoint| {
         const exe_module = b.createModule(.{
@@ -143,11 +151,31 @@ pub fn build(b: *std.Build) void {
         run_step.dependOn(&run_cmd.step);
     }
 
-    // Comprehensive integration tests (require Kubernetes cluster)
-    // These require manual execution against Rancher Desktop:
-    //   1. cd tests/comprehensive
-    //   2. ./run_all.sh
-    _ = b.step("test-comprehensive", "Build comprehensive tests (requires rancher-desktop)");
+    // === Comprehensive integration tests (require a Kubernetes cluster) ===
+    // Built, not run: they need a live cluster, but compiling them in CI is what
+    // stops them rotting. This step was previously `_ = b.step(...)` -- a step with
+    // no dependencies, so it built nothing and ran nothing, and the 1,649 lines here
+    // silently stopped compiling.
+    const comprehensive_tests = [_]struct { name: []const u8, source: []const u8 }{
+        .{ .name = "comprehensive-crud", .source = "tests/comprehensive/crud_all_resources_test.zig" },
+        .{ .name = "comprehensive-perf", .source = "tests/comprehensive/performance_10k_test.zig" },
+    };
+
+    const comprehensive_step = b.step("test-comprehensive", "Build comprehensive tests (require rancher-desktop to run)");
+    build_integration_step.dependOn(comprehensive_step);
+
+    inline for (comprehensive_tests) |t| {
+        const mod = b.createModule(.{
+            .root_source_file = b.path(t.source),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        mod.addImport("klient", klient_module);
+
+        const exe = b.addExecutable(.{ .name = t.name, .root_module = mod });
+        comprehensive_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+    }
 
     // === API documentation (zig build docs -> zig-out/docs) ===
     const docs_step = b.step("docs", "Generate API documentation into zig-out/docs");

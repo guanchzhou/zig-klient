@@ -7,84 +7,88 @@ const helpers = @import("test_helpers.zig");
 const TEST_NAMESPACE = "zig-klient-crud-test";
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("\n{'═':<80}\n", .{});
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    std.debug.print("\n════════════════════════════════════════════════════════════════════════════\n", .{});
     std.debug.print("  Comprehensive CRUD Test: All 15 Resources\n", .{});
-    std.debug.print("{'═':<80}\n\n", .{});
+    std.debug.print("════════════════════════════════════════════════════════════════════════════\n\n", .{});
 
     // Verify context
-    try helpers.verifyContext(allocator);
+    try helpers.verifyContext(allocator, io);
 
     // Initialize client
-    const client = try helpers.initTestClient(allocator);
+    const client = try helpers.initTestClient(allocator, io);
     defer helpers.deinitTestClient(client, allocator);
 
     // Create test namespace
     try helpers.createTestNamespace(client, TEST_NAMESPACE);
-    defer helpers.deleteTestNamespace(client, TEST_NAMESPACE) catch {};
+    defer helpers.deleteTestNamespace(client, TEST_NAMESPACE, io) catch {};
 
     var summary = helpers.TestSummary{};
 
     // Test each resource type
-    testPod(allocator, client, &summary) catch |err| {
+    testPod(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Pod test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testDeployment(allocator, client, &summary) catch |err| {
+    testDeployment(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Deployment test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testService(allocator, client, &summary) catch |err| {
+    testService(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Service test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testConfigMap(allocator, client, &summary) catch |err| {
+    testConfigMap(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ ConfigMap test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testSecret(allocator, client, &summary) catch |err| {
+    testSecret(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Secret test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testReplicaSet(allocator, client, &summary) catch |err| {
+    testReplicaSet(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ ReplicaSet test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testStatefulSet(allocator, client, &summary) catch |err| {
+    testStatefulSet(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ StatefulSet test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testDaemonSet(allocator, client, &summary) catch |err| {
+    testDaemonSet(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ DaemonSet test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testJob(allocator, client, &summary) catch |err| {
+    testJob(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Job test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testCronJob(allocator, client, &summary) catch |err| {
+    testCronJob(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ CronJob test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testPersistentVolumeClaim(allocator, client, &summary) catch |err| {
+    testPersistentVolumeClaim(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ PersistentVolumeClaim test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
 
-    testIngress(allocator, client, &summary) catch |err| {
+    testIngress(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Ingress test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
@@ -95,7 +99,7 @@ pub fn main() !void {
         summary.recordFail();
     };
 
-    testNamespaceCRUD(allocator, client, &summary) catch |err| {
+    testNamespaceCRUD(allocator, client, io, &summary) catch |err| {
         std.debug.print("❌ Namespace CRUD test failed: {s}\n", .{@errorName(err)});
         summary.recordFail();
     };
@@ -112,6 +116,7 @@ pub fn main() !void {
 fn testCRUD(
     allocator: std.mem.Allocator,
     client: *klient.K8sClient,
+    io: std.Io,
     resource_type: []const u8,
     create_manifest: []const u8,
     update_manifest: []const u8,
@@ -127,7 +132,7 @@ fn testCRUD(
     std.debug.print("  ✅ Created\n", .{});
 
     // Wait a bit for resource to be created
-    std.time.sleep(1 * std.time.ns_per_s);
+    try io.sleep(.fromSeconds(1), .real);
 
     // GET
     std.debug.print("  2. Getting {s}...\n", .{resource_type});
@@ -168,7 +173,7 @@ fn testCRUD(
     std.debug.print("✅ {s} CRUD test passed\n", .{resource_type});
 }
 
-fn testPod(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testPod(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-pod";
     const create_manifest = try helpers.createTestPodManifest(allocator, name, TEST_NAMESPACE, null);
     defer allocator.free(create_manifest);
@@ -184,11 +189,11 @@ fn testPod(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *he
     const api_path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/pods", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "Pod", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "Pod", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testDeployment(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testDeployment(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-deployment";
     const create_manifest = try helpers.createTestDeploymentManifest(allocator, name, TEST_NAMESPACE, 1);
     defer allocator.free(create_manifest);
@@ -199,11 +204,11 @@ fn testDeployment(allocator: std.mem.Allocator, client: *klient.K8sClient, summa
     const api_path = try std.fmt.allocPrint(allocator, "/apis/apps/v1/namespaces/{s}/deployments", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "Deployment", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "Deployment", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testService(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testService(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-service";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -240,11 +245,11 @@ fn testService(allocator: std.mem.Allocator, client: *klient.K8sClient, summary:
     const api_path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/services", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "Service", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "Service", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testConfigMap(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testConfigMap(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-configmap";
     const create_manifest = try helpers.createTestConfigMapManifest(allocator, name, TEST_NAMESPACE);
     defer allocator.free(create_manifest);
@@ -268,11 +273,11 @@ fn testConfigMap(allocator: std.mem.Allocator, client: *klient.K8sClient, summar
     const api_path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/configmaps", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "ConfigMap", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "ConfigMap", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testSecret(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testSecret(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-secret";
 
     // Base64 encode values
@@ -313,11 +318,11 @@ fn testSecret(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: 
     const api_path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/secrets", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "Secret", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "Secret", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testReplicaSet(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testReplicaSet(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-replicaset";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -372,11 +377,11 @@ fn testReplicaSet(allocator: std.mem.Allocator, client: *klient.K8sClient, summa
     const api_path = try std.fmt.allocPrint(allocator, "/apis/apps/v1/namespaces/{s}/replicasets", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "ReplicaSet", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "ReplicaSet", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testStatefulSet(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testStatefulSet(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-statefulset";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -433,11 +438,11 @@ fn testStatefulSet(allocator: std.mem.Allocator, client: *klient.K8sClient, summ
     const api_path = try std.fmt.allocPrint(allocator, "/apis/apps/v1/namespaces/{s}/statefulsets", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "StatefulSet", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "StatefulSet", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testDaemonSet(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testDaemonSet(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-daemonset";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -491,11 +496,11 @@ fn testDaemonSet(allocator: std.mem.Allocator, client: *klient.K8sClient, summar
     const api_path = try std.fmt.allocPrint(allocator, "/apis/apps/v1/namespaces/{s}/daemonsets", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "DaemonSet", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "DaemonSet", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testJob(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testJob(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-job";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -549,11 +554,11 @@ fn testJob(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *he
     const api_path = try std.fmt.allocPrint(allocator, "/apis/batch/v1/namespaces/{s}/jobs", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "Job", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "Job", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testCronJob(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testCronJob(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-cronjob";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -616,11 +621,11 @@ fn testCronJob(allocator: std.mem.Allocator, client: *klient.K8sClient, summary:
     const api_path = try std.fmt.allocPrint(allocator, "/apis/batch/v1/namespaces/{s}/cronjobs", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "CronJob", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "CronJob", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testPersistentVolumeClaim(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testPersistentVolumeClaim(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-pvc";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -662,11 +667,11 @@ fn testPersistentVolumeClaim(allocator: std.mem.Allocator, client: *klient.K8sCl
     const api_path = try std.fmt.allocPrint(allocator, "/api/v1/namespaces/{s}/persistentvolumeclaims", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "PersistentVolumeClaim", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "PersistentVolumeClaim", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
-fn testIngress(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testIngress(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-ingress";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -730,7 +735,7 @@ fn testIngress(allocator: std.mem.Allocator, client: *klient.K8sClient, summary:
     const api_path = try std.fmt.allocPrint(allocator, "/apis/networking.k8s.io/v1/namespaces/{s}/ingresses", .{TEST_NAMESPACE});
     defer allocator.free(api_path);
 
-    try testCRUD(allocator, client, "Ingress", create_manifest, update_manifest, api_path, name);
+    try testCRUD(allocator, client, io, "Ingress", create_manifest, update_manifest, api_path, name);
     summary.recordPass();
 }
 
@@ -769,7 +774,7 @@ fn testNodeRead(allocator: std.mem.Allocator, client: *klient.K8sClient, summary
     summary.recordPass();
 }
 
-fn testNamespaceCRUD(allocator: std.mem.Allocator, client: *klient.K8sClient, summary: *helpers.TestSummary) !void {
+fn testNamespaceCRUD(allocator: std.mem.Allocator, client: *klient.K8sClient, io: std.Io, summary: *helpers.TestSummary) !void {
     const name = "test-namespace-crud";
     const create_manifest = try std.fmt.allocPrint(allocator,
         \\{{
@@ -794,6 +799,6 @@ fn testNamespaceCRUD(allocator: std.mem.Allocator, client: *klient.K8sClient, su
     , .{name});
     defer allocator.free(update_manifest);
 
-    try testCRUD(allocator, client, "Namespace", create_manifest, update_manifest, "/api/v1/namespaces", name);
+    try testCRUD(allocator, client, io, "Namespace", create_manifest, update_manifest, "/api/v1/namespaces", name);
     summary.recordPass();
 }
