@@ -7,7 +7,7 @@ A Kubernetes client library for **Zig** — 65 resource types across 20 API grou
 | **Build**    | Zig 0.16.0                                                                             |
 | **Coverage** | 65 resource types / 20 API groups, current through K8s 1.36                            |
 | **Tested**   | Live CRUD verified on Rancher Desktop **K8s 1.36.1** (incl. `MutatingAdmissionPolicy`); every type unit-tested |
-| **Deps**     | [zig-yaml](https://github.com/guanchzhou/zig-yaml), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) |
+| **Deps**     | [yaml-zig](https://github.com/sakakibara/yaml-zig), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) |
 | **License**  | MIT                                                                                    |
 
 **Contents:** [Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Resource Operations](#resource-operations) · [Testing](#testing) · [Architecture](#architecture) · [Requirements](#requirements) · [Roadmap](#roadmap)
@@ -147,7 +147,7 @@ StorageVersionMigration
   migration probe force-compiles the whole public API surface
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
-- Two dependencies: zig-yaml (YAML parsing) and zig-protobuf (Protocol Buffers)
+- Two dependencies: yaml-zig (YAML parsing) and zig-protobuf (Protocol Buffers)
 - Live CRUD verified against Kubernetes 1.36.1 (Rancher Desktop)
 
 ## Installation

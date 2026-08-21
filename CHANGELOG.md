@@ -5,6 +5,40 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Kubeconfig YAML parsing switched from `guanchzhou/zig-yaml` to
+  [`sakakibara/yaml-zig`](https://github.com/sakakibara/yaml-zig), and the
+  hand-written tree walkers replaced with comptime typed decoding** (net -244
+  lines). Upstream `kubkon/zig-yaml` has been unmaintained since 2026-01, so the
+  fork inherited its bugs permanently and every future Zig migration by hand.
+  The replacement is 0.16-native, actively developed, and additionally supports
+  anchors, aliases and merge keys, which the fork rejects outright.
+
+  The public API is unchanged — `Cluster`/`Context`/`User`/`Kubeconfig`, the
+  lookup accessors, and `deinit(allocator)` all keep their signatures.
+
+  `Kubeconfig` now owns a heap-allocated arena and frees its whole graph at
+  once, replacing ~90 lines of per-field frees and errdefer unwinding. `deinit`
+  still accepts an allocator for compatibility but ignores it in favour of the
+  arena's own `child_allocator`, so a mismatched allocator can no longer
+  corrupt the free.
+
+### Fixed
+- **`insecure-skip-tls-verify` is no longer silently dropped.** The old
+  `parseCluster` accepted only a `.boolean` YAML value, but zig-yaml built
+  `.boolean` solely on its stringify path and never when parsing, so `true`
+  arrived as the scalar `"true"` and was discarded. Still masked downstream by
+  the `insecure_skip_verify` guard in `client.zig`, which reports it as
+  unsupported because `std.http.Client` does not expose TLS internals.
+
+### Notes
+- `zig build test-fuzz --fuzz` does not compile on Zig 0.16.0 due to a bug in
+  the toolchain's own `compiler/test_runner.zig` (`*builtin.StackTrace` vs
+  `*const debug.StackTrace`), unrelated to this change and reproducible on an
+  unmodified tree. The single-shot fuzz run under `zig build test` still works.
+
 ## [0.4.0] - 2026-08-10
 
 ### Fixed

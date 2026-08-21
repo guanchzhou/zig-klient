@@ -1,5 +1,8 @@
 // Fuzz target for the kubeconfig YAML parser — the main untrusted-input surface
-// (our parser + zig-yaml). Run a fuzzing campaign with:  zig build test-fuzz --fuzz
+// (our wire structs + yaml-zig). Run a fuzzing campaign with:  zig build test-fuzz --fuzz
+// NOTE: --fuzz mode does not compile on Zig 0.16.0 (its own compiler/test_runner.zig
+// mismatches *builtin.StackTrace vs *const debug.StackTrace); the single-shot run
+// under `zig build test` still works.
 // Under a plain `zig build test` it executes once (regression + leak check via the
 // testing allocator).
 const std = @import("std");

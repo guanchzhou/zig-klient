@@ -87,7 +87,7 @@ zig build-exe crud_all_resources_test.zig \
     --dep klient \
     -Mklient=../../src/klient.zig \
     --dep yaml \
-    -Myaml=../../zig-yaml/src/yaml.zig
+    -Myaml=../../zig-pkg/yaml-*/src/yaml.zig  # fetched by `zig build`; path includes a content hash
 
 ./crud_all_resources_test
 ```
@@ -117,7 +117,7 @@ zig build-exe performance_10k_test.zig \
     --dep klient \
     -Mklient=../../src/klient.zig \
     --dep yaml \
-    -Myaml=../../zig-yaml/src/yaml.zig
+    -Myaml=../../zig-pkg/yaml-*/src/yaml.zig  # fetched by `zig build`; path includes a content hash
 
 ./performance_10k_test
 ```
@@ -183,7 +183,7 @@ All tests primarily use JSON for resource definitions:
 ```
 
 ### YAML Format (via kubeconfig)
-Kubeconfig files are parsed as YAML using `zig-yaml`:
+Kubeconfig files are parsed as YAML using [`yaml-zig`](https://github.com/sakakibara/yaml-zig):
 ```yaml
 apiVersion: v1
 kind: Config
