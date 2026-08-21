@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Add zig-yaml dependency
+    // YAML parsing for kubeconfig (sakakibara/yaml-zig)
     const yaml = b.dependency("yaml", .{
         .target = target,
         .optimize = optimize,

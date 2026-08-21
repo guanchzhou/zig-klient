@@ -11,7 +11,7 @@ zig build build-integration-tests   # compile the live integration entrypoints
 zig fmt --check src/ tests/ build.zig build.zig.zon   # formatting gate (CI enforces this)
 ```
 
-Dependencies (zig-yaml, zig-protobuf) are git-pinned in `build.zig.zon` and fetched
+Dependencies (yaml-zig, zig-protobuf) are git-pinned in `build.zig.zon` and fetched
 automatically — no sibling checkout needed.
 
 ### Integration tests

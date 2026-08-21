@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
 
-# Dependencies (zig-yaml, zig-protobuf) are git-pinned in build.zig.zon and fetched
+# Dependencies (yaml-zig, zig-protobuf) are git-pinned in build.zig.zon and fetched
 # by `zig build`, so no sibling checkout is needed.
 jobs:
   lint:

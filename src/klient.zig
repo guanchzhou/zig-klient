@@ -27,7 +27,8 @@
 const std = @import("std");
 
 /// Configure standard library options
-/// Set log level to .err to suppress debug output from zig-yaml dependency
+/// Keep library log output quiet by default; callers that want klient's logs
+/// can override std_options in their own root module.
 pub const std_options = .{
     .log_level = .err,
 };
