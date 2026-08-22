@@ -112,6 +112,14 @@ pub fn metaFor(comptime T: type) ResourceMeta {
         .{ types.HTTPRoute, "/apis/gateway.networking.k8s.io/v1", "httproutes", Scope.namespaced },
         .{ types.GRPCRoute, "/apis/gateway.networking.k8s.io/v1", "grpcroutes", Scope.namespaced },
         .{ types.ReferenceGrant, "/apis/gateway.networking.k8s.io/v1beta1", "referencegrants", Scope.namespaced },
+        // ReferenceGrant stays on v1beta1 deliberately: Gateway API v1.6.1 serves both
+        // v1 and v1beta1, and v1beta1 is still the STORAGE version. Bumping would be
+        // churn, not a fix.
+        .{ types.TCPRoute, "/apis/gateway.networking.k8s.io/v1", "tcproutes", Scope.namespaced },
+        .{ types.TLSRoute, "/apis/gateway.networking.k8s.io/v1", "tlsroutes", Scope.namespaced },
+        .{ types.UDPRoute, "/apis/gateway.networking.k8s.io/v1", "udproutes", Scope.namespaced },
+        .{ types.BackendTLSPolicy, "/apis/gateway.networking.k8s.io/v1", "backendtlspolicies", Scope.namespaced },
+        .{ types.ListenerSet, "/apis/gateway.networking.k8s.io/v1", "listenersets", Scope.namespaced },
 
         // Dynamic Resource Allocation
         .{ types.ResourceClaim, "/apis/resource.k8s.io/v1", "resourceclaims", Scope.namespaced },
