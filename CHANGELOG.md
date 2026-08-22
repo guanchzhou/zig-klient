@@ -5,6 +5,54 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-22
+
+### Added
+- **Core API discovery** (`src/k8s/discovery.zig`). Wraps the two core `meta/v1`
+  endpoints — `GET /apis` and `GET /apis/{group}/{version}` — behind `hasGroup`,
+  `preferredVersion` and `findResource(group, kind)`, the last returning a ready-to-use
+  `CRDInfo` carrying the version, plural and scope the server actually reports.
+
+  This is the general answer to "support an API if the cluster has it, ignore it
+  otherwise", and it needs no third-party types. Hardcoding group + version + plural
+  gives three chances to be wrong and the resulting 404 is usually swallowed, so the
+  feature silently never activates — which is exactly what had happened downstream with
+  Cedar (`cedar.k8s.io/v1alpha1/cedarpolicies` against a real API of
+  `cedar.k8s.aws/<served>/policies`).
+
+  Establishes the boundary: APIs that are GA and near-universal stay typed in the
+  resource registry, where they are cheaper; optional and vendor-specific ones are
+  discovered at runtime.
+
+- **Gateway API standard channel completed** — all 10 kinds of Gateway API v1.6.1.
+  Adds `TCPRoute`, `TLSRoute`, `UDPRoute`, `BackendTLSPolicy` and `ListenerSet`, all at
+  `v1` and namespaced. Versions, plurals, scopes and spec fields were read from each
+  upstream CRD's `openAPIV3Schema` rather than inferred from `HTTPRoute`. Half-covering
+  a GA API is worse than either extreme: callers cannot tell what is supported without
+  reading the table.
+
+  `ReferenceGrant` deliberately remains on `v1beta1`. v1.6.1 serves it at both `v1` and
+  `v1beta1`, and `v1beta1` is still `storage: true` — bumping a correct pin would be
+  churn. There is a comment in the registry and a test that names the condition for
+  revisiting.
+
+### Fixed
+- The resource registry now asserts its own contents. The existing tests constructed a
+  `ResourceClient` from hand-written literals and then asserted those same literals, so
+  they passed regardless of what the table held and a wrong group or plural shipped
+  silently. The new assertions read the real entry via `initFromRegistry` — safe with an
+  `undefined` client, since every field comes from `comptime metaFor(T)` and the pointer
+  is never dereferenced. Verified by mutation: breaking one plural in the table fails
+  the suite, restoring it passes.
+
+### Notes
+- Both additions are additive; no existing API changed.
+- On Zig 0.17-dev the build still fails with two errors, both in dependency `build.zig`
+  files and none in this project's source (`zig-protobuf` uses the removed
+  `Build.Step.StepOptions.id`; `yaml-zig` uses the removed `b.pathFromRoot`). Because
+  those are build-script failures, this project's own source is never compiled on 0.17 —
+  so its 0.17 compatibility remains unknown rather than confirmed.
+
 ## [0.5.0] - 2026-08-21
 
 ### Changed
