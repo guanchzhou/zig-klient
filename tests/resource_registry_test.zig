@@ -133,6 +133,18 @@ test "registry: ReferenceGrant stays on v1beta1, which is still the storage vers
     );
 }
 
+test "registry: DRA kinds stay on resource.k8s.io/v1" {
+    // GA since 1.34. kubernetes#137924 stops serving v1beta1 in 1.41 (unsupported
+    // in 1.38). Master still registers v1beta1Storage as of 2026-08-30; our pin
+    // is already v1, so that removal is a no-op.
+    const dra = "/apis/resource.k8s.io/v1";
+    try expectMeta(klient.ResourceClaim, dra, "resourceclaims", false);
+    try expectMeta(klient.ResourceClaimTemplate, dra, "resourceclaimtemplates", false);
+    try expectMeta(klient.ResourceSlice, dra, "resourceslices", true);
+    try expectMeta(klient.DeviceClass, dra, "deviceclasses", true);
+    try expectMeta(klient.DeviceTaintRule, dra, "devicetaintrules", true);
+}
+
 test "registry: StorageVersionMigration is on v1 after the 1.37 GA bump" {
     try expectMeta(
         klient.StorageVersionMigration,

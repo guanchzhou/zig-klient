@@ -310,7 +310,8 @@ pub const buildExecPath = websocket.buildExecPath;
 pub const buildAttachPath = websocket.buildAttachPath;
 pub const buildPortForwardPath = websocket.buildPortForwardPath;
 
-// Metrics Server API (metrics.k8s.io/v1beta1) - CPU/memory resource metrics
+// Metrics Server API. Default pin is metrics.k8s.io/v1beta1; initFromDiscovery
+// selects v1 only when THIS cluster's /apis prefers it.
 pub const metrics = @import("k8s/metrics.zig");
 pub const MetricsClient = metrics.MetricsClient;
 pub const PodMetrics = metrics.PodMetrics;

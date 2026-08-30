@@ -22,6 +22,25 @@ test "registry: 1.37 GA kinds and StorageVersionMigration v1" {
     try expectMeta(klient.StorageVersionMigration, "/apis/storagemigration.k8s.io/v1", "storageversionmigrations", true);
 }
 
+test "registry: 1.37 alpha/beta kinds stay untyped" {
+    // Standing rule (CHANGELOG 0.6.0): only GA near-universal APIs in the registry.
+    // Re-checked against kubernetes v1.37.0 staging API 2026-08-30:
+    //   lifecycle.k8s.io/v1alpha1 Eviction + EvictionRequest (EvictionRequestAPI, default off)
+    //   scheduling.k8s.io/v1beta1 Workload + PodGroup (GenericWorkload)
+    //   scheduling.k8s.io/v1alpha3 CompositePodGroup
+    // Reach them with Discovery + DynamicClient if a cluster has the feature gates on.
+    try std.testing.expect(!@hasDecl(klient, "Eviction"));
+    try std.testing.expect(!@hasDecl(klient, "EvictionRequest"));
+    try std.testing.expect(!@hasDecl(klient, "Workload"));
+    try std.testing.expect(!@hasDecl(klient, "PodGroup"));
+    try std.testing.expect(!@hasDecl(klient, "CompositePodGroup"));
+    try std.testing.expect(!@hasDecl(klient.types, "Eviction"));
+    try std.testing.expect(!@hasDecl(klient.types, "EvictionRequest"));
+    try std.testing.expect(!@hasDecl(klient.types, "Workload"));
+    try std.testing.expect(!@hasDecl(klient.types, "PodGroup"));
+    try std.testing.expect(!@hasDecl(klient.types, "CompositePodGroup"));
+}
+
 test "DeviceTaintRule - create structure (K8s 1.37 GA)" {
     const rule = klient.DeviceTaintRule{
         .apiVersion = "resource.k8s.io/v1",

@@ -97,7 +97,9 @@ test "probe: JSON serialization paths compile on 0.16" {
 // Remaining public method bodies not exercised by other tests — force them so any
 // further masked 0.16 breakage fails the build here.
 test "probe: remaining module method bodies compile on 0.16" {
+    _ = &klient.metrics.MetricsClient.initFromDiscovery;
     _ = &klient.metrics.MetricsClient.getNodeMetrics;
+    _ = &klient.metrics.MetricsClient.getNodeMetricsByName;
     _ = &klient.metrics.MetricsClient.getAllPodMetrics;
     _ = &klient.metrics.MetricsClient.getPodMetrics;
     _ = &klient.metrics.MetricsClient.getPodMetricsByName;

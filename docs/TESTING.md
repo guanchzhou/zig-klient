@@ -29,6 +29,7 @@ zig build build-integration-tests                 # compile them all (also run i
 zig build test-via-proxy                           # pods / namespaces / nodes + pod CRUD
 zig build test-pod-exec                            # pod exec over WebSocket (needs a running pod)
 zig build test-mutating-admission-policy           # K8s >= 1.36 MutatingAdmissionPolicy CRUD
+zig build test-k8s-137-crud                       # K8s >= 1.37 DeviceTaintRule / ClusterTrustBundle / StorageVersionMigration v1
 ```
 
 For `test-pod-exec`, create a target pod first:
@@ -46,7 +47,9 @@ directory's README.
 ## Prerequisites
 
 - A running cluster (Rancher Desktop, kind, minikube). Live CRUD verified against
-  Kubernetes 1.36.1; 1.37 kinds are unit-tested (`zig build test-k8s-137`).
+  Kubernetes 1.37.0 (`zig build test-k8s-137-crud`) and 1.36.1
+  (`test-mutating-admission-policy`). `PodCertificateRequest` remains schema-only
+  (`zig build test-k8s-137`).
 - `kubectl proxy` for the integration entrypoints (see above).
 
 ## Notes
