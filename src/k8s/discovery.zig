@@ -119,19 +119,8 @@ pub const Discovery = struct {
     pub fn preferredVersion(self: Discovery, group: []const u8) !?[]const u8 {
         const parsed = try self.groups();
         defer parsed.deinit();
-
-        for (parsed.value.groups) |g| {
-            if (!std.mem.eql(u8, g.name, group)) continue;
-
-            if (g.preferredVersion) |pv| {
-                if (pv.version.len > 0) return try self.client.allocator.dupe(u8, pv.version);
-            }
-            if (g.versions.len > 0 and g.versions[0].version.len > 0) {
-                return try self.client.allocator.dupe(u8, g.versions[0].version);
-            }
-            return null;
-        }
-        return null;
+        const ver = preferredVersionIn(parsed.value, group) orelse return null;
+        return try self.client.allocator.dupe(u8, ver);
     }
 
     /// Resolve a kind to a ready-to-use CRDInfo by asking the server for the group's
@@ -174,3 +163,19 @@ pub const Discovery = struct {
         a.free(info.plural);
     }
 };
+
+/// Preferred version string for `group` inside an already-fetched `/apis` body.
+/// Lives outside `Discovery` so metrics (and tests) can pick a pin without HTTP.
+pub fn preferredVersionIn(list: APIGroupList, group: []const u8) ?[]const u8 {
+    for (list.groups) |g| {
+        if (!std.mem.eql(u8, g.name, group)) continue;
+        if (g.preferredVersion) |pv| {
+            if (pv.version.len > 0) return pv.version;
+        }
+        if (g.versions.len > 0 and g.versions[0].version.len > 0) {
+            return g.versions[0].version;
+        }
+        return null;
+    }
+    return null;
+}

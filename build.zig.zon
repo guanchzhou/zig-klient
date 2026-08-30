@@ -10,6 +10,8 @@
         "tests",
     },
     .dependencies = .{
+        // Do not bump for 0.17-dev: yaml-zig uses removed pathFromRoot / `**`;
+        // zig-protobuf zig-master (50f1b1c) is 0.17-only and would break 0.16.
         .yaml = .{
             .url = "git+https://github.com/sakakibara/yaml-zig#c558aadcf5a5d9ee40cb625c7f071884e273c665",
             .hash = "yaml-0.4.0-MIhruGUzDAAV_TOxwnFg8M23MZWJ8c064EZyHYGS08fk",

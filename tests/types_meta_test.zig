@@ -216,6 +216,13 @@ test "metrics: parseMemoryBytes edge cases" {
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("abc"));
 }
 
+test "metrics: default pin is v1beta1 until discovery prefers v1" {
+    try std.testing.expectEqualStrings("metrics.k8s.io/v1beta1", klient.metrics.default_group_version);
+    try std.testing.expectEqualStrings("metrics.k8s.io/v1", klient.metrics.stable_group_version);
+    const client = klient.MetricsClient{ .client = undefined };
+    try std.testing.expectEqualStrings(klient.metrics.default_group_version, client.group_version);
+}
+
 // =============================================================================
 // Retry logic edge cases
 // =============================================================================

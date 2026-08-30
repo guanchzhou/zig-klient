@@ -99,9 +99,11 @@ pub const K8sClient = struct {
     ///
     /// The usual cause is not a bad CA: Zig 0.16's TLS client has no handling for the
     /// `certificate_request` handshake message (it appears nowhere in
-    /// `std/crypto/tls/Client.zig`), and a Kubernetes API server sends one whenever it
-    /// is started with `--client-ca-file` — the default for every distribution. The
-    /// handshake then aborts with `TlsUnexpectedMessage`, which surfaces here masked.
+    /// `std/crypto/tls/Client.zig`; ziglang/zig#19521). Re-checked on
+    /// 0.17.0-dev.1936+5a625d5f3 — still absent. A Kubernetes API server sends one
+    /// whenever it is started with `--client-ca-file` — the default for every
+    /// distribution. The handshake then aborts with `TlsUnexpectedMessage`, which
+    /// surfaces here masked.
     fn tlsUnsupportedHint(self: *K8sClient, path: []const u8) void {
         if (!std.mem.startsWith(u8, self.api_server, "https://")) return;
         log.err(

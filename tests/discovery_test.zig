@@ -144,3 +144,120 @@ test "discovery: an empty resource list is not an error" {
     defer parsed.deinit();
     try std.testing.expectEqual(@as(usize, 0), parsed.value.resources.len);
 }
+
+test "discovery: preferredVersionIn falls back to versions[0] and finds 1.37 optional groups" {
+    // Shaped like a 1.37 apiserver with the alpha/beta groups enabled. These kinds
+    // are not in the typed registry; Discovery is how a caller reaches them.
+    const parsed = try std.json.parseFromSlice(
+        discovery.APIGroupList,
+        std.testing.allocator,
+        \\{
+        \\  "groups": [
+        \\    {
+        \\      "name": "lifecycle.k8s.io",
+        \\      "preferredVersion": {"groupVersion": "lifecycle.k8s.io/v1alpha1", "version": "v1alpha1"},
+        \\      "versions": [{"groupVersion": "lifecycle.k8s.io/v1alpha1", "version": "v1alpha1"}]
+        \\    },
+        \\    {
+        \\      "name": "scheduling.k8s.io",
+        \\      "preferredVersion": {"groupVersion": "scheduling.k8s.io/v1", "version": "v1"},
+        \\      "versions": [
+        \\        {"groupVersion": "scheduling.k8s.io/v1", "version": "v1"},
+        \\        {"groupVersion": "scheduling.k8s.io/v1beta1", "version": "v1beta1"},
+        \\        {"groupVersion": "scheduling.k8s.io/v1alpha3", "version": "v1alpha3"}
+        \\      ]
+        \\    },
+        \\    {
+        \\      "name": "metrics.k8s.io",
+        \\      "versions": [{"groupVersion": "metrics.k8s.io/v1beta1", "version": "v1beta1"}]
+        \\    }
+        \\  ]
+        \\}
+    ,
+        .{ .ignore_unknown_fields = true },
+    );
+    defer parsed.deinit();
+
+    try std.testing.expectEqualStrings("v1alpha1", discovery.preferredVersionIn(parsed.value, "lifecycle.k8s.io").?);
+    try std.testing.expectEqualStrings("v1", discovery.preferredVersionIn(parsed.value, "scheduling.k8s.io").?);
+    try std.testing.expectEqualStrings("v1beta1", discovery.preferredVersionIn(parsed.value, "metrics.k8s.io").?);
+    try std.testing.expect(discovery.preferredVersionIn(parsed.value, "does.not.exist") == null);
+}
+
+test "discovery: lifecycle Eviction is a collection, distinct from the pods/eviction subresource" {
+    // Trimmed from kubernetes v1.37.0 staging/src/k8s.io/api/lifecycle/v1alpha1.
+    // policy/v1 Eviction is the pod subresource (`POST .../pods/{name}/eviction`);
+    // this is a different kind on a different group.
+    const parsed = try std.json.parseFromSlice(
+        discovery.APIResourceList,
+        std.testing.allocator,
+        \\{
+        \\  "groupVersion": "lifecycle.k8s.io/v1alpha1",
+        \\  "resources": [
+        \\    {"name": "evictionrequests", "singularName": "evictionrequest", "namespaced": true,
+        \\     "kind": "EvictionRequest", "verbs": ["create","delete","get","list","patch","update","watch"]},
+        \\    {"name": "evictions", "singularName": "eviction", "namespaced": true,
+        \\     "kind": "Eviction", "verbs": ["create","delete","get","list","patch","update","watch"]}
+        \\  ]
+        \\}
+    ,
+        .{ .ignore_unknown_fields = true },
+    );
+    defer parsed.deinit();
+
+    try std.testing.expectEqualStrings("EvictionRequest", parsed.value.resources[0].kind);
+    try std.testing.expectEqualStrings("evictionrequests", parsed.value.resources[0].name);
+    try std.testing.expect(parsed.value.resources[0].namespaced);
+    try std.testing.expectEqualStrings("Eviction", parsed.value.resources[1].kind);
+    try std.testing.expectEqualStrings("evictions", parsed.value.resources[1].name);
+}
+
+test "metrics groupVersionFromDiscovery stays on v1beta1 unless /apis prefers v1" {
+    const allocator = std.testing.allocator;
+
+    {
+        const parsed = try std.json.parseFromSlice(
+            discovery.APIGroupList,
+            allocator,
+            \\{"groups":[{"name":"metrics.k8s.io","versions":[{"groupVersion":"metrics.k8s.io/v1beta1","version":"v1beta1"}]}]}
+        ,
+            .{ .ignore_unknown_fields = true },
+        );
+        defer parsed.deinit();
+        try std.testing.expectEqualStrings(
+            klient.metrics.default_group_version,
+            klient.metrics.groupVersionFromDiscovery(parsed.value),
+        );
+    }
+
+    {
+        const parsed = try std.json.parseFromSlice(
+            discovery.APIGroupList,
+            allocator,
+            \\{"groups":[{"name":"metrics.k8s.io","preferredVersion":{"groupVersion":"metrics.k8s.io/v1","version":"v1"},"versions":[{"groupVersion":"metrics.k8s.io/v1","version":"v1"},{"groupVersion":"metrics.k8s.io/v1beta1","version":"v1beta1"}]}]}
+        ,
+            .{ .ignore_unknown_fields = true },
+        );
+        defer parsed.deinit();
+        try std.testing.expectEqualStrings(
+            klient.metrics.stable_group_version,
+            klient.metrics.groupVersionFromDiscovery(parsed.value),
+        );
+    }
+
+    {
+        // Both versions registered, server still prefers v1beta1 — stay on the default pin.
+        const parsed = try std.json.parseFromSlice(
+            discovery.APIGroupList,
+            allocator,
+            \\{"groups":[{"name":"metrics.k8s.io","preferredVersion":{"groupVersion":"metrics.k8s.io/v1beta1","version":"v1beta1"},"versions":[{"groupVersion":"metrics.k8s.io/v1","version":"v1"},{"groupVersion":"metrics.k8s.io/v1beta1","version":"v1beta1"}]}]}
+        ,
+            .{ .ignore_unknown_fields = true },
+        );
+        defer parsed.deinit();
+        try std.testing.expectEqualStrings(
+            klient.metrics.default_group_version,
+            klient.metrics.groupVersionFromDiscovery(parsed.value),
+        );
+    }
+}

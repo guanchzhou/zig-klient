@@ -44,6 +44,18 @@ test "TLS - unsupported options are rejected at construction, not ignored" {
     }));
 }
 
+// Direct HTTPS to an API server is blocked in std, not in this library.
+// HandshakeType knows certificate_request (RFC 8446 §4.3.2); Client.zig has no
+// arm for it (ziglang/zig#19521). Re-checked 0.16.0 and 0.17.0-dev.1936.
+// Flip this when Options grows a client-certificate field and wire HTTPS.
+test "tls: std.crypto.tls still cannot answer certificate_request" {
+    const Options = std.crypto.tls.Client.Options;
+    try std.testing.expect(!@hasField(Options, "client_cert"));
+    try std.testing.expect(!@hasField(Options, "client_certificate"));
+    const cr: std.crypto.tls.HandshakeType = .certificate_request;
+    try std.testing.expectEqual(@as(u8, 13), @intFromEnum(cr));
+}
+
 // Error detail is returned, not stored on the client. There is no shared field to go
 // stale, and the caller owns what it captures. (The old `last_api_error` field was
 // cleared only when a new Status replaced it, so a success — or a transport failure,

@@ -12,7 +12,8 @@ zig fmt --check src/ tests/ build.zig build.zig.zon   # formatting gate (CI enfo
 ```
 
 Dependencies (yaml-zig, zig-protobuf) are git-pinned in `build.zig.zon` and fetched
-automatically — no sibling checkout needed.
+automatically — no sibling checkout needed. Supported Zig is **0.16.0**; 0.17-dev
+fails in those two `build.zig` files (and on the `**` splat) — do not bump the pins.
 
 ### Integration tests
 
@@ -24,6 +25,7 @@ known `std.crypto.tls` limitation against API servers that send
 kubectl proxy --port=8080 --reject-paths='^$' &   # --reject-paths to allow exec
 zig build test-pod-exec
 zig build test-via-proxy
+zig build test-k8s-137-crud          # requires Kubernetes >= 1.37
 ```
 
 ## Expectations for PRs

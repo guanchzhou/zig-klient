@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `PodCertificateRequest` (`certificates.k8s.io/v1`, namespaced). The v1
     schema drops `PKIXPublicKey` and `ProofOfPossession` vs v1beta1; those
     fields are not modeled.
+- Live integration entrypoint `test-k8s-137-crud` — list → create → get →
+  delete of `DeviceTaintRule`, `ClusterTrustBundle`, and
+  `StorageVersionMigration` v1 through `kubectl proxy`. Verified against
+  Kubernetes **1.37.0** (kindest/node). `PodCertificateRequest` is not created
+  live: the apiserver requires a real pod/node/service-account UID plus a
+  kubelet-shaped PKCS#10 stub.
+- `MetricsClient.initFromDiscovery` / `groupVersionFromDiscovery`: use
+  `metrics.k8s.io/v1` only when this cluster's `/apis` prefers it. Default
+  `init` stays on v1beta1.
 
 ### Changed
 - `StorageVersionMigration` registry pin `storagemigration.k8s.io/v1beta1` →
@@ -24,11 +33,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tree no longer names the deleted `kubeconfig_json.zig`.
 
 ### Notes
-- `metrics.k8s.io` stays on **v1beta1**. The apiserver defines v1 in 1.37, but
-  metrics-server still registers only v1beta1; bumping would 404 on real clusters.
-- Alpha 1.37 kinds (`lifecycle.k8s.io` Eviction/EvictionRequest,
-  `scheduling.k8s.io/v1alpha3` CompositePodGroup) and beta Workload/PodGroup
-  are not typed; use `Discovery` if a cluster has them.
+- `metrics.k8s.io` default pin stays **v1beta1**. Re-checked 2026-08-30:
+  metrics-server `master` `pkg/api/install.go` still only maps `v1beta1`;
+  [issue 1786](https://github.com/kubernetes-sigs/metrics-server/issues/1786)
+  is open and [PR 1855](https://github.com/kubernetes-sigs/metrics-server/pull/1855)
+  is still a draft. The apiserver defining v1 in 1.37 does not change that —
+  metrics.k8s.io is an aggregated API. `MetricsClient.initFromDiscovery` will
+  use v1 once a cluster's `/apis` prefers it.
+- Alpha 1.37 kinds stay untyped (tripwire in `tests/k8s_137_test.zig`):
+  `lifecycle.k8s.io/v1alpha1` Eviction + EvictionRequest (`EvictionRequestAPI`,
+  default off; Pod field is `.spec.evictionResponders` on the 1.37.0 tag),
+  `scheduling.k8s.io/v1alpha3` CompositePodGroup, beta
+  `scheduling.k8s.io/v1beta1` Workload + PodGroup (`GenericWorkload`). Use
+  `Discovery` + `DynamicClient` if a cluster has the feature gates on.
+  `Pods.evict` remains the GA `policy/v1` pod subresource.
+- `StorageVersionMigration` v1 `spec.resource` is GroupResource (`group` +
+  `resource` only). Sending `version` is a strict-decoding 400.
+- Direct HTTPS to an API server is still blocked in **Zig std**, not this
+  library. `std.crypto.tls.Client` has no `certificate_request` arm
+  ([ziglang/zig#19521](https://github.com/ziglang/zig/issues/19521)) on 0.16.0
+  and on 0.17.0-dev.1936. `kubectl proxy` / `connectWithFallback()` remain the
+  working path. Tripwire: `tests/advanced_features_test.zig`.
+- Zig **0.17-dev** still cannot build this project. Reproduced on
+  `0.17.0-dev.1936+5a625d5f3`: yaml-zig `build.zig` calls removed
+  `b.pathFromRoot`; zig-protobuf `build_util.zig` sets removed
+  `StepOptions.id` (renamed to `tag`). The library sources also fail on 0.17's
+  removal of the `**` splat. zig-protobuf `zig-master` (`50f1b1c`) is a 0.17
+  port and would break 0.16; yaml-zig has no 0.17 port. Do not bump either pin.
+  This project's own source is still not compiled on 0.17.
+- `resource.k8s.io/v1beta1` removal is a **no-op**: DRA kinds are already pinned
+  to v1 (GA 1.34). kubernetes#137924 stops serving v1beta1 in **1.41**
+  (unsupported in 1.38); master still registers v1beta1Storage as of 2026-08-30.
+  Tripwire: `tests/resource_registry_test.zig`.
 
 ## [0.6.0] - 2026-08-22
 

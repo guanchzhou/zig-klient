@@ -6,15 +6,16 @@ A Kubernetes client library for **Zig** — 73 resource types across 19 API grou
 | ------------ | ------------------------------------------------------------------------------------- |
 | **Build**    | Zig 0.16.0                                                                             |
 | **Coverage** | 73 resource types / 19 API groups, current through K8s 1.37                            |
-| **Tested**   | Live CRUD verified on Rancher Desktop **K8s 1.36.1** (incl. `MutatingAdmissionPolicy`); 1.37 kinds unit-tested against upstream `v1` schemas |
+| **Tested**   | Live CRUD on **K8s 1.37.0** (`DeviceTaintRule`, `ClusterTrustBundle`, `StorageVersionMigration` v1) and on **1.36.1** (`MutatingAdmissionPolicy`), both via `kubectl proxy` |
 | **Deps**     | [yaml-zig](https://github.com/sakakibara/yaml-zig), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) |
 | **License**  | MIT                                                                                    |
 
 **Contents:** [Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Resource Operations](#resource-operations) · [Testing](#testing) · [Architecture](#architecture) · [Requirements](#requirements) · [Roadmap](#roadmap)
 
-> **Connecting & TLS — read this first.** On Zig 0.16 the direct HTTPS path does not
-> work against a normal Kubernetes API server. `std.crypto.tls.Client` has no handling
-> for the `certificate_request` handshake message, and an API server sends one whenever
+> **Connecting & TLS — read this first.** Direct HTTPS does not work against a normal
+> Kubernetes API server. `std.crypto.tls.Client` has no handling for the
+> `certificate_request` handshake message ([ziglang/zig#19521](https://github.com/ziglang/zig/issues/19521)),
+> re-checked on Zig **0.16.0** and **0.17.0-dev.1936**. An API server sends one whenever
 > it is started with `--client-ca-file` — the default for every distribution, managed or
 > not. The handshake aborts with `TlsUnexpectedMessage`, which `std.http.Client` reports
 > as `error.TlsInitializationFailed`. This is not caused by self-signed certificates and
@@ -134,7 +135,11 @@ StorageVersionMigration
 - **Image Update**: Set container image on deployments (`setImage`)
 - **Pod Eviction**: Graceful eviction via Eviction API
 - **Node Cordon/Uncordon**: Mark nodes as schedulable/unschedulable
-- **Metrics Server API**: CPU/memory metrics for pods and nodes (`metrics.k8s.io/v1beta1`). The apiserver defines `v1` in 1.37, but metrics-server still registers only `v1beta1`, so the client stays on `v1beta1`.
+- **Metrics Server API**: CPU/memory metrics for pods and nodes. Default pin is
+  `metrics.k8s.io/v1beta1`. Kubernetes 1.37 defines `v1`, but metrics-server still
+  registers only v1beta1 (`kubernetes-sigs/metrics-server#1786`, PR #1855 still a
+  draft as of 2026-08-30). `MetricsClient.initFromDiscovery` uses v1 only when this
+  cluster's `/apis` prefers it.
 - **RBAC CanI**: SelfSubjectAccessReview permission checks
 
 ### Advanced Features
@@ -159,7 +164,7 @@ StorageVersionMigration
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
 - Two dependencies: yaml-zig (YAML parsing) and zig-protobuf (Protocol Buffers)
-- Live CRUD verified against Kubernetes 1.36.1 (Rancher Desktop); 1.37 kinds covered by schema unit tests
+- Live CRUD verified against Kubernetes 1.37.0 (kindest/node) and 1.36.1 (Rancher Desktop) via `kubectl proxy`
 
 ## Installation
 
@@ -735,14 +740,17 @@ cannot complete a handshake with an API server that requests client certificates
 
 ```bash
 kubectl proxy --port=8080 &           # expose the API without TLS
-zig build test-mutating-admission-policy   # K8s 1.36 MutatingAdmissionPolicy CRUD round-trip
+zig build test-k8s-137-crud                # K8s 1.37 DeviceTaintRule / ClusterTrustBundle / StorageVersionMigration v1
+zig build test-mutating-admission-policy    # K8s 1.36 MutatingAdmissionPolicy CRUD round-trip
 zig build test-via-proxy                   # pods/namespaces/nodes + pod CRUD
 ```
 
-The `test-mutating-admission-policy` entrypoint was verified against Rancher
-Desktop running **Kubernetes 1.36.1** — list → create → get → delete all succeed.
-1.37 kinds (`DeviceTaintRule`, `ClusterTrustBundle`, `PodCertificateRequest`,
-`StorageVersionMigration` v1) are covered by `zig build test-k8s-137`.
+`test-k8s-137-crud` was verified against **Kubernetes 1.37.0** (kindest/node) —
+list → create → get → delete all succeed for `DeviceTaintRule`,
+`ClusterTrustBundle`, and `StorageVersionMigration` v1. `PodCertificateRequest`
+stays on `zig build test-k8s-137` (schema only): creating one needs a real
+pod/node/service-account UID and a kubelet-shaped PKCS#10 stub.
+`test-mutating-admission-policy` was verified against Rancher Desktop **1.36.1**.
 See [docs/TESTING.md](docs/TESTING.md) for the full guide.
 
 ## Documentation
@@ -778,7 +786,7 @@ zig-klient/
 
 ## Feature Parity Status
 
-**Tested against**: Rancher Desktop (Kubernetes 1.36.1); 1.37 kinds against upstream `v1` schemas
+**Tested against**: Kubernetes 1.37.0 (kindest/node, live CRUD of 1.37 GA kinds) and Rancher Desktop (Kubernetes 1.36.1)
 
 | Feature | Kubernetes 1.37 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
@@ -802,13 +810,13 @@ zig-klient/
 | Mutating Admission Policy | Yes (GA 1.36) | Yes | Yes |
 | ClusterTrustBundle / PodCertificateRequest | Yes (GA 1.37) | Yes | Yes |
 | StorageVersionMigration | v1 | v1 | Yes |
-| Metrics API | v1 defined; metrics-server serves v1beta1 | v1beta1 | Correct pin — do not bump |
+| Metrics API | v1 defined; metrics-server still v1beta1 | v1beta1 default; `initFromDiscovery` if the cluster prefers v1 | Do not hardcode v1 |
 
-**Coverage**: 73 Kubernetes resource types across 19 API groups, current through K8s 1.37. Alpha kinds (`lifecycle.k8s.io` Eviction/EvictionRequest, `scheduling.k8s.io/v1alpha3` CompositePodGroup) and beta Workload/PodGroup are omitted; optional APIs can be reached through `Discovery`.
+**Coverage**: 73 Kubernetes resource types across 19 API groups, current through K8s 1.37. Alpha kinds (`lifecycle.k8s.io/v1alpha1` Eviction/EvictionRequest, `scheduling.k8s.io/v1alpha3` CompositePodGroup) and beta Workload/PodGroup (`scheduling.k8s.io/v1beta1`) are omitted; optional APIs can be reached through `Discovery` + `DynamicClient`.
 
 ## Requirements
 
-- Zig 0.16.0 or newer
+- Zig **0.16.0** (0.17-dev is blocked on yaml-zig / zig-protobuf; see CHANGELOG)
 - kubectl (optional; only for `kubectl proxy` / integration tests)
 - Cloud CLI tools (optional, for exec credential plugins):
   - `aws` CLI for EKS

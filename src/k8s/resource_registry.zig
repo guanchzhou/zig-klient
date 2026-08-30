@@ -123,7 +123,9 @@ pub fn metaFor(comptime T: type) ResourceMeta {
         .{ types.BackendTLSPolicy, "/apis/gateway.networking.k8s.io/v1", "backendtlspolicies", Scope.namespaced },
         .{ types.ListenerSet, "/apis/gateway.networking.k8s.io/v1", "listenersets", Scope.namespaced },
 
-        // Dynamic Resource Allocation
+        // Dynamic Resource Allocation — already on v1 (GA 1.34). resource.k8s.io/v1beta1
+        // is deprecated; kubernetes#137924 stops serving it in **1.41** (unsupported in
+        // 1.38). Either event is a no-op for this table.
         .{ types.ResourceClaim, "/apis/resource.k8s.io/v1", "resourceclaims", Scope.namespaced },
         .{ types.ResourceClaimTemplate, "/apis/resource.k8s.io/v1", "resourceclaimtemplates", Scope.namespaced },
         .{ types.ResourceSlice, "/apis/resource.k8s.io/v1", "resourceslices", Scope.cluster },
