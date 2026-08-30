@@ -4,7 +4,7 @@
 
 Isolated tests that need no cluster — type/JSON binding, registry metadata, retry
 logic, kubeconfig parsing, query/option builders, watch/informer structure, the K8s
-1.36 additions, etc. Each `tests/<name>_test.zig` is wired in `build.zig`.
+1.36 field additions, 1.37 GA kinds, etc. Each `tests/<name>_test.zig` is wired in `build.zig`.
 
 ```sh
 zig build test                 # run the whole unit suite
@@ -19,8 +19,9 @@ a downstream consumer.
 ## Integration entrypoints (`tests/entrypoints/`)
 
 Standalone executables that exercise the client against a **real cluster**. Because
-the direct TLS path has a known `std.crypto.tls` limitation against self-signed
-clusters, they connect through `kubectl proxy`:
+the direct TLS path has a known `std.crypto.tls` limitation (no
+`certificate_request` handshake handling; not caused by self-signed certs),
+they connect through `kubectl proxy`:
 
 ```sh
 kubectl proxy --port=8080 --reject-paths='^$' &   # --reject-paths needed for exec/attach
@@ -44,8 +45,8 @@ directory's README.
 
 ## Prerequisites
 
-- A running cluster (Rancher Desktop, kind, minikube). Verified against Kubernetes
-  1.36.1.
+- A running cluster (Rancher Desktop, kind, minikube). Live CRUD verified against
+  Kubernetes 1.36.1; 1.37 kinds are unit-tested (`zig build test-k8s-137`).
 - `kubectl proxy` for the integration entrypoints (see above).
 
 ## Notes

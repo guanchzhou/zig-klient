@@ -17,7 +17,8 @@ automatically — no sibling checkout needed.
 ### Integration tests
 
 Live exec/CRUD entrypoints connect through `kubectl proxy` (the direct TLS path has a
-known `std.crypto.tls` limitation against self-signed clusters):
+known `std.crypto.tls` limitation against API servers that send
+`certificate_request` (the default whenever `--client-ca-file` is set):
 
 ```sh
 kubectl proxy --port=8080 --reject-paths='^$' &   # --reject-paths to allow exec

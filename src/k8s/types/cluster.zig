@@ -18,6 +18,37 @@ pub const CertificateSigningRequestSpec = struct {
 /// CertificateSigningRequest (certificate signing) - cluster-scoped
 pub const CertificateSigningRequest = Resource(CertificateSigningRequestSpec);
 
+/// ClusterTrustBundle specification (certificates.k8s.io/v1) — K8s 1.37 GA
+pub const ClusterTrustBundleSpec = struct {
+    /// Optional signer this bundle attests. Empty means a signer-less bundle.
+    signerName: ?[]const u8 = null,
+    /// PEM bundle of X.509 trust anchors. Required.
+    trustBundle: []const u8,
+};
+
+/// ClusterTrustBundle (cluster-scoped X.509 trust anchors) — K8s 1.37 GA
+pub const ClusterTrustBundle = Resource(ClusterTrustBundleSpec);
+
+/// PodCertificateRequest specification (certificates.k8s.io/v1) — K8s 1.37 GA.
+///
+/// v1 drops `PKIXPublicKey` and `ProofOfPossession` that existed on v1beta1.
+/// The public key lives inside `stubPKCS10Request` (JSON: base64 PKCS#10 CSR).
+pub const PodCertificateRequestSpec = struct {
+    signerName: []const u8,
+    podName: []const u8,
+    podUID: []const u8,
+    serviceAccountName: []const u8,
+    serviceAccountUID: []const u8,
+    nodeName: []const u8,
+    nodeUID: []const u8,
+    maxExpirationSeconds: ?i32 = null,
+    stubPKCS10Request: []const u8,
+    unverifiedUserAnnotations: ?std.json.Value = null,
+};
+
+/// PodCertificateRequest (namespaced; issued by kubelet for podCertificate volumes)
+pub const PodCertificateRequest = Resource(PodCertificateRequestSpec);
+
 /// ValidatingWebhookConfiguration specification
 pub const ValidatingWebhookConfigurationSpec = struct {
     webhooks: ?[]std.json.Value = null,
@@ -152,7 +183,7 @@ pub const RuntimeClass = struct {
     scheduling: ?std.json.Value = null,
 };
 
-/// StorageVersionMigration specification (storagemigration.k8s.io/v1beta1) - K8s 1.35
+/// StorageVersionMigration specification (storagemigration.k8s.io/v1) — K8s 1.37 GA
 pub const StorageVersionMigrationSpec = struct {
     resource: std.json.Value,
 };

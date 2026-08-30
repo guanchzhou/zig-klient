@@ -48,8 +48,11 @@ test "registry: all resource wrapper types have .client field" {
     try std.testing.expect(@hasField(klient.StorageClasses, "client")); // storage
     try std.testing.expect(@hasField(klient.GatewayClasses, "client")); // gateway API
     try std.testing.expect(@hasField(klient.ResourceClaims, "client")); // DRA
+    try std.testing.expect(@hasField(klient.DeviceTaintRules, "client")); // DRA 1.37
     try std.testing.expect(@hasField(klient.StorageVersionMigrations, "client")); // misc
     try std.testing.expect(@hasField(klient.CertificateSigningRequests, "client")); // certs
+    try std.testing.expect(@hasField(klient.ClusterTrustBundles, "client")); // certs 1.37
+    try std.testing.expect(@hasField(klient.PodCertificateRequests, "client")); // certs 1.37
     try std.testing.expect(@hasField(klient.ValidatingWebhookConfigurations, "client")); // admission
 }
 
@@ -127,5 +130,14 @@ test "registry: ReferenceGrant stays on v1beta1, which is still the storage vers
         "/apis/gateway.networking.k8s.io/v1beta1",
         "referencegrants",
         false,
+    );
+}
+
+test "registry: StorageVersionMigration is on v1 after the 1.37 GA bump" {
+    try expectMeta(
+        klient.StorageVersionMigration,
+        "/apis/storagemigration.k8s.io/v1",
+        "storageversionmigrations",
+        true,
     );
 }

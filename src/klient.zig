@@ -1,8 +1,8 @@
 /// Zig Kubernetes Client Library
 ///
 /// A Kubernetes client library for Zig, providing:
-/// - Full CRUD operations on all 62 standard Kubernetes 1.35 resource types
-/// - Bearer token, mTLS, and exec credential authentication
+/// - Typed CRUD on 73 Kubernetes resource types across 19 API groups (through 1.37)
+/// - Bearer token and exec credential authentication (mTLS is not available on Zig 0.16)
 /// - Retry logic with exponential backoff
 /// - Watch API for real-time resource updates
 /// - Thread-safe connection pooling
@@ -14,15 +14,15 @@
 /// ```zig
 /// const klient = @import("klient");
 ///
-/// var client = try klient.K8sClient.init(allocator, .{
+/// var client = try klient.K8sClient.init(allocator, io, .{
 ///     .server = "https://api.k8s.example.com",
 ///     .token = "your-bearer-token",
 /// });
 /// defer client.deinit();
 ///
 /// // List all pods
-/// var pods_client = klient.Pods.init(&client);
-/// const pods = try pods_client.listAll();
+/// var pods = klient.Pods.init(&client);
+/// const pods = try pods.client.listAll();
 /// ```
 const std = @import("std");
 
@@ -89,6 +89,8 @@ pub const CSIDriver = types.CSIDriver;
 pub const CSINode = types.CSINode;
 pub const CSIStorageCapacity = types.CSIStorageCapacity;
 pub const CertificateSigningRequest = types.CertificateSigningRequest;
+pub const ClusterTrustBundle = types.ClusterTrustBundle;
+pub const PodCertificateRequest = types.PodCertificateRequest;
 pub const ValidatingWebhookConfiguration = types.ValidatingWebhookConfiguration;
 pub const MutatingWebhookConfiguration = types.MutatingWebhookConfiguration;
 pub const ValidatingAdmissionPolicy = types.ValidatingAdmissionPolicy;
@@ -113,6 +115,9 @@ pub const ResourceClaim = types.ResourceClaim;
 pub const ResourceClaimTemplate = types.ResourceClaimTemplate;
 pub const ResourceSlice = types.ResourceSlice;
 pub const DeviceClass = types.DeviceClass;
+pub const DeviceTaint = types.DeviceTaint;
+pub const DeviceTaintSelector = types.DeviceTaintSelector;
+pub const DeviceTaintRule = types.DeviceTaintRule;
 pub const VolumeAttributesClass = types.VolumeAttributesClass;
 pub const StorageVersionMigration = types.StorageVersionMigration;
 
@@ -170,6 +175,8 @@ pub const CSIDrivers = resources.CSIDrivers;
 pub const CSINodes = resources.CSINodes;
 pub const CSIStorageCapacities = resources.CSIStorageCapacities;
 pub const CertificateSigningRequests = resources.CertificateSigningRequests;
+pub const ClusterTrustBundles = resources.ClusterTrustBundles;
+pub const PodCertificateRequests = resources.PodCertificateRequests;
 pub const ValidatingWebhookConfigurations = resources.ValidatingWebhookConfigurations;
 pub const MutatingWebhookConfigurations = resources.MutatingWebhookConfigurations;
 pub const ValidatingAdmissionPolicies = resources.ValidatingAdmissionPolicies;
@@ -195,6 +202,7 @@ pub const ResourceClaims = resources.ResourceClaims;
 pub const ResourceClaimTemplates = resources.ResourceClaimTemplates;
 pub const ResourceSlices = resources.ResourceSlices;
 pub const DeviceClasses = resources.DeviceClasses;
+pub const DeviceTaintRules = resources.DeviceTaintRules;
 pub const VolumeAttributesClasses = resources.VolumeAttributesClasses;
 
 // Advanced features
