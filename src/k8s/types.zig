@@ -154,6 +154,10 @@ pub const PriorityClass = policy.PriorityClass;
 // === cluster.zig ===
 pub const CertificateSigningRequestSpec = cluster.CertificateSigningRequestSpec;
 pub const CertificateSigningRequest = cluster.CertificateSigningRequest;
+pub const ClusterTrustBundleSpec = cluster.ClusterTrustBundleSpec;
+pub const ClusterTrustBundle = cluster.ClusterTrustBundle;
+pub const PodCertificateRequestSpec = cluster.PodCertificateRequestSpec;
+pub const PodCertificateRequest = cluster.PodCertificateRequest;
 pub const ValidatingWebhookConfigurationSpec = cluster.ValidatingWebhookConfigurationSpec;
 pub const ValidatingWebhookConfiguration = cluster.ValidatingWebhookConfiguration;
 pub const MutatingWebhookConfigurationSpec = cluster.MutatingWebhookConfigurationSpec;
@@ -206,6 +210,10 @@ pub const ResourceSliceSpec = gateway.ResourceSliceSpec;
 pub const ResourceSlice = gateway.ResourceSlice;
 pub const DeviceClassSpec = gateway.DeviceClassSpec;
 pub const DeviceClass = gateway.DeviceClass;
+pub const DeviceTaint = gateway.DeviceTaint;
+pub const DeviceTaintSelector = gateway.DeviceTaintSelector;
+pub const DeviceTaintRuleSpec = gateway.DeviceTaintRuleSpec;
+pub const DeviceTaintRule = gateway.DeviceTaintRule;
 
 // === api_error.zig ===
 pub const ApiError = api_error.ApiError;

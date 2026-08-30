@@ -570,10 +570,13 @@ pub const ResourceClaims = SimpleResource(types.ResourceClaim);
 pub const ResourceClaimTemplates = SimpleResource(types.ResourceClaimTemplate);
 pub const ResourceSlices = SimpleResource(types.ResourceSlice);
 pub const DeviceClasses = SimpleResource(types.DeviceClass);
+pub const DeviceTaintRules = SimpleResource(types.DeviceTaintRule);
 pub const VolumeAttributesClasses = SimpleResource(types.VolumeAttributesClass);
 
 // Previously in final_resources.zig — now unified here
 pub const CertificateSigningRequests = SimpleResource(types.CertificateSigningRequest);
+pub const ClusterTrustBundles = SimpleResource(types.ClusterTrustBundle);
+pub const PodCertificateRequests = SimpleResource(types.PodCertificateRequest);
 pub const ValidatingWebhookConfigurations = SimpleResource(types.ValidatingWebhookConfiguration);
 pub const MutatingWebhookConfigurations = SimpleResource(types.MutatingWebhookConfiguration);
 pub const ValidatingAdmissionPolicies = SimpleResource(types.ValidatingAdmissionPolicy);

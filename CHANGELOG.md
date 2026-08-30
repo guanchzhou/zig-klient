@@ -5,6 +5,31 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Kubernetes **1.37** GA kinds, typed and registered:
+  - `DeviceTaintRule` (`resource.k8s.io/v1`, cluster-scoped)
+  - `ClusterTrustBundle` (`certificates.k8s.io/v1`, cluster-scoped)
+  - `PodCertificateRequest` (`certificates.k8s.io/v1`, namespaced). The v1
+    schema drops `PKIXPublicKey` and `ProofOfPossession` vs v1beta1; those
+    fields are not modeled.
+
+### Changed
+- `StorageVersionMigration` registry pin `storagemigration.k8s.io/v1beta1` →
+  `v1` (GA in 1.37; v1beta1 is deprecated, removal targeted 1.40).
+- README coverage figures corrected: 73 kinds / 19 API groups (was still
+  advertising the pre-0.6.0 "65 / 20" count, listed EndpointSlice under the
+  wrong group, and linked a missing FEATURE_PARITY_STATUS.md). Architecture
+  tree no longer names the deleted `kubeconfig_json.zig`.
+
+### Notes
+- `metrics.k8s.io` stays on **v1beta1**. The apiserver defines v1 in 1.37, but
+  metrics-server still registers only v1beta1; bumping would 404 on real clusters.
+- Alpha 1.37 kinds (`lifecycle.k8s.io` Eviction/EvictionRequest,
+  `scheduling.k8s.io/v1alpha3` CompositePodGroup) and beta Workload/PodGroup
+  are not typed; use `Discovery` if a cluster has them.
+
 ## [0.6.0] - 2026-08-22
 
 ### Added

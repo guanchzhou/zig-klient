@@ -1,12 +1,12 @@
 # zig-klient
 
-A Kubernetes client library for **Zig** — 65 resource types across 20 API groups with full CRUD, current through **Kubernetes 1.36**. Native WebSocket support for Pod `exec`/`attach`/`port-forward`, and Protobuf serialization via [zig-protobuf](https://github.com/Arwalk/zig-protobuf).
+A Kubernetes client library for **Zig** — 73 resource types across 19 API groups with full CRUD, current through **Kubernetes 1.37**. Native WebSocket support for Pod `exec`/`attach`/`port-forward`, and Protobuf serialization via [zig-protobuf](https://github.com/Arwalk/zig-protobuf).
 
 |              |                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------- |
 | **Build**    | Zig 0.16.0                                                                             |
-| **Coverage** | 65 resource types / 20 API groups, current through K8s 1.36                            |
-| **Tested**   | Live CRUD verified on Rancher Desktop **K8s 1.36.1** (incl. `MutatingAdmissionPolicy`); every type unit-tested |
+| **Coverage** | 73 resource types / 19 API groups, current through K8s 1.37                            |
+| **Tested**   | Live CRUD verified on Rancher Desktop **K8s 1.36.1** (incl. `MutatingAdmissionPolicy`); 1.37 kinds unit-tested against upstream `v1` schemas |
 | **Deps**     | [yaml-zig](https://github.com/sakakibara/yaml-zig), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) |
 | **License**  | MIT                                                                                    |
 
@@ -38,7 +38,7 @@ A Kubernetes client library for **Zig** — 65 resource types across 20 API grou
 
 ## Features
 
-### Resource Coverage (65 Resources Across 20 API Groups)
+### Resource Coverage (73 Resources Across 19 API Groups)
 
 **Core API (v1)** - 17 resources  
 Pod, Service, ConfigMap, Secret, Namespace, Node, PersistentVolume, PersistentVolumeClaim, ServiceAccount, Endpoints, Event, ReplicationController, PodTemplate, ResourceQuota, LimitRange, Binding, ComponentStatus
@@ -49,11 +49,16 @@ Deployment, ReplicaSet, StatefulSet, DaemonSet, ControllerRevision
 **Batch (batch/v1)** - 2 resources  
 Job, CronJob
 
-**Networking (networking.k8s.io/v1)** - 6 resources  
-Ingress, IngressClass, NetworkPolicy, EndpointSlice, IPAddress, ServiceCIDR
+**Networking (networking.k8s.io/v1)** - 5 resources  
+Ingress, IngressClass, NetworkPolicy, IPAddress, ServiceCIDR
 
-**Gateway API (gateway.networking.k8s.io/v1, v1beta1)** - 5 resources  
-GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant
+**Discovery (discovery.k8s.io/v1)** - 1 resource  
+EndpointSlice
+
+**Gateway API (gateway.networking.k8s.io/v1, v1beta1)** - 10 resources  
+GatewayClass, Gateway, HTTPRoute, GRPCRoute, TCPRoute, TLSRoute, UDPRoute, BackendTLSPolicy, ListenerSet, ReferenceGrant
+
+> `ReferenceGrant` stays on `v1beta1` — that is still the storage version in Gateway API v1.6.1.
 
 **RBAC (rbac.authorization.k8s.io/v1)** - 4 resources  
 Role, RoleBinding, ClusterRole, ClusterRoleBinding
@@ -61,8 +66,10 @@ Role, RoleBinding, ClusterRole, ClusterRoleBinding
 **Storage (storage.k8s.io/v1)** - 6 resources  
 StorageClass, VolumeAttachment, CSIDriver, CSINode, CSIStorageCapacity, VolumeAttributesClass
 
-**Dynamic Resource Allocation (resource.k8s.io/v1)** - 4 resources  
-ResourceClaim, ResourceClaimTemplate, ResourceSlice, DeviceClass
+**Dynamic Resource Allocation (resource.k8s.io/v1)** - 5 resources  
+ResourceClaim, ResourceClaimTemplate, ResourceSlice, DeviceClass, DeviceTaintRule
+
+> `DeviceTaintRule` graduated to GA in Kubernetes 1.37.
 
 **Policy (policy/v1)** - 1 resource  
 PodDisruptionBudget
@@ -76,8 +83,10 @@ PriorityClass
 **Coordination (coordination.k8s.io/v1)** - 1 resource  
 Lease
 
-**Certificates (certificates.k8s.io/v1)** - 1 resource  
-CertificateSigningRequest
+**Certificates (certificates.k8s.io/v1)** - 3 resources  
+CertificateSigningRequest, ClusterTrustBundle, PodCertificateRequest
+
+> `ClusterTrustBundle` and `PodCertificateRequest` graduated to GA in Kubernetes 1.37. The v1 `PodCertificateRequest` schema drops `PKIXPublicKey` and `ProofOfPossession`.
 
 **Admission Control (admissionregistration.k8s.io/v1)** - 6 resources  
 ValidatingWebhookConfiguration, MutatingWebhookConfiguration, ValidatingAdmissionPolicy, ValidatingAdmissionPolicyBinding, MutatingAdmissionPolicy, MutatingAdmissionPolicyBinding
@@ -90,23 +99,25 @@ APIService
 **Flow Control (flowcontrol.apiserver.k8s.io/v1)** - 2 resources  
 FlowSchema, PriorityLevelConfiguration
 
-**Node (node.k8s.io/v1)** - 1 resource
+**Node (node.k8s.io/v1)** - 1 resource  
 RuntimeClass
 
-**Storage Migration (storagemigration.k8s.io/v1beta1)** - 1 resource
+**Storage Migration (storagemigration.k8s.io/v1)** - 1 resource  
 StorageVersionMigration
 
+> `StorageVersionMigration` bumped to `v1` in Kubernetes 1.37 (`v1beta1` is deprecated, removal targeted 1.40).
+
 ### Core Capabilities
-- **65 Resource Types**: Kubernetes resource types across 20 API groups, current through K8s 1.36
+- **73 Resource Types**: Kubernetes resource types across 19 API groups, current through K8s 1.37
 - **Full CRUD Operations**: Create, Read, Update, Delete, Patch on all resources
 - **Advanced Delete**: Grace period, propagation policy, preconditions, delete collection
 - **Advanced Create/Update**: Field manager, field validation, dry-run support
 - **WebSocket Operations**: Pod exec, attach, port-forward
 - **Gateway API**: GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant
-- **Dynamic Resource Allocation**: ResourceClaim, DeviceClass, ResourceSlice support
+- **Dynamic Resource Allocation**: ResourceClaim, DeviceClass, ResourceSlice, DeviceTaintRule
 - **Generic Resource Client**: Type-safe operations with `ResourceClient<T>` pattern
 - **JSON Serialization**: Built-in support for Kubernetes JSON API
-- **Cluster-Scoped Resources**: 30 cluster-scoped resources (namespacing handled automatically by the registry)
+- **Cluster-Scoped Resources**: 32 cluster-scoped resources (namespacing handled automatically by the registry)
 
 ### Authentication
 - **Bearer token** — static token or in-cluster service-account token
@@ -123,7 +134,7 @@ StorageVersionMigration
 - **Image Update**: Set container image on deployments (`setImage`)
 - **Pod Eviction**: Graceful eviction via Eviction API
 - **Node Cordon/Uncordon**: Mark nodes as schedulable/unschedulable
-- **Metrics Server API**: CPU/memory metrics for pods and nodes (metrics.k8s.io/v1beta1)
+- **Metrics Server API**: CPU/memory metrics for pods and nodes (`metrics.k8s.io/v1beta1`). The apiserver defines `v1` in 1.37, but metrics-server still registers only `v1beta1`, so the client stays on `v1beta1`.
 - **RBAC CanI**: SelfSubjectAccessReview permission checks
 
 ### Advanced Features
@@ -148,7 +159,7 @@ StorageVersionMigration
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
 - Two dependencies: yaml-zig (YAML parsing) and zig-protobuf (Protocol Buffers)
-- Live CRUD verified against Kubernetes 1.36.1 (Rancher Desktop)
+- Live CRUD verified against Kubernetes 1.36.1 (Rancher Desktop); 1.37 kinds covered by schema unit tests
 
 ## Installation
 
@@ -558,7 +569,7 @@ defer forward_session.deinit();
 
 // Keep session alive
 while (forward_session.isActive()) {
-    std.time.sleep(1 * std.time.ns_per_s);
+    std.Thread.sleep(1 * std.time.ns_per_s);
 }
 ```
 
@@ -730,6 +741,8 @@ zig build test-via-proxy                   # pods/namespaces/nodes + pod CRUD
 
 The `test-mutating-admission-policy` entrypoint was verified against Rancher
 Desktop running **Kubernetes 1.36.1** — list → create → get → delete all succeed.
+1.37 kinds (`DeviceTaintRule`, `ClusterTrustBundle`, `PodCertificateRequest`,
+`StorageVersionMigration` v1) are covered by `zig build test-k8s-137`.
 See [docs/TESTING.md](docs/TESTING.md) for the full guide.
 
 ## Documentation
@@ -746,14 +759,17 @@ zig-klient/
 │   ├── klient.zig              # Main library entry point
 │   └── k8s/
 │       ├── client.zig          # Core HTTP client
-│       ├── types.zig           # Resource type definitions
-│       ├── resources.zig       # Resource operations
+│       ├── types.zig           # Resource type re-exports
+│       ├── types/              # Per-group type definitions
+│       ├── resource_registry.zig  # Comptime kind → API path / plural / scope
+│       ├── resources.zig      # Resource operations
 │       ├── retry.zig           # Retry logic
 │       ├── watch.zig           # Watch API & Informers
-│       ├── tls.zig             # mTLS support
+│       ├── discovery.zig       # /apis discovery for optional APIs
+│       ├── tls.zig             # Custom CA loading (mTLS is not available on Zig 0.16)
 │       ├── crd.zig             # CRD support
 │       ├── exec_credential.zig # Cloud auth
-│       └── kubeconfig_json.zig # Config parsing
+│       └── kubeconfig_yaml.zig # Native kubeconfig parsing (no kubectl)
 ├── tests/                      # Unit tests (isolated)
 │   ├── entrypoints/            # Live integration tests (via kubectl proxy)
 │   └── comprehensive/          # Larger live scenarios
@@ -762,14 +778,14 @@ zig-klient/
 
 ## Feature Parity Status
 
-**Tested against**: Rancher Desktop (Kubernetes 1.36.1)
+**Tested against**: Rancher Desktop (Kubernetes 1.36.1); 1.37 kinds against upstream `v1` schemas
 
-| Feature | Kubernetes 1.36 | zig-klient | Coverage |
+| Feature | Kubernetes 1.37 | zig-klient | Coverage |
 |---------|------------------|------------|----------|
-| HTTP Operations | All methods | All methods | 100% |
-| K8s Resource Types | 65 modeled | 65 | 100% |
-| API Groups | 20 | 20 | 100% |
-| Auth Methods | 5 | 4 | 80% (no HTTP basic auth — removed from K8s 1.19+) |
+| HTTP Operations | All methods | All methods | Yes |
+| Typed resource kinds | 73 modeled | 73 | GA kinds through 1.37 |
+| API Groups | 19 | 19 | Yes |
+| Auth Methods | 5 | 4 | No HTTP basic auth — removed from K8s 1.19+ |
 | In-Cluster Config | Yes | Yes | Yes |
 | Delete Options | Yes | Yes | Yes |
 | Create/Update Options | Yes | Yes | Yes |
@@ -781,18 +797,19 @@ zig-klient/
 | Server-Side Apply | Yes | Yes | Yes |
 | WebSocket Support | Yes | Yes (native) | Yes |
 | Protobuf Support | Yes | Yes (zig-protobuf) | Yes |
-| Gateway API | Yes | Yes | Yes |
-| Dynamic Resource Allocation | Yes (GA 1.36) | Yes | Yes |
+| Gateway API | Yes | Yes (standard channel, 10 kinds) | Yes |
+| Dynamic Resource Allocation | Yes | Yes (incl. DeviceTaintRule) | Yes |
 | Mutating Admission Policy | Yes (GA 1.36) | Yes | Yes |
+| ClusterTrustBundle / PodCertificateRequest | Yes (GA 1.37) | Yes | Yes |
+| StorageVersionMigration | v1 | v1 | Yes |
+| Metrics API | v1 defined; metrics-server serves v1beta1 | v1beta1 | Correct pin — do not bump |
 
-**Coverage**: 65 Kubernetes resource types across 20 API groups, current through K8s 1.36 - workloads, networking, Gateway API, storage, security, auto-scaling, dynamic resource allocation, admission control (incl. 1.36 MutatingAdmissionPolicy), certificates, API management, storage migration, WebSocket, and Protobuf.
-
-See [FEATURE_PARITY_STATUS.md](docs/FEATURE_PARITY_STATUS.md) for detailed breakdown.
+**Coverage**: 73 Kubernetes resource types across 19 API groups, current through K8s 1.37. Alpha kinds (`lifecycle.k8s.io` Eviction/EvictionRequest, `scheduling.k8s.io/v1alpha3` CompositePodGroup) and beta Workload/PodGroup are omitted; optional APIs can be reached through `Discovery`.
 
 ## Requirements
 
 - Zig 0.16.0 or newer
-- kubectl (for kubeconfig parsing)
+- kubectl (optional; only for `kubectl proxy` / integration tests)
 - Cloud CLI tools (optional, for exec credential plugins):
   - `aws` CLI for EKS
   - `gke-gcloud-auth-plugin` for GKE
@@ -808,7 +825,7 @@ SemVer for `0.x`:
 
 The 1.0 line will stabilize the public surface once the resource API and the
 streaming/TLS paths have soaked. Each release's breaking changes are called out in
-[CHANGELOG.md](CHANGELOG.md). Targets Zig 0.16.0 and Kubernetes through 1.36.
+[CHANGELOG.md](CHANGELOG.md). Targets Zig 0.16.0 and Kubernetes through 1.37.
 
 ## License
 
@@ -827,7 +844,7 @@ Contributions are welcome! Please:
 ## Roadmap
 
 ### Implemented
-- [x] 65 Kubernetes resource types across 20 API groups (current through K8s 1.36)
+- [x] 73 Kubernetes resource types across 19 API groups (current through K8s 1.37)
 - [x] All HTTP methods (GET, POST, PUT, DELETE, PATCH)
 - [x] Bearer token auth
 - [ ] mTLS auth — blocked on `std.crypto.tls` client-certificate support
@@ -848,7 +865,7 @@ Contributions are welcome! Please:
 - [x] WebSocket operations (pod exec, attach, port-forward)
 - [x] Protobuf serialization via zig-protobuf
 - [x] Gateway API (GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant)
-- [x] Dynamic Resource Allocation (ResourceClaim, DeviceClass, ResourceSlice)
+- [x] Dynamic Resource Allocation (ResourceClaim, DeviceClass, ResourceSlice, DeviceTaintRule)
 - [x] Metrics Server API (pod and node CPU/memory metrics)
 - [x] RBAC CanI (SelfSubjectAccessReview permission checks)
 - [x] Operational features: rollout restart, image update, pod eviction, node cordon

@@ -44,6 +44,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-storage", .source = "tests/storage_test.zig", .desc = "Run storage and CSI tests" },
         .{ .name = "test-admission", .source = "tests/admission_test.zig", .desc = "Run admission control and certificate tests" },
         .{ .name = "test-k8s-136-fields", .source = "tests/k8s_136_fields_test.zig", .desc = "Run K8s 1.36 field-level additions (hostUsers, image volume, DRA adminAccess)" },
+        .{ .name = "test-k8s-137", .source = "tests/k8s_137_test.zig", .desc = "Run K8s 1.37 GA kinds (DeviceTaintRule, ClusterTrustBundle, PodCertificateRequest, StorageVersionMigration v1)" },
         .{ .name = "test-json-binding", .source = "tests/json_binding_test.zig", .desc = "Run JSON field-binding tests (type/continue reserved-name fields)" },
         .{ .name = "test-fuzz", .source = "tests/fuzz_test.zig", .desc = "Fuzz the kubeconfig YAML parser (add --fuzz for a campaign)" },
         .{ .name = "test-advanced-resources", .source = "tests/advanced_test.zig", .desc = "Run advanced resources tests" },

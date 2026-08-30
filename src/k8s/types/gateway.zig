@@ -141,3 +141,28 @@ pub const DeviceClassSpec = struct {
 
 /// DeviceClass type alias
 pub const DeviceClass = Resource(DeviceClassSpec);
+
+/// One taint applied to matching DRA devices. Effects: None, NoSchedule, NoExecute.
+pub const DeviceTaint = struct {
+    key: []const u8,
+    value: ?[]const u8 = null,
+    effect: []const u8,
+    timeAdded: ?[]const u8 = null,
+};
+
+/// Selector for a DeviceTaintRule. Without a selector, no devices match.
+/// `deviceClassName` and CEL `selectors` were tombstoned in 1.35 and are omitted.
+pub const DeviceTaintSelector = struct {
+    driver: ?[]const u8 = null,
+    pool: ?[]const u8 = null,
+    device: ?[]const u8 = null,
+};
+
+/// DeviceTaintRule specification (resource.k8s.io/v1) — K8s 1.37 GA
+pub const DeviceTaintRuleSpec = struct {
+    deviceSelector: ?DeviceTaintSelector = null,
+    taint: DeviceTaint,
+};
+
+/// DeviceTaintRule (cluster-scoped admin taint for DRA devices) — K8s 1.37 GA
+pub const DeviceTaintRule = Resource(DeviceTaintRuleSpec);

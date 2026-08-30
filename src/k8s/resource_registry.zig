@@ -87,6 +87,8 @@ pub fn metaFor(comptime T: type) ResourceMeta {
 
         // Certificates
         .{ types.CertificateSigningRequest, "/apis/certificates.k8s.io/v1", "certificatesigningrequests", Scope.cluster },
+        .{ types.ClusterTrustBundle, "/apis/certificates.k8s.io/v1", "clustertrustbundles", Scope.cluster },
+        .{ types.PodCertificateRequest, "/apis/certificates.k8s.io/v1", "podcertificaterequests", Scope.namespaced },
 
         // Admission
         .{ types.ValidatingWebhookConfiguration, "/apis/admissionregistration.k8s.io/v1", "validatingwebhookconfigurations", Scope.cluster },
@@ -126,9 +128,10 @@ pub fn metaFor(comptime T: type) ResourceMeta {
         .{ types.ResourceClaimTemplate, "/apis/resource.k8s.io/v1", "resourceclaimtemplates", Scope.namespaced },
         .{ types.ResourceSlice, "/apis/resource.k8s.io/v1", "resourceslices", Scope.cluster },
         .{ types.DeviceClass, "/apis/resource.k8s.io/v1", "deviceclasses", Scope.cluster },
+        .{ types.DeviceTaintRule, "/apis/resource.k8s.io/v1", "devicetaintrules", Scope.cluster },
 
-        // Storage Migration
-        .{ types.StorageVersionMigration, "/apis/storagemigration.k8s.io/v1beta1", "storageversionmigrations", Scope.cluster },
+        // Storage Migration — v1 GA in 1.37; v1beta1 is deprecated, removal targeted 1.40
+        .{ types.StorageVersionMigration, "/apis/storagemigration.k8s.io/v1", "storageversionmigrations", Scope.cluster },
     };
 
     inline for (table) |entry| {
