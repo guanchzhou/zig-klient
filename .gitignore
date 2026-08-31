@@ -4,7 +4,7 @@ zig-out/
 # Zig package cache (fetched dependencies; reproducible from build.zig.zon)
 zig-pkg/
 
-# Local planning + agent tooling artifacts
+# Local planning and workflow artifacts
 tasks/
 docs/superpowers/
 

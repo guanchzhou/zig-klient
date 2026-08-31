@@ -1,10 +1,10 @@
 const std = @import("std");
-const K8sClient = @import("client.zig").K8sClient;
+const client_mod = @import("client.zig");
+const K8sClient = client_mod.K8sClient;
+const StreamResponseMeta = client_mod.StreamResponseMeta;
 const types = @import("types.zig");
 const ResourceClient = @import("resources.zig").ResourceClient;
 const QueryWriter = @import("query.zig").QueryWriter;
-
-const log = std.log.scoped(.klient_watch);
 
 /// Spin-wait until the mutex is acquired.
 /// std.atomic.Mutex in 0.16 only provides tryLock; there is no blocking lock().
@@ -63,6 +63,81 @@ pub const WatchOptions = struct {
     allow_watch_bookmarks: bool = true,
 };
 
+/// Inline-owned, bounded diagnostics for a terminal watch outcome.
+pub const WatchErrorDetail = struct {
+    code: ?u16 = null,
+    reason_len: u8 = 0,
+    reason: [64]u8 = [_]u8{0} ** 64,
+    reason_truncated: bool = false,
+    message_len: u16 = 0,
+    message: [256]u8 = [_]u8{0} ** 256,
+    message_truncated: bool = false,
+    payload_len: u16 = 0,
+    payload: [256]u8 = [_]u8{0} ** 256,
+    payload_truncated: bool = false,
+
+    /// Return the copied Kubernetes `Status.reason`.
+    pub fn reasonSlice(self: *const WatchErrorDetail) []const u8 {
+        return self.reason[0..self.reason_len];
+    }
+
+    /// Return the copied diagnostic or Kubernetes `Status.message`.
+    pub fn messageSlice(self: *const WatchErrorDetail) []const u8 {
+        return self.message[0..self.message_len];
+    }
+
+    /// Return the copied prefix of a malformed payload.
+    pub fn payloadSlice(self: *const WatchErrorDetail) []const u8 {
+        return self.payload[0..self.payload_len];
+    }
+
+    fn fromMalformed(err: anyerror, payload: []const u8) WatchErrorDetail {
+        var detail: WatchErrorDetail = .{};
+        const message = @errorName(err);
+        detail.message_len = @intCast(@min(message.len, detail.message.len));
+        @memcpy(detail.message[0..detail.message_len], message[0..detail.message_len]);
+        detail.payload_len = @intCast(@min(payload.len, detail.payload.len));
+        @memcpy(detail.payload[0..detail.payload_len], payload[0..detail.payload_len]);
+        detail.payload_truncated = payload.len > detail.payload.len;
+        return detail;
+    }
+
+    fn fromStatus(code: ?i64, reason: ?[]const u8, message: ?[]const u8) WatchErrorDetail {
+        var detail: WatchErrorDetail = .{};
+        if (code) |value| detail.code = std.math.cast(u16, value);
+        if (reason) |value| {
+            detail.reason_len = @intCast(@min(value.len, detail.reason.len));
+            @memcpy(detail.reason[0..detail.reason_len], value[0..detail.reason_len]);
+            detail.reason_truncated = value.len > detail.reason.len;
+        }
+        if (message) |value| {
+            detail.message_len = @intCast(@min(value.len, detail.message.len));
+            @memcpy(detail.message[0..detail.message_len], value[0..detail.message_len]);
+            detail.message_truncated = value.len > detail.message.len;
+        }
+        return detail;
+    }
+};
+
+/// Describes why one watch stream stopped without borrowing response memory.
+pub const WatchOutcome = union(enum) {
+    eof,
+    canceled,
+    http_unauthorized,
+    http_forbidden,
+    http_gone,
+    http_throttled: struct { retry_after_seconds: ?u32 },
+    http_server_error: std.http.Status,
+    http_error: std.http.Status,
+    malformed_event: WatchErrorDetail,
+    status_expired: WatchErrorDetail,
+    status_error: WatchErrorDetail,
+    transport_error: anyerror,
+    decode_error: WatchErrorDetail,
+};
+
+const max_watch_event_bytes = 4 << 20;
+
 /// Watcher for streaming resource changes
 pub fn Watcher(comptime T: type) type {
     return struct {
@@ -104,6 +179,15 @@ pub fn Watcher(comptime T: type) type {
                     resourceVersion: ?[]const u8 = null,
                 } = .{},
             } = .{},
+        };
+
+        const StatusEnvelope = struct {
+            object: ?struct {
+                status: ?[]const u8 = null,
+                message: ?[]const u8 = null,
+                reason: ?[]const u8 = null,
+                code: ?i64 = null,
+            } = null,
         };
 
         pub fn init(
@@ -153,8 +237,18 @@ pub fn Watcher(comptime T: type) type {
             self: *Self,
             callback: *const fn (*WatchEvent(T)) anyerror!void,
         ) !void {
+            return compatibility(try self.watchOutcome(callback));
+        }
+
+        /// Watch until the stream terminates and return its structured outcome.
+        ///
+        /// Callback failures and allocation failures remain errors.
+        pub fn watchOutcome(
+            self: *Self,
+            callback: *const fn (*WatchEvent(T)) anyerror!void,
+        ) !WatchOutcome {
             const Cb = *const fn (*WatchEvent(T)) anyerror!void;
-            return self.watchImpl(Cb, callback, struct {
+            return self.watchOutcomeImpl(Cb, callback, struct {
                 fn cb(cb_fn: Cb, event: *WatchEvent(T)) anyerror!void {
                     return cb_fn(event);
                 }
@@ -169,103 +263,197 @@ pub fn Watcher(comptime T: type) type {
             context: Ctx,
             callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
         ) !void {
-            return self.watchImpl(Ctx, context, callback);
+            return compatibility(try self.watchWithContextOutcome(Ctx, context, callback));
         }
 
-        fn watchImpl(
+        /// Context-carrying form of `watchOutcome`.
+        pub fn watchWithContextOutcome(
             self: *Self,
             comptime Ctx: type,
             context: Ctx,
             callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
-        ) !void {
+        ) !WatchOutcome {
+            return self.watchOutcomeImpl(Ctx, context, callback);
+        }
+
+        fn compatibility(outcome: WatchOutcome) !void {
+            return switch (outcome) {
+                .eof => {},
+                .canceled => error.Canceled,
+                .http_gone, .status_expired => error.ExpiredResourceVersion,
+                .transport_error => |err| err,
+                .http_unauthorized,
+                .http_forbidden,
+                .http_throttled,
+                .http_server_error,
+                .http_error,
+                .malformed_event,
+                .status_error,
+                .decode_error,
+                => error.WatchFailed,
+            };
+        }
+
+        fn classifyHttp(meta: StreamResponseMeta) WatchOutcome {
+            return switch (meta.status) {
+                .unauthorized => .http_unauthorized,
+                .forbidden => .http_forbidden,
+                .gone => .http_gone,
+                .too_many_requests => .{ .http_throttled = .{
+                    .retry_after_seconds = meta.retry_after_seconds,
+                } },
+                else => if (meta.status.class() == .server_error)
+                    .{ .http_server_error = meta.status }
+                else
+                    .{ .http_error = meta.status },
+            };
+        }
+
+        fn watchOutcomeImpl(
+            self: *Self,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+        ) !WatchOutcome {
             const path = try self.buildWatchPath();
             defer self.client.allocator.free(path);
 
-            var url_buf: [4096]u8 = undefined;
-            const url = try std.fmt.bufPrint(
-                &url_buf,
-                "{s}{s}",
-                .{ self.client.api_server, path },
-            );
+            const State = struct {
+                watcher: *Self,
+                context: Ctx,
+                callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+                outcome: ?WatchOutcome = null,
+                callback_error: ?anyerror = null,
 
-            const uri = try std.Uri.parse(url);
+                fn onResponse(
+                    state: *@This(),
+                    meta: StreamResponseMeta,
+                    reader: *std.Io.Reader,
+                ) anyerror!void {
+                    if (meta.status != .ok) {
+                        state.outcome = classifyHttp(meta);
+                        return;
+                    }
+                    state.outcome = try state.watcher.consumeEvents(
+                        Ctx,
+                        state.context,
+                        state.callback,
+                        reader,
+                        &state.callback_error,
+                    );
+                }
+            };
 
-            var header_buffer: [4096]u8 = undefined;
-            var headers = std.http.Client.Request.Headers{};
+            var state: State = .{
+                .watcher = self,
+                .context = context,
+                .callback = callback,
+            };
+            self.client.streamGet(
+                self.client.io,
+                path,
+                .{},
+                &state,
+                State.onResponse,
+            ) catch |err| {
+                if (state.callback_error) |callback_error| return callback_error;
+                if (err == error.OutOfMemory) return err;
+                if (err == error.Canceled) return .canceled;
+                return .{ .transport_error = err };
+            };
+            return state.outcome orelse .{ .transport_error = error.WatchFailed };
+        }
 
-            if (self.client.token) |token| {
-                const auth_value = try std.fmt.bufPrint(&header_buffer, "Bearer {s}", .{token});
-                headers.authorization = .{ .override = auth_value };
-            }
-
-            var req = try self.client.http_client.request(.GET, uri, .{
-                .redirect_behavior = @enumFromInt(3),
-                .headers = headers,
-            });
-            defer req.deinit();
-
-            try req.sendBodiless();
-
-            var redirect_buffer: [2048]u8 = undefined;
-            var response = try req.receiveHead(&redirect_buffer);
-
-            // 410 Gone = the resourceVersion is too old / compacted away. Surface it
-            // distinctly so an Informer can re-list from scratch (the canonical
-            // list-then-watch recovery) instead of spinning on a doomed watch.
-            if (response.head.status == .gone) {
-                return error.ExpiredResourceVersion;
-            }
-            if (response.head.status != .ok) {
-                return error.WatchFailed;
-            }
-
-            var transfer_buffer: [256 * 1024]u8 = undefined;
-            var reader = response.reader(&transfer_buffer);
+        fn consumeEvents(
+            self: *Self,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+            reader: *std.Io.Reader,
+            callback_error: *?anyerror,
+        ) !WatchOutcome {
+            const line_storage = try self.client.allocator.alloc(u8, max_watch_event_bytes + 1);
+            defer self.client.allocator.free(line_storage);
 
             while (true) {
-                const line = reader.takeDelimiter('\n') catch |err| {
-                    switch (err) {
-                        error.ReadFailed => {
-                            if (response.bodyErr()) |body_err| {
-                                return body_err;
-                            }
-                            return error.WatchFailed;
-                        },
-                        error.StreamTooLong => return error.WatchFailed,
-                    }
-                } orelse break;
-
-                if (line.len == 0) continue;
-
-                // Dispatch on the event type before binding `object` to `T`.
-                const event_type = self.peekEventType(line) orelse {
-                    log.warn("watch: skipping line with unreadable event type", .{});
-                    continue;
+                var line_writer: std.Io.Writer = .fixed(line_storage);
+                const line_len = reader.streamDelimiterLimit(
+                    &line_writer,
+                    '\n',
+                    .limited(line_storage.len),
+                ) catch |err| switch (err) {
+                    error.ReadFailed => return error.ReadFailed,
+                    error.StreamTooLong => return .{
+                        .malformed_event = .fromMalformed(error.StreamTooLong, line_writer.buffered()),
+                    },
+                    error.WriteFailed => return .{
+                        .decode_error = .fromMalformed(error.WriteFailed, line_writer.buffered()),
+                    },
                 };
 
+                var ended = false;
+                const next = reader.peekByte() catch |err| switch (err) {
+                    error.EndOfStream => blk: {
+                        ended = true;
+                        break :blk null;
+                    },
+                    error.ReadFailed => return error.ReadFailed,
+                };
+                if (next) |byte| {
+                    if (byte != '\n') {
+                        return .{ .decode_error = .fromMalformed(
+                            error.WatchDelimiterMissing,
+                            line_writer.buffered(),
+                        ) };
+                    }
+                    reader.toss(1);
+                }
+
+                if (line_len > max_watch_event_bytes) {
+                    return .{ .malformed_event = .fromMalformed(
+                        error.StreamTooLong,
+                        line_writer.buffered(),
+                    ) };
+                }
+                if (line_len == 0) {
+                    if (ended) return .eof;
+                    continue;
+                }
+
+                const line = line_writer.buffered();
+                const event_type = self.peekEventType(line) catch |err| {
+                    if (err == error.OutOfMemory) return err;
+                    return .{ .malformed_event = .fromMalformed(err, line) };
+                };
                 switch (event_type) {
                     .BOOKMARK => {
                         self.applyBookmark(line) catch |err| {
-                            log.warn("watch: bookmark ignored: {t}", .{err});
+                            if (err == error.OutOfMemory) return err;
+                            return .{ .decode_error = .fromMalformed(err, line) };
                         };
-                        continue;
                     },
-                    // An ERROR carries a Status, not a T. Surfacing it properly needs a
-                    // separate envelope; until then do not abort the stream over it.
                     .ERROR => {
-                        log.warn("watch: server sent an ERROR event", .{});
-                        continue;
+                        const detail = self.parseStatusEvent(line) catch |err| {
+                            if (err == error.OutOfMemory) return err;
+                            return .{ .decode_error = .fromMalformed(err, line) };
+                        };
+                        if (detail.code == 410 or std.mem.eql(u8, detail.reasonSlice(), "Expired"))
+                            return .{ .status_expired = detail };
+                        return .{ .status_error = detail };
                     },
-                    .ADDED, .MODIFIED, .DELETED => {},
+                    .ADDED, .MODIFIED, .DELETED => {
+                        var event = self.parseWatchEvent(line) catch |err| {
+                            if (err == error.OutOfMemory) return err;
+                            return .{ .malformed_event = .fromMalformed(err, line) };
+                        };
+                        callback(context, &event) catch |err| {
+                            callback_error.* = err;
+                            return error.WatchCallbackFailed;
+                        };
+                    },
                 }
 
-                // A single malformed object must not tear down the whole watch.
-                var event = self.parseWatchEvent(line) catch |err| {
-                    log.warn("watch: skipping unparseable event: {t}", .{err});
-                    continue;
-                };
-
-                try callback(context, &event);
+                if (ended) return .eof;
             }
         }
 
@@ -329,15 +517,27 @@ pub fn Watcher(comptime T: type) type {
         }
 
         /// Read just the `type` field of a watch line.
-        fn peekEventType(self: *Self, json_line: []const u8) ?EventType {
-            const parsed = std.json.parseFromSlice(
+        fn peekEventType(self: *Self, json_line: []const u8) !EventType {
+            const parsed = try std.json.parseFromSlice(
                 TypeEnvelope,
                 self.client.allocator,
                 json_line,
                 .{ .ignore_unknown_fields = true },
-            ) catch return null;
+            );
             defer parsed.deinit();
-            return EventType.fromString(parsed.value.type) orelse .ERROR;
+            return EventType.fromString(parsed.value.type) orelse error.UnknownWatchEventType;
+        }
+
+        fn parseStatusEvent(self: *Self, json_line: []const u8) !WatchErrorDetail {
+            const parsed = try std.json.parseFromSlice(
+                StatusEnvelope,
+                self.client.allocator,
+                json_line,
+                .{ .ignore_unknown_fields = true },
+            );
+            defer parsed.deinit();
+            const status = parsed.value.object orelse return error.WatchStatusMissingObject;
+            return .fromStatus(status.code, status.reason, status.message);
         }
 
         /// Advance `resource_version` from a BOOKMARK line.
@@ -350,9 +550,9 @@ pub fn Watcher(comptime T: type) type {
             );
             defer parsed.deinit();
 
-            if (parsed.value.object.metadata.resourceVersion) |rv| {
-                try self.setResourceVersion(rv);
-            }
+            const resource_version = parsed.value.object.metadata.resourceVersion orelse
+                return error.BookmarkMissingResourceVersion;
+            try self.setResourceVersion(resource_version);
         }
     };
 }

@@ -39,8 +39,8 @@ zig build test-k8s-137-crud          # requires Kubernetes >= 1.37
   (`_ = &T.method`) so it is type-checked — `refAllDecls` alone does not analyze
   method bodies.
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org/)
-  (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `ci:`, `chore:`). No
-  `Co-Authored-By` trailers.
+  (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `ci:`, `chore:`). Use a
+  single author and omit attribution trailers.
 - **Memory**: every allocation has a matching free / `errdefer`; functions returning
   parsed data return `std.json.Parsed(T)` with documented caller-frees-it semantics.
 

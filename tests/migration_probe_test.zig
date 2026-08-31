@@ -39,6 +39,31 @@ test "probe: generic Informer(T) and Watcher(T) instantiate" {
 
     const WatcherT = klient.Watcher(klient.types.Pod);
     std.testing.refAllDecls(WatcherT);
+    _ = &WatcherT.watchOutcome;
+
+    const StreamingProbe = struct {
+        fn streamCallback(
+            _: *u8,
+            _: klient.StreamResponseMeta,
+            _: *std.Io.Reader,
+        ) anyerror!void {}
+
+        fn watchCallback(
+            _: *u8,
+            _: *klient.watch.WatchEvent(klient.types.Pod),
+        ) anyerror!void {}
+
+        fn force(
+            client: *klient.K8sClient,
+            watcher: *WatcherT,
+            io: std.Io,
+            context: *u8,
+        ) anyerror!void {
+            try client.streamGet(io, "/", .{}, context, streamCallback);
+            _ = try watcher.watchWithContextOutcome(*u8, context, watchCallback);
+        }
+    };
+    _ = &StreamingProbe.force;
 }
 
 test "probe: ResourceClient(T) instantiates" {

@@ -5,9 +5,24 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-08-31
 
 ### Added
+- **Callback-scoped streaming GET** through
+  `K8sClient.streamGet(io, path, options, context, callback)`. The callback receives
+  copied response metadata and a decompressed body reader while the request, response,
+  redirect storage, decompressor, and buffers remain alive in the caller's task.
+  Bearer credentials are retained across same-origin redirects and omitted whenever
+  scheme, host, or effective port changes.
+- **Structured watch completion** through additive `watchOutcome` and
+  `watchWithContextOutcome` methods. `WatchOutcome` distinguishes EOF, cancellation,
+  401, 403, HTTP 410, throttling with copied integer `Retry-After`, server errors,
+  other HTTP failures, malformed events, Kubernetes `Status` errors, transport
+  failures, and typed-object decode failures. Existing `watch` methods remain
+  compatibility wrappers, including `ExpiredResourceVersion` for either HTTP 410 or
+  an in-stream `Status` with code 410 or reason `Expired`.
+- Public exports for `resource_registry`, `StreamGetOptions`, `StreamResponseMeta`,
+  `WatchOutcome`, and bounded, inline-owned `WatchErrorDetail`.
 - Kubernetes **1.37** GA kinds, typed and registered:
   - `DeviceTaintRule` (`resource.k8s.io/v1`, cluster-scoped)
   - `ClusterTrustBundle` (`certificates.k8s.io/v1`, cluster-scoped)
@@ -25,12 +40,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `init` stays on v1beta1.
 
 ### Changed
+- WATCH framing accepts events up to 4 MiB and rejects larger frames without
+  unbounded allocation. Malformed events and `ERROR` events now terminate with an
+  inspectable outcome instead of losing their reason.
+- `StreamGetOptions.pretty` is tri-state. Setting it to `false` emits
+  `pretty=false` explicitly, so compact LIST requests do not depend on omission
+  semantics; existing query parameters retain their order and fragments stay out of
+  the request target.
 - `StorageVersionMigration` registry pin `storagemigration.k8s.io/v1beta1` →
   `v1` (GA in 1.37; v1beta1 is deprecated, removal targeted 1.40).
 - README coverage figures corrected: 73 kinds / 19 API groups (was still
   advertising the pre-0.6.0 "65 / 20" count, listed EndpointSlice under the
   wrong group, and linked a missing FEATURE_PARITY_STATUS.md). Architecture
   tree no longer names the deleted `kubeconfig_json.zig`.
+
+### Fixed
+- Corrupt or truncated compressed 401/403 bodies preserve the HTTP status in
+  caller-owned `ApiError` detail and are not misclassified as retryable transport
+  failures.
+- 307/308 responses to requests with bodies are rejected without replaying the body
+  and without leaking redirect storage.
+- BOOKMARK resource versions remain owned across callback teardown; malformed
+  BOOKMARK and `ERROR` payloads return bounded diagnostics. Code-only 410 `Status`
+  events retain compatibility with informer relisting.
 
 ### Notes
 - `metrics.k8s.io` default pin stays **v1beta1**. Re-checked 2026-08-30:
@@ -310,8 +342,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A sink holds the detail of the most recent call made through it, or null. Each
   call frees whatever the previous one left there, so a sink is safe to reuse and a
   success clears it. (Assigning without freeing leaked the earlier status/message/
-  reason — reported by Cursor Bugbot on the PR — and leaving it in place brought
-  back the staleness this change set out to remove.)
+  reason, while leaving it in place brought back the staleness this change set out
+  to remove.)
 
   Migration:
   ```zig
@@ -593,6 +625,10 @@ First tagged release. Builds on the completed Zig 0.16 migration with Kubernetes
   logic, exec-credential plugins, and Protobuf serialization. Completed the
   Zig 0.15 → 0.16 migration.
 
+[0.7.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.7.0
+[0.6.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.6.0
+[0.5.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.5.0
+[0.4.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.4.0
 [0.3.2]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.2
 [0.3.1]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.1
 [0.3.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.3.0
