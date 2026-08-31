@@ -4,12 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const fmt = b.addFmt(.{
-        .paths = &.{ "build.zig", "build.zig.zon", "src", "tests" },
-        .check = true,
-    });
-    b.step("fmt", "Check source formatting").dependOn(&fmt.step);
-
     // YAML parsing for kubeconfig (sakakibara/yaml-zig)
     const yaml = b.dependency("yaml", .{
         .target = target,
