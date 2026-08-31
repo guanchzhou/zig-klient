@@ -6,7 +6,7 @@ zig-klient is pre-1.0. Only the latest tagged release receives security fixes.
 
 | Version | Supported |
 | ------- | --------- |
-| latest `0.2.x` | ✅ |
+| latest `0.7.x` | ✅ |
 | older | ❌ |
 
 ## Reporting a vulnerability

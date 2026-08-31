@@ -3,6 +3,29 @@ const log = std.log.scoped(.klient);
 const retry_mod = @import("retry.zig");
 const tls_mod = @import("tls.zig");
 
+/// Controls one callback-scoped streaming GET request.
+pub const StreamGetOptions = struct {
+    /// Advertise supported compression and transparently decode the response.
+    accept_compression: bool = true,
+    /// Reject response headers larger than this value (maximum 64 KiB).
+    max_header_bytes: usize = 64 << 10,
+    /// When set, replace or append an explicit Kubernetes `pretty` query value.
+    pretty: ?bool = null,
+};
+
+/// Response metadata copied before a streaming callback starts reading the body.
+///
+/// `content_type` is valid only for the duration of the callback.
+pub const StreamResponseMeta = struct {
+    status: std.http.Status,
+    retry_after_seconds: ?u32,
+    content_type: ?[]const u8,
+};
+
+const stream_header_capacity = 64 << 10;
+const max_redirect_bytes = 8 << 10;
+const max_request_url_bytes = 16 << 10;
+
 /// Kubernetes API client - standalone library
 /// Provides access to Kubernetes cluster resources via REST API
 ///
@@ -123,6 +146,7 @@ pub const K8sClient = struct {
         var http_client = std.http.Client{
             .allocator = allocator,
             .io = io,
+            .read_buffer_size = stream_header_capacity,
         };
         // Every failure path past this point must release the bundle.
         errdefer http_client.deinit();
@@ -427,6 +451,331 @@ pub const K8sClient = struct {
         };
     };
 
+    const ScopedRequestOptions = struct {
+        accept_compression: bool = true,
+        max_header_bytes: usize = stream_header_capacity,
+        pretty: ?bool = null,
+    };
+
+    const BufferedResponseContext = struct {
+        client: *K8sClient,
+        err_out: ?*?ApiError,
+        result: ?[]u8 = null,
+    };
+
+    fn requestUrl(self: *K8sClient, path: []const u8, pretty: ?bool) ![]u8 {
+        const base_len = std.math.add(usize, self.api_server.len, path.len) catch
+            return error.RequestUrlTooLong;
+        if (pretty == null) {
+            if (base_len > max_request_url_bytes) return error.RequestUrlTooLong;
+            return std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.api_server, path });
+        }
+
+        const fragment_start = std.mem.findScalar(u8, path, '#') orelse path.len;
+        const before_fragment = path[0..fragment_start];
+        const fragment = path[fragment_start..];
+        const query_start = std.mem.findScalar(u8, before_fragment, '?');
+        const path_part = if (query_start) |index| before_fragment[0..index] else before_fragment;
+        const query = if (query_start) |index| before_fragment[index + 1 ..] else null;
+
+        var url: std.ArrayList(u8) = .empty;
+        errdefer url.deinit(self.allocator);
+        try url.appendSlice(self.allocator, self.api_server);
+        try url.appendSlice(self.allocator, path_part);
+        try url.append(self.allocator, '?');
+
+        var wrote_parameter = false;
+        var wrote_pretty = false;
+        if (query) |query_string| {
+            var parameters = std.mem.splitScalar(u8, query_string, '&');
+            while (parameters.next()) |parameter| {
+                if (parameter.len == 0) continue;
+                const name_end = std.mem.findScalar(u8, parameter, '=') orelse parameter.len;
+                const is_pretty = std.mem.eql(u8, parameter[0..name_end], "pretty");
+                if (is_pretty and wrote_pretty) continue;
+
+                if (wrote_parameter) try url.append(self.allocator, '&');
+                if (is_pretty) {
+                    try url.appendSlice(self.allocator, if (pretty.?) "pretty=true" else "pretty=false");
+                    wrote_pretty = true;
+                } else {
+                    try url.appendSlice(self.allocator, parameter);
+                }
+                wrote_parameter = true;
+            }
+        }
+        if (!wrote_pretty) {
+            if (wrote_parameter) try url.append(self.allocator, '&');
+            try url.appendSlice(self.allocator, if (pretty.?) "pretty=true" else "pretty=false");
+        }
+        try url.appendSlice(self.allocator, fragment);
+
+        if (url.items.len > max_request_url_bytes) return error.RequestUrlTooLong;
+        return url.toOwnedSlice(self.allocator);
+    }
+
+    fn resolveRedirect(self: *K8sClient, base_url: []const u8, location: []const u8) ![]u8 {
+        if (location.len > max_redirect_bytes) return error.HttpRedirectLocationOversize;
+        const capacity = std.math.add(usize, location.len, base_url.len + 1) catch
+            return error.HttpRedirectLocationOversize;
+        const scratch = try self.allocator.alloc(u8, capacity);
+        defer self.allocator.free(scratch);
+        @memcpy(scratch[0..location.len], location);
+
+        const base_uri = try std.Uri.parse(base_url);
+        var remaining = scratch;
+        const resolved = try base_uri.resolveInPlace(location.len, &remaining);
+        const next_url = try std.fmt.allocPrint(self.allocator, "{f}", .{resolved});
+        errdefer self.allocator.free(next_url);
+        if (next_url.len > max_request_url_bytes) return error.HttpRedirectLocationOversize;
+        return next_url;
+    }
+
+    fn effectivePort(uri: std.Uri) ?u16 {
+        if (uri.port) |port| return port;
+        if (std.ascii.eqlIgnoreCase(uri.scheme, "http")) return 80;
+        if (std.ascii.eqlIgnoreCase(uri.scheme, "https")) return 443;
+        return null;
+    }
+
+    fn sameOrigin(base_url: []const u8, candidate_url: []const u8) !bool {
+        const base_uri = try std.Uri.parse(base_url);
+        const candidate_uri = try std.Uri.parse(candidate_url);
+        if (!std.ascii.eqlIgnoreCase(base_uri.scheme, candidate_uri.scheme)) return false;
+        if (effectivePort(base_uri) != effectivePort(candidate_uri)) return false;
+
+        var base_host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
+        var candidate_host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
+        const base_host = try base_uri.getHost(&base_host_buffer);
+        const candidate_host = try candidate_uri.getHost(&candidate_host_buffer);
+        return std.ascii.eqlIgnoreCase(base_host.bytes, candidate_host.bytes);
+    }
+
+    fn retryAfterSeconds(head: std.http.Client.Response.Head) ?u32 {
+        var headers = head.iterateHeaders();
+        while (headers.next()) |header| {
+            if (!std.ascii.eqlIgnoreCase(header.name, "retry-after")) continue;
+            return std.fmt.parseInt(u32, header.value, 10) catch null;
+        }
+        return null;
+    }
+
+    fn requestScoped(
+        self: *K8sClient,
+        io: std.Io,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        format: WireFormat,
+        options: ScopedRequestOptions,
+        context: anytype,
+        callback: anytype,
+    ) !void {
+        if (io.userdata != self.io.userdata or io.vtable != self.io.vtable)
+            return error.IoMismatch;
+        if (options.max_header_bytes == 0 or options.max_header_bytes > stream_header_capacity)
+            return error.InvalidHeaderLimit;
+
+        var current_url = try self.requestUrl(path, options.pretty);
+        defer self.allocator.free(current_url);
+        var current_method = method;
+        var current_body = body;
+        var redirects_remaining: u16 = 3;
+
+        while (true) {
+            var next_url: ?[]u8 = null;
+            {
+                const uri = try std.Uri.parse(current_url);
+                var header_buffer: [4096]u8 = undefined;
+                var headers = std.http.Client.Request.Headers{
+                    .authorization = .omit,
+                };
+                if (current_body != null) {
+                    headers.content_type = .{ .override = format.content_type };
+                }
+
+                var accept_header: [1]std.http.Header = undefined;
+                var extra_headers: []const std.http.Header = &.{};
+                if (format.accept) |accept| {
+                    accept_header[0] = .{ .name = "Accept", .value = accept };
+                    extra_headers = accept_header[0..1];
+                }
+
+                if (self.token) |token| {
+                    if (try sameOrigin(self.api_server, current_url)) {
+                        const auth_value = try std.fmt.bufPrint(&header_buffer, "Bearer {s}", .{token});
+                        headers.authorization = .{ .override = auth_value };
+                    }
+                }
+
+                var req = self.http_client.request(current_method, uri, .{
+                    .redirect_behavior = .unhandled,
+                    .headers = headers,
+                    .extra_headers = extra_headers,
+                }) catch |err| {
+                    if (err == error.TlsInitializationFailed) {
+                        self.tlsUnsupportedHint(path);
+                    } else {
+                        log.warn("HTTP request init failed for {s}: {}", .{ path, err });
+                    }
+                    return err;
+                };
+                defer req.deinit();
+
+                if (!options.accept_compression) {
+                    req.accept_encoding = @splat(false);
+                    req.accept_encoding[@intFromEnum(std.http.ContentEncoding.identity)] = true;
+                    req.headers.accept_encoding = .{ .override = "identity" };
+                }
+
+                if (current_body) |request_body| {
+                    req.transfer_encoding = .{ .content_length = request_body.len };
+                    var body_buffer: [8192]u8 = undefined;
+                    var send_body = try req.sendBody(&body_buffer);
+                    try send_body.writer.writeAll(request_body);
+                    try send_body.end();
+                } else {
+                    try req.sendBodiless();
+                }
+
+                var response = req.receiveHead(&.{}) catch |err| {
+                    if (err == error.ReadFailed) {
+                        if (req.connection) |connection|
+                            return connection.getReadError().?;
+                    }
+                    return err;
+                };
+                if (response.head.bytes.len > options.max_header_bytes)
+                    return error.HttpHeadersOversize;
+
+                if (response.head.status.class() == .redirect) {
+                    if (redirects_remaining == 0) return error.TooManyHttpRedirects;
+                    const location = response.head.location orelse
+                        return error.HttpRedirectLocationMissing;
+
+                    const changes_to_get = response.head.status == .see_other or
+                        ((response.head.status == .moved_permanently or
+                            response.head.status == .found) and current_method == .POST);
+                    if (!changes_to_get and current_body != null)
+                        return error.RedirectRequiresResend;
+
+                    next_url = try self.resolveRedirect(current_url, location);
+                    redirects_remaining -= 1;
+                    if (changes_to_get) {
+                        current_method = .GET;
+                        current_body = null;
+                    }
+                } else {
+                    const status = response.head.status;
+                    const retry_after_seconds = retryAfterSeconds(response.head);
+                    const content_type_copy: ?[]u8 = if (response.head.content_type) |content_type|
+                        try self.allocator.dupe(u8, content_type)
+                    else
+                        null;
+                    defer if (content_type_copy) |content_type|
+                        self.allocator.free(content_type);
+
+                    var transfer_buffer: [16384]u8 = undefined;
+                    var decompress: std.http.Decompress = undefined;
+                    var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
+                    const reader = response.readerDecompressing(
+                        &transfer_buffer,
+                        &decompress,
+                        &decompress_buffer,
+                    );
+                    callback(context, StreamResponseMeta{
+                        .status = status,
+                        .retry_after_seconds = retry_after_seconds,
+                        .content_type = content_type_copy,
+                    }, reader) catch |err| {
+                        if (err == error.ReadFailed) {
+                            if (response.bodyErr()) |body_err| return body_err;
+                            switch (decompress) {
+                                .flate => |flate| {
+                                    if (flate.err) |decompress_err| {
+                                        if (decompress_err != error.ReadFailed) return decompress_err;
+                                    }
+                                },
+                                .zstd, .none => {},
+                            }
+                            if (req.connection) |connection| {
+                                if (connection.stream_reader.err) |read_err| return read_err;
+                            }
+                        }
+                        return err;
+                    };
+                    return;
+                }
+            }
+
+            self.allocator.free(current_url);
+            current_url = next_url.?;
+        }
+    }
+
+    fn collectBufferedResponse(
+        context: *BufferedResponseContext,
+        meta: StreamResponseMeta,
+        reader: *std.Io.Reader,
+    ) anyerror!void {
+        const self = context.client;
+        if (meta.status.class() != .success) {
+            const http_code: i64 = @intFromEnum(meta.status);
+            if (context.err_out) |out| out.* = ApiError{ .code = http_code };
+
+            var error_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
+            defer error_buffer.deinit(self.allocator);
+            reader.appendRemaining(self.allocator, &error_buffer, .limited(65536)) catch |err| switch (err) {
+                error.StreamTooLong => {},
+                error.OutOfMemory => return error.OutOfMemory,
+                else => {},
+            };
+
+            if (context.err_out) |out| {
+                if (self.parseStatusJson(error_buffer.items, http_code)) |detail| out.* = detail;
+            }
+            return error.K8sApiError;
+        }
+
+        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 8192);
+        defer body_buffer.deinit(self.allocator);
+        try reader.appendRemaining(
+            self.allocator,
+            &body_buffer,
+            .limited(self.max_response_size),
+        );
+        context.result = try body_buffer.toOwnedSlice(self.allocator);
+    }
+
+    /// Stream a GET response through a callback while its HTTP resources are alive.
+    ///
+    /// The callback must consume any body bytes it needs before returning. Redirects
+    /// are followed up to three times, and bearer credentials are sent only when the
+    /// resolved URL has the same scheme, host, and effective port as `api_server`.
+    pub fn streamGet(
+        self: *K8sClient,
+        io: std.Io,
+        path: []const u8,
+        options: StreamGetOptions,
+        context: anytype,
+        callback: anytype,
+    ) !void {
+        return self.requestScoped(
+            io,
+            .GET,
+            path,
+            null,
+            .json,
+            .{
+                .accept_compression = options.accept_compression,
+                .max_header_bytes = options.max_header_bytes,
+                .pretty = options.pretty,
+            },
+            context,
+            callback,
+        );
+    }
+
     /// A single HTTP attempt with no retry. The retry wrappers call this.
     fn sendOnce(
         self: *K8sClient,
@@ -436,109 +785,21 @@ pub const K8sClient = struct {
         format: WireFormat,
         err_out: ?*?ApiError,
     ) ![]u8 {
-        // Stack-allocated URL buffer (K8s API URLs are bounded in length)
-        var url_buf: [4096]u8 = undefined;
-        const url = try std.fmt.bufPrint(&url_buf, "{s}{s}", .{ self.api_server, path });
-
-        const uri = try std.Uri.parse(url);
-
-        // Build headers with authorization
-        var header_buffer: [4096]u8 = undefined;
-        var headers = std.http.Client.Request.Headers{};
-
-        if (self.token) |token| {
-            const auth_value = try std.fmt.bufPrint(&header_buffer, "Bearer {s}", .{token});
-            headers.authorization = .{ .override = auth_value };
-        }
-
-        if (body != null) {
-            headers.content_type = .{ .override = format.content_type };
-        }
-
-        // Stack-local, so it outlives `req`, which is torn down before we return.
-        var accept_header: [1]std.http.Header = undefined;
-        var extra_headers: []const std.http.Header = &.{};
-        if (format.accept) |accept| {
-            accept_header[0] = .{ .name = "Accept", .value = accept };
-            extra_headers = accept_header[0..1];
-        }
-
-        // Make request to Kubernetes API
-        var req = self.http_client.request(method, uri, .{
-            .redirect_behavior = @enumFromInt(3),
-            .headers = headers,
-            .extra_headers = extra_headers,
-        }) catch |err| {
-            if (err == error.TlsInitializationFailed) {
-                self.tlsUnsupportedHint(path);
-            } else {
-                log.warn("HTTP request init failed for {s}: {}", .{ path, err });
-            }
-            return err;
+        var context: BufferedResponseContext = .{
+            .client = self,
+            .err_out = err_out,
         };
-        defer req.deinit();
-
-        // Send request with or without body
-        if (body) |request_body| {
-            req.transfer_encoding = .{ .content_length = request_body.len };
-            var body_buf: [8192]u8 = undefined;
-            var send_body = req.sendBody(&body_buf) catch |err| {
-                log.warn("HTTP sendBody failed for {s}: {}", .{ path, err });
-                return err;
-            };
-            try send_body.writer.writeAll(request_body);
-            try send_body.end();
-        } else {
-            req.sendBodiless() catch |err| {
-                log.warn("HTTP sendBodiless failed for {s}: {}", .{ path, err });
-                return err;
-            };
-        }
-
-        // Receive response headers
-        var redirect_buffer: [2048]u8 = undefined;
-        var response = try req.receiveHead(&redirect_buffer);
-
-        // Check response status
-        const is_success = @intFromEnum(response.head.status) >= 200 and @intFromEnum(response.head.status) < 300;
-        if (!is_success) {
-            // Read and parse K8s API error response (with decompression)
-            var error_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096);
-            defer error_buffer.deinit(self.allocator);
-
-            var err_transfer_buffer: [16384]u8 = undefined;
-            var err_decompress: std.http.Decompress = undefined;
-            var err_decompress_buffer: [32768]u8 = undefined;
-            const err_reader = response.readerDecompressing(&err_transfer_buffer, &err_decompress, &err_decompress_buffer);
-            err_reader.appendRemaining(self.allocator, &error_buffer, .limited(65536)) catch {};
-
-            if (err_out) |out| {
-                // Not every error body is a Kubernetes Status: a load balancer or
-                // ingress in front of the API server answers with HTML, and a
-                // protobuf request may get a protobuf body. Fall back to the status
-                // code so the caller always learns something.
-                const http_code: i64 = @intFromEnum(response.head.status);
-                out.* = self.parseStatusJson(error_buffer.items, http_code) orelse
-                    ApiError{ .code = http_code };
-            }
-            return error.K8sApiError;
-        }
-
-        // Read response body with automatic gzip/deflate decompression
-        var body_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 8192);
-        errdefer body_buffer.deinit(self.allocator);
-
-        var transfer_buffer: [16384]u8 = undefined;
-        var decompress: std.http.Decompress = undefined;
-        var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
-        const reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
-
-        reader.appendRemaining(self.allocator, &body_buffer, .limited(self.max_response_size)) catch |err| switch (err) {
-            error.ReadFailed => return response.bodyErr().?,
-            else => |e| return e,
-        };
-
-        return try body_buffer.toOwnedSlice(self.allocator);
+        try self.requestScoped(
+            self.io,
+            method,
+            path,
+            body,
+            format,
+            .{},
+            &context,
+            collectBufferedResponse,
+        );
+        return context.result.?;
     }
 
     /// Make a request using Kubernetes' Protobuf wire format.

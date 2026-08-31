@@ -37,6 +37,29 @@ test "Watcher: type can be instantiated for any resource" {
     try std.testing.expect(@hasDecl(PodWatcher, "init"));
     try std.testing.expect(@hasDecl(PodWatcher, "watch"));
     try std.testing.expect(@hasDecl(PodWatcher, "watchWithContext"));
+    try std.testing.expect(@hasDecl(PodWatcher, "watchOutcome"));
+    try std.testing.expect(@hasDecl(PodWatcher, "watchWithContextOutcome"));
+}
+
+test "WatchOutcome exposes every terminal watch condition" {
+    const expected = [_][]const u8{
+        "eof",
+        "canceled",
+        "http_unauthorized",
+        "http_forbidden",
+        "http_gone",
+        "http_throttled",
+        "http_server_error",
+        "http_error",
+        "malformed_event",
+        "status_expired",
+        "status_error",
+        "transport_error",
+        "decode_error",
+    };
+    inline for (expected) |name| {
+        try std.testing.expect(@hasField(klient.WatchOutcome, name));
+    }
 }
 
 test "Informer: type can be instantiated for any resource" {

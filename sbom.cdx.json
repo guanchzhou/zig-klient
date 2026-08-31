@@ -1,23 +1,23 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:0574934c-f1f9-4618-837c-f2bf3234fb63",
+  "serialNumber": "urn:uuid:51edf7d2-cbaf-4573-a25b-2462a33f7716",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-08-10T00:00:00Z",
+    "timestamp": "2026-08-31T18:06:37Z",
     "tools": [
       {
         "vendor": "zig-klient",
         "name": "hand-authored-from-build.zig.zon",
-        "version": "0.4.0"
+        "version": "0.7.0"
       }
     ],
     "component": {
       "type": "library",
-      "bom-ref": "pkg:generic/zig-klient@0.4.0",
+      "bom-ref": "pkg:generic/zig-klient@0.7.0",
       "name": "zig-klient",
-      "version": "0.4.0",
-      "description": "Kubernetes client library for Zig (65 resource types, through K8s 1.36)",
+      "version": "0.7.0",
+      "description": "Kubernetes client library for Zig (73 resource types, through K8s 1.37)",
       "licenses": [
         {
           "license": {
@@ -36,25 +36,25 @@
   "components": [
     {
       "type": "library",
-      "bom-ref": "pkg:generic/zig-yaml@0.3.0",
-      "name": "zig-yaml",
-      "version": "0.3.0",
+      "bom-ref": "pkg:generic/yaml@0.4.0",
+      "name": "yaml",
+      "version": "0.4.0",
       "scope": "required",
-      "description": "YAML 1.2 parser/serializer for Zig (git-pinned dependency)",
+      "description": "YAML parser for Zig (git-pinned dependency)",
       "externalReferences": [
         {
           "type": "vcs",
-          "url": "git+https://github.com/guanchzhou/zig-yaml"
+          "url": "git+https://github.com/sakakibara/yaml-zig"
         },
         {
           "type": "distribution",
-          "url": "https://github.com/guanchzhou/zig-yaml/commit/18719fb0f65a669ec153820e2c3024a44fd67e3a"
+          "url": "https://github.com/sakakibara/yaml-zig/commit/c558aadcf5a5d9ee40cb625c7f071884e273c665"
         }
       ],
       "properties": [
         {
           "name": "zig:zon:hash",
-          "value": "zig_yaml-0.3.0-C1161ni3AgCU8PR6Pl79eGSqiVd67GumYWIQXF4eWVEQ"
+          "value": "yaml-0.4.0-MIhruGUzDAAV_TOxwnFg8M23MZWJ8c064EZyHYGS08fk"
         }
       ]
     },
@@ -89,14 +89,14 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:generic/zig-klient@0.4.0",
+      "ref": "pkg:generic/zig-klient@0.7.0",
       "dependsOn": [
-        "pkg:generic/zig-yaml@0.3.0",
+        "pkg:generic/yaml@0.4.0",
         "pkg:generic/zig-protobuf@3.0.0"
       ]
     },
     {
-      "ref": "pkg:generic/zig-yaml@0.3.0",
+      "ref": "pkg:generic/yaml@0.4.0",
       "dependsOn": []
     },
     {

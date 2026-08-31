@@ -34,7 +34,11 @@ pub const std_options = .{
 };
 
 // Core K8s client
-pub const K8sClient = @import("k8s/client.zig").K8sClient;
+const client = @import("k8s/client.zig");
+pub const K8sClient = client.K8sClient;
+pub const StreamGetOptions = client.StreamGetOptions;
+pub const StreamResponseMeta = client.StreamResponseMeta;
+pub const resource_registry = @import("k8s/resource_registry.zig");
 
 // Proxy fallback for TLS limitations
 pub const proxy_fallback = @import("k8s/proxy_fallback.zig");
@@ -218,6 +222,8 @@ pub const Discovery = discovery.Discovery;
 pub const Watcher = watch.Watcher;
 pub const Informer = watch.Informer;
 pub const WatchOptions = watch.WatchOptions;
+pub const WatchOutcome = watch.WatchOutcome;
+pub const WatchErrorDetail = watch.WatchErrorDetail;
 
 pub const tls = @import("k8s/tls.zig");
 pub const TlsConfig = tls.TlsConfig;
@@ -328,13 +334,13 @@ pub const AccessReview = auth.AccessReview;
 /// releases behind (it still read 0.1.0-alpha at 0.4.0).
 pub const version = .{
     .major = 0,
-    .minor = 6,
+    .minor = 7,
     .patch = 0,
     .pre_release = @as(?[]const u8, null),
 };
 
 pub fn versionString() []const u8 {
-    return "0.6.0";
+    return "0.7.0";
 }
 
 test {
