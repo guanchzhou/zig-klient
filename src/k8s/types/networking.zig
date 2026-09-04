@@ -48,13 +48,7 @@ pub const IngressClassSpec = struct {
 };
 
 /// IngressClass (ingress controller configuration) - cluster-scoped
-pub const IngressClass = struct {
-    apiVersion: ?[]const u8 = null,
-    kind: ?[]const u8 = null,
-    metadata: ObjectMeta,
-    controller: []const u8,
-    parameters: ?std.json.Value = null,
-};
+pub const IngressClass = Resource(IngressClassSpec);
 
 /// EndpointSlice (discovery/v1, efficient service discovery). Has no `spec` —
 /// `addressType`/`endpoints`/`ports` are TOP-LEVEL.

@@ -23,7 +23,7 @@ pub const CronJobSpec = struct {
     schedule: ?[]const u8 = null,
     jobTemplate: ?std.json.Value = null,
     concurrencyPolicy: ?[]const u8 = null,
-    suspended: ?bool = null,
+    @"suspend": ?bool = null,
     successfulJobsHistoryLimit: ?i32 = null,
     failedJobsHistoryLimit: ?i32 = null,
 };
