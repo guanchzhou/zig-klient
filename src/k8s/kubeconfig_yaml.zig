@@ -254,7 +254,7 @@ pub const KubeconfigParser = struct {
         };
 
         return Kubeconfig{
-            .current_context = root.current_context orelse return error.NoCurrentContext,
+            .current_context = root.current_context orelse "",
             .clusters = clusters,
             .contexts = contexts,
             .users = users,
