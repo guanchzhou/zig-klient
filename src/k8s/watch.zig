@@ -252,7 +252,7 @@ pub fn Watcher(comptime T: type) type {
                 fn cb(cb_fn: Cb, event: *WatchEvent(T)) anyerror!void {
                     return cb_fn(event);
                 }
-            }.cb);
+            }.cb, null, null);
         }
 
         /// Start watching with a context pointer (for stateful callbacks like Informer).
@@ -273,7 +273,41 @@ pub fn Watcher(comptime T: type) type {
             context: Ctx,
             callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
         ) !WatchOutcome {
-            return self.watchOutcomeImpl(Ctx, context, callback);
+            return self.watchOutcomeImpl(Ctx, context, callback, null, null);
+        }
+
+        /// Context-carrying watch with a callback fired only after an HTTP 200
+        /// response has established the streaming body.
+        pub fn watchWithContextOutcomeObserved(
+            self: *Self,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+            established: *const fn (Ctx, StreamResponseMeta) anyerror!void,
+            bookmark: *const fn (Ctx, []const u8) anyerror!void,
+        ) !WatchOutcome {
+            return self.watchOutcomeImpl(Ctx, context, callback, established, bookmark);
+        }
+
+        /// Context-carrying watch using a caller-provided callback-scoped GET
+        /// stream. The stream must expose `get(path, context, callback)`.
+        pub fn watchWithContextOutcomeObservedUsing(
+            self: *Self,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+            established: *const fn (Ctx, StreamResponseMeta) anyerror!void,
+            bookmark: *const fn (Ctx, []const u8) anyerror!void,
+            stream: anytype,
+        ) !WatchOutcome {
+            return self.watchOutcomeImplUsing(
+                Ctx,
+                context,
+                callback,
+                established,
+                bookmark,
+                stream,
+            );
         }
 
         fn compatibility(outcome: WatchOutcome) !void {
@@ -314,6 +348,49 @@ pub fn Watcher(comptime T: type) type {
             comptime Ctx: type,
             context: Ctx,
             callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+            established: ?*const fn (Ctx, StreamResponseMeta) anyerror!void,
+            bookmark: ?*const fn (Ctx, []const u8) anyerror!void,
+        ) !WatchOutcome {
+            const ClientStream = struct {
+                client: *K8sClient,
+
+                fn get(
+                    stream: @This(),
+                    path: []const u8,
+                    callback_context: *anyopaque,
+                    callback_fn: *const fn (
+                        *anyopaque,
+                        StreamResponseMeta,
+                        *std.Io.Reader,
+                    ) anyerror!void,
+                ) anyerror!void {
+                    return stream.client.streamGet(
+                        stream.client.io,
+                        path,
+                        .{},
+                        callback_context,
+                        callback_fn,
+                    );
+                }
+            };
+            return self.watchOutcomeImplUsing(
+                Ctx,
+                context,
+                callback,
+                established,
+                bookmark,
+                ClientStream{ .client = self.client },
+            );
+        }
+
+        fn watchOutcomeImplUsing(
+            self: *Self,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+            established: ?*const fn (Ctx, StreamResponseMeta) anyerror!void,
+            bookmark: ?*const fn (Ctx, []const u8) anyerror!void,
+            stream: anytype,
         ) !WatchOutcome {
             const path = try self.buildWatchPath();
             defer self.client.allocator.free(path);
@@ -322,6 +399,8 @@ pub fn Watcher(comptime T: type) type {
                 watcher: *Self,
                 context: Ctx,
                 callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+                established: ?*const fn (Ctx, StreamResponseMeta) anyerror!void,
+                bookmark: ?*const fn (Ctx, []const u8) anyerror!void,
                 outcome: ?WatchOutcome = null,
                 callback_error: ?anyerror = null,
 
@@ -334,13 +413,24 @@ pub fn Watcher(comptime T: type) type {
                         state.outcome = classifyHttp(meta);
                         return;
                     }
+                    if (state.established) |notify| try notify(state.context, meta);
                     state.outcome = try state.watcher.consumeEvents(
                         Ctx,
                         state.context,
                         state.callback,
+                        state.bookmark,
                         reader,
                         &state.callback_error,
                     );
+                }
+
+                fn onResponseErased(
+                    raw: *anyopaque,
+                    meta: StreamResponseMeta,
+                    reader: *std.Io.Reader,
+                ) anyerror!void {
+                    const state: *@This() = @ptrCast(@alignCast(raw));
+                    return state.onResponse(meta, reader);
                 }
             };
 
@@ -348,13 +438,13 @@ pub fn Watcher(comptime T: type) type {
                 .watcher = self,
                 .context = context,
                 .callback = callback,
+                .established = established,
+                .bookmark = bookmark,
             };
-            self.client.streamGet(
-                self.client.io,
+            stream.get(
                 path,
-                .{},
-                &state,
-                State.onResponse,
+                @ptrCast(&state),
+                State.onResponseErased,
             ) catch |err| {
                 if (state.callback_error) |callback_error| return callback_error;
                 if (err == error.OutOfMemory) return err;
@@ -369,6 +459,7 @@ pub fn Watcher(comptime T: type) type {
             comptime Ctx: type,
             context: Ctx,
             callback: *const fn (Ctx, *WatchEvent(T)) anyerror!void,
+            bookmark: ?*const fn (Ctx, []const u8) anyerror!void,
             reader: *std.Io.Reader,
             callback_error: *?anyerror,
         ) !WatchOutcome {
@@ -431,6 +522,12 @@ pub fn Watcher(comptime T: type) type {
                             if (err == error.OutOfMemory) return err;
                             return .{ .decode_error = .fromMalformed(err, line) };
                         };
+                        if (bookmark) |notify| {
+                            notify(context, self.resource_version.?) catch |err| {
+                                callback_error.* = err;
+                                return error.WatchCallbackFailed;
+                            };
+                        }
                     },
                     .ERROR => {
                         const detail = self.parseStatusEvent(line) catch |err| {
