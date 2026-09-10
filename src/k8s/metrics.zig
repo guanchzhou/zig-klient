@@ -167,7 +167,8 @@ pub const MetricsClient = struct {
     }
 
     /// Parse CPU string to millicores.
-    /// Handles: "100m" (millicores), "250000n" (nanocores), "1" (whole cores)
+    /// Handles: "100m" (millicores), "95000u" (microcores),
+    /// "250000n" (nanocores), "1" (whole cores)
     pub fn parseCpuMillicores(cpu_str: []const u8) ?u64 {
         if (cpu_str.len == 0) return null;
 
@@ -175,6 +176,11 @@ pub const MetricsClient = struct {
         if (cpu_str[cpu_str.len - 1] == 'n') {
             const nanos = std.fmt.parseInt(u64, cpu_str[0 .. cpu_str.len - 1], 10) catch return null;
             return nanos / 1_000_000;
+        }
+
+        if (cpu_str[cpu_str.len - 1] == 'u') {
+            const micros = std.fmt.parseInt(u64, cpu_str[0 .. cpu_str.len - 1], 10) catch return null;
+            return micros / 1_000;
         }
 
         // Millicores: "100m" → 100
@@ -251,6 +257,8 @@ test "parse CPU millicores" {
     try std.testing.expectEqual(@as(?u64, 100), MetricsClient.parseCpuMillicores("100m"));
     try std.testing.expectEqual(@as(?u64, 1000), MetricsClient.parseCpuMillicores("1"));
     try std.testing.expectEqual(@as(?u64, 2500), MetricsClient.parseCpuMillicores("2500m"));
+    try std.testing.expectEqual(@as(?u64, 95), MetricsClient.parseCpuMillicores("95000u"));
+    try std.testing.expectEqual(@as(?u64, 0), MetricsClient.parseCpuMillicores("999u"));
     try std.testing.expectEqual(@as(?u64, 250), MetricsClient.parseCpuMillicores("250000000n"));
     try std.testing.expectEqual(@as(?u64, 0), MetricsClient.parseCpuMillicores("500000n"));
     try std.testing.expectEqual(@as(?u64, null), MetricsClient.parseCpuMillicores(""));
