@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-10
+
 ### Changed
 - Zig 0.17-dev is supported alongside Zig 0.16.0.
 - The unused zig-protobuf dependency and its convenience re-exports were removed.
