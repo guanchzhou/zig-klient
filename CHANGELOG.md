@@ -5,6 +5,21 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-09
+
+### Added
+- Watch streams can use a caller-provided GET transport and report when the
+  response is established and when bookmark resource versions advance.
+- Buffered requests can return the HTTP status alongside the response body.
+
+### Changed
+- Kubeconfigs without `current-context` parse successfully so callers can select
+  an explicit context.
+
+### Fixed
+- IngressClass `spec` and CronJob `suspend` decode from their correct wire fields.
+- CPU metrics accept Kubernetes microcore (`u`) quantities.
+
 ## [0.7.0] - 2026-08-31
 
 ### Added
@@ -625,6 +640,7 @@ First tagged release. Builds on the completed Zig 0.16 migration with Kubernetes
   logic, exec-credential plugins, and Protobuf serialization. Completed the
   Zig 0.15 → 0.16 migration.
 
+[0.8.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.8.0
 [0.7.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.7.0
 [0.6.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.6.0
 [0.5.0]: https://github.com/guanchzhou/zig-klient/releases/tag/v0.5.0
