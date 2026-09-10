@@ -460,6 +460,7 @@ pub const K8sClient = struct {
     const BufferedResponseContext = struct {
         client: *K8sClient,
         err_out: ?*?ApiError,
+        status_out: ?*std.http.Status = null,
         result: ?[]u8 = null,
     };
 
@@ -719,6 +720,7 @@ pub const K8sClient = struct {
         reader: *std.Io.Reader,
     ) anyerror!void {
         const self = context.client;
+        if (context.status_out) |out| out.* = meta.status;
         if (meta.status.class() != .success) {
             const http_code: i64 = @intFromEnum(meta.status);
             if (context.err_out) |out| out.* = ApiError{ .code = http_code };
@@ -795,6 +797,37 @@ pub const K8sClient = struct {
             path,
             body,
             format,
+            .{},
+            &context,
+            collectBufferedResponse,
+        );
+        return context.result.?;
+    }
+
+    /// Send one non-retried request and expose its HTTP status without exposing
+    /// response headers or body to observers.
+    pub fn requestWithContentTypeStatus(
+        self: *K8sClient,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        content_type: []const u8,
+        status_out: *std.http.Status,
+        err_out: *?ApiError,
+    ) ![]u8 {
+        if (err_out.*) |*previous| previous.deinit(self.allocator);
+        err_out.* = null;
+        var context: BufferedResponseContext = .{
+            .client = self,
+            .err_out = err_out,
+            .status_out = status_out,
+        };
+        try self.requestScoped(
+            self.io,
+            method,
+            path,
+            body,
+            .{ .content_type = content_type },
             .{},
             &context,
             collectBufferedResponse,
