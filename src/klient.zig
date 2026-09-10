@@ -8,7 +8,6 @@
 /// - Thread-safe connection pooling
 /// - Custom Resource Definitions (CRD) support
 /// - WebSocket operations (exec, attach, port-forward)
-/// - Protobuf serialization via zig-protobuf
 ///
 /// Example usage:
 /// ```zig
@@ -303,13 +302,6 @@ pub const PortForwarder = port_forward_mod.PortForwarder;
 pub const PortForwardOptions = port_forward_mod.PortForwardOptions;
 pub const PortMapping = port_forward_mod.PortMapping;
 pub const ForwardSession = port_forward_mod.ForwardSession;
-
-// Protobuf support (for high-performance scenarios) - using zig-protobuf library
-pub const protobuf = @import("protobuf");
-// Re-export common protobuf types for convenience
-pub const ProtobufFieldType = protobuf.FieldType;
-pub const ProtobufWire = protobuf.wire;
-pub const ProtobufJson = protobuf.json;
 
 // Helper functions for WebSocket path building (re-exported from websocket_client.zig)
 pub const buildExecPath = websocket.buildExecPath;

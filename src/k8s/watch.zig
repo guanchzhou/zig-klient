@@ -67,13 +67,13 @@ pub const WatchOptions = struct {
 pub const WatchErrorDetail = struct {
     code: ?u16 = null,
     reason_len: u8 = 0,
-    reason: [64]u8 = [_]u8{0} ** 64,
+    reason: [64]u8 = @splat(0),
     reason_truncated: bool = false,
     message_len: u16 = 0,
-    message: [256]u8 = [_]u8{0} ** 256,
+    message: [256]u8 = @splat(0),
     message_truncated: bool = false,
     payload_len: u16 = 0,
-    payload: [256]u8 = [_]u8{0} ** 256,
+    payload: [256]u8 = @splat(0),
     payload_truncated: bool = false,
 
     /// Return the copied Kubernetes `Status.reason`.

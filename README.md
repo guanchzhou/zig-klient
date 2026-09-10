@@ -1,13 +1,13 @@
 # zig-klient
 
-A Kubernetes client library for **Zig** — 73 resource types across 19 API groups with full CRUD, current through **Kubernetes 1.37**. Native WebSocket support for Pod `exec`/`attach`/`port-forward`, and Protobuf serialization via [zig-protobuf](https://github.com/Arwalk/zig-protobuf).
+A Kubernetes client library for **Zig** — 73 resource types across 19 API groups with full CRUD, current through **Kubernetes 1.37**. Native WebSocket support for Pod `exec`/`attach`/`port-forward` and raw Kubernetes Protobuf request transport.
 
 |              |                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------- |
-| **Build**    | Zig 0.16.0                                                                             |
+| **Build**    | Zig 0.16.0 and current 0.17-dev                                                        |
 | **Coverage** | 73 resource types / 19 API groups, current through K8s 1.37                            |
 | **Tested**   | Live CRUD on **K8s 1.37.0** (`DeviceTaintRule`, `ClusterTrustBundle`, `StorageVersionMigration` v1) and on **1.36.1** (`MutatingAdmissionPolicy`), both via `kubectl proxy` |
-| **Deps**     | [yaml-zig](https://github.com/sakakibara/yaml-zig), [zig-protobuf](https://github.com/Arwalk/zig-protobuf) |
+| **Deps**     | [yaml-zig](https://github.com/sakakibara/yaml-zig)                                    |
 | **License**  | MIT                                                                                    |
 
 **Contents:** [Features](#features) · [Installation](#installation) · [Quick Start](#quick-start) · [Resource Operations](#resource-operations) · [Testing](#testing) · [Architecture](#architecture) · [Requirements](#requirements) · [Roadmap](#roadmap)
@@ -163,7 +163,7 @@ StorageVersionMigration
   migration probe force-compiles the whole public API surface
 - Memory safe with explicit allocator management
 - Type safe with Zig's compile-time type system
-- Two dependencies: yaml-zig (YAML parsing) and zig-protobuf (Protocol Buffers)
+- One dependency: yaml-zig for kubeconfig parsing
 - Live CRUD verified against Kubernetes 1.37.0 (kindest/node) and 1.36.1 (Rancher Desktop) via `kubectl proxy`
 
 ## Installation
@@ -804,7 +804,7 @@ zig-klient/
 | Pagination | Yes | Yes | Yes |
 | Server-Side Apply | Yes | Yes | Yes |
 | WebSocket Support | Yes | Yes (native) | Yes |
-| Protobuf Support | Yes | Yes (zig-protobuf) | Yes |
+| Protobuf Transport | Yes | Raw request/response bodies | Serialization is caller-owned |
 | Gateway API | Yes | Yes (standard channel, 10 kinds) | Yes |
 | Dynamic Resource Allocation | Yes | Yes (incl. DeviceTaintRule) | Yes |
 | Mutating Admission Policy | Yes (GA 1.36) | Yes | Yes |
@@ -816,7 +816,7 @@ zig-klient/
 
 ## Requirements
 
-- Zig **0.16.0** (0.17-dev is blocked on yaml-zig / zig-protobuf; see CHANGELOG)
+- Zig **0.16.0** or **0.17-dev**
 - kubectl (optional; only for `kubectl proxy` / integration tests)
 - Cloud CLI tools (optional, for exec credential plugins):
   - `aws` CLI for EKS
@@ -833,7 +833,8 @@ SemVer for `0.x`:
 
 The 1.0 line will stabilize the public surface once the resource API and the
 streaming/TLS paths have soaked. Each release's breaking changes are called out in
-[CHANGELOG.md](CHANGELOG.md). Targets Zig 0.16.0 and Kubernetes through 1.37.
+[CHANGELOG.md](CHANGELOG.md). Targets Zig 0.16.0 and current 0.17-dev, and
+Kubernetes through 1.37.
 
 ## License
 
@@ -871,7 +872,8 @@ Contributions are welcome! Please:
 - [x] JSON Patch and Strategic Merge Patch
 - [x] Scale subresources
 - [x] WebSocket operations (pod exec, attach, port-forward)
-- [x] Protobuf serialization via zig-protobuf
+- [x] Raw Kubernetes Protobuf request transport
+- [ ] Typed Kubernetes Protobuf serialization
 - [x] Gateway API (GatewayClass, Gateway, HTTPRoute, GRPCRoute, ReferenceGrant)
 - [x] Dynamic Resource Allocation (ResourceClaim, DeviceClass, ResourceSlice, DeviceTaintRule)
 - [x] Metrics Server API (pod and node CPU/memory metrics)

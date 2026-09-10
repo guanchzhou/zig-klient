@@ -539,6 +539,13 @@ pub const K8sClient = struct {
         return null;
     }
 
+    fn uriHost(uri: std.Uri, buffer: *[std.Io.net.HostName.max_len]u8) !std.Io.net.HostName {
+        if (comptime @hasDecl(std.Io.net.HostName, "fromUri")) {
+            return std.Io.net.HostName.fromUri(uri, buffer);
+        }
+        return uri.getHost(buffer);
+    }
+
     fn sameOrigin(base_url: []const u8, candidate_url: []const u8) !bool {
         const base_uri = try std.Uri.parse(base_url);
         const candidate_uri = try std.Uri.parse(candidate_url);
@@ -547,8 +554,8 @@ pub const K8sClient = struct {
 
         var base_host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
         var candidate_host_buffer: [std.Io.net.HostName.max_len]u8 = undefined;
-        const base_host = try base_uri.getHost(&base_host_buffer);
-        const candidate_host = try candidate_uri.getHost(&candidate_host_buffer);
+        const base_host = try uriHost(base_uri, &base_host_buffer);
+        const candidate_host = try uriHost(candidate_uri, &candidate_host_buffer);
         return std.ascii.eqlIgnoreCase(base_host.bytes, candidate_host.bytes);
     }
 
