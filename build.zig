@@ -10,12 +10,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Add zig-protobuf dependency
-    const protobuf_dep = b.dependency("protobuf", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
     // Create the zig-klient library module.
     // link_libc is required on Linux: parts of the client use libc-backed std
     // functions (clock_gettime, threads, file I/O). macOS links libc implicitly,
@@ -27,7 +21,6 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     klient_module.addImport("yaml", yaml.module("yaml"));
-    klient_module.addImport("protobuf", protobuf_dep.module("protobuf"));
 
     // === Unit Tests (data-driven — each entry generates a test step) ===
 
@@ -52,7 +45,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-gateway-api", .source = "tests/gateway_api_test.zig", .desc = "Run Gateway API tests (K8s 1.34)" },
         .{ .name = "test-dra", .source = "tests/dra_test.zig", .desc = "Run Dynamic Resource Allocation tests (K8s 1.34)" },
         .{ .name = "test-volume-attributes", .source = "tests/volume_attributes_test.zig", .desc = "Run VolumeAttributesClass tests (K8s 1.34)" },
-        .{ .name = "test-protobuf", .source = "tests/protobuf_integration_test.zig", .desc = "Run Protobuf integration tests" },
+        .{ .name = "test-protobuf", .source = "tests/protobuf_request_test.zig", .desc = "Run raw Protobuf request tests" },
         .{ .name = "test-registry", .source = "tests/resource_registry_test.zig", .desc = "Run resource registry tests" },
         .{ .name = "test-query", .source = "tests/query_test.zig", .desc = "Run query builder tests" },
         .{ .name = "test-stream-get", .source = "tests/stream_get_test.zig", .desc = "Run streaming GET and local HTTP tests" },

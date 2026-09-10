@@ -370,7 +370,7 @@ test "corrupt compressed 401 preserves K8sApiError status and is not retried" {
         .content_type = "application/json",
         .content_encoding = "gzip",
     };
-    const responses = [_]ResponseSpec{response} ** 4;
+    const responses: [4]ResponseSpec = @splat(response);
     var server: TestServer = undefined;
     try server.init(allocator, io, &responses);
     defer server.deinit();
@@ -406,7 +406,7 @@ test "truncated compressed 403 preserves K8sApiError status and is not retried" 
         .content_type = "application/json",
         .content_encoding = "gzip",
     };
-    const responses = [_]ResponseSpec{response} ** 4;
+    const responses: [4]ResponseSpec = @splat(response);
     var server: TestServer = undefined;
     try server.init(allocator, io, &responses);
     defer server.deinit();
@@ -448,7 +448,7 @@ test "streamGet normalizes explicit pretty without disturbing query or fragment"
         .{ .path = "/pods?pretty=false#items", .pretty = null, .expected = "/pods?pretty=false" },
     };
 
-    const responses = [_]ResponseSpec{.{}} ** cases.len;
+    const responses: [cases.len]ResponseSpec = @splat(.{});
     var server: TestServer = undefined;
     try server.init(allocator, io, &responses);
     defer server.deinit();

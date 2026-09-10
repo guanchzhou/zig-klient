@@ -5,6 +5,18 @@ All notable changes to zig-klient are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.8.1] - 2026-09-10
+
+### Changed
+- Zig 0.17-dev is supported alongside Zig 0.16.0.
+- The unused zig-protobuf dependency and its convenience re-exports were removed.
+  `requestWithProtobuf` remains available for callers that own Kubernetes
+  Protobuf encoding and decoding. This is a breaking change to the pre-1.0
+  convenience API.
+- yaml-zig is pinned to the dual-compatible Zig 0.16/0.17 fix proposed upstream.
+
 ## [0.8.0] - 2026-09-09
 
 ### Added

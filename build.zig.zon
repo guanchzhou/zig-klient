@@ -1,6 +1,6 @@
 .{
     .name = .zig_klient,
-    .version = "0.8.0",
+    .version = "0.8.1",
     .fingerprint = 0x67475dbf5e099887,
     .minimum_zig_version = "0.16.0",
     .paths = .{
@@ -10,15 +10,11 @@
         "tests",
     },
     .dependencies = .{
-        // Do not bump for 0.17-dev: yaml-zig uses removed pathFromRoot / `**`;
-        // zig-protobuf zig-master (50f1b1c) is 0.17-only and would break 0.16.
+        // Dual-compatible fix proposed upstream:
+        // https://github.com/sakakibara/yaml-zig/pull/2
         .yaml = .{
-            .url = "git+https://github.com/sakakibara/yaml-zig#c558aadcf5a5d9ee40cb625c7f071884e273c665",
-            .hash = "yaml-0.4.0-MIhruGUzDAAV_TOxwnFg8M23MZWJ8c064EZyHYGS08fk",
-        },
-        .protobuf = .{
-            .url = "git+https://github.com/Arwalk/zig-protobuf?ref=zig-master#7673d62b2909f1ffb687d83a646cded09212b73f",
-            .hash = "protobuf-3.0.0-0e82auyUKACQqyLICPhWm6kJoAru5DNP-idAJMP1W94r",
+            .url = "git+https://github.com/guanchzhou/yaml-zig#7c2420ebf266bab8fbf3a3b87f12037ef89aaab2",
+            .hash = "yaml-0.4.0-MIhruOpADABl6nMLFgv_hcjam7BdGR_CQLZuLKBa8Nx3",
         },
     },
 }
