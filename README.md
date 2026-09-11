@@ -122,7 +122,7 @@ StorageVersionMigration
 
 ### Authentication
 - **Bearer token** — static token or in-cluster service-account token
-- **mTLS** — *not supported on Zig 0.16* (`std.crypto.tls` cannot present a client
+- **mTLS** — *not supported on Zig 0.16 or 0.17-dev* (`std.crypto.tls` cannot present a client
   certificate); `K8sClient.init` rejects client-cert options rather than ignoring them
 - **Exec credential plugins** — AWS EKS, GCP GKE, Azure AKS, generic OIDC
 - **In-cluster config** — automatic service-account detection inside a pod
@@ -213,7 +213,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Zig 0.16 threads all I/O through std.Io.
+    // I/O is threaded through std.Io.
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
@@ -297,7 +297,7 @@ var client = try klient.K8sClient.init(allocator, io, .{
 defer client.deinit();
 ```
 
-> **mTLS is not available on Zig 0.16.** Setting `client_cert_data`, `client_key_data`,
+> **mTLS is not available on Zig 0.16 or 0.17-dev.** Setting `client_cert_data`, `client_key_data`,
 > `client_cert_path`, `client_key_path`, `insecure_skip_verify` or `server_name` returns
 > an error from `init` (`error.ClientCertificatesUnsupported`,
 > `error.InsecureSkipVerifyUnsupported`, `error.TlsServerNameUnsupported`) — these were
@@ -774,7 +774,7 @@ zig-klient/
 │       ├── retry.zig           # Retry logic
 │       ├── watch.zig           # Watch API & Informers
 │       ├── discovery.zig       # /apis discovery for optional APIs
-│       ├── tls.zig             # Custom CA loading (mTLS is not available on Zig 0.16)
+│       ├── tls.zig             # Custom CA loading (mTLS is unavailable on both toolchains)
 │       ├── crd.zig             # CRD support
 │       ├── exec_credential.zig # Cloud auth
 │       └── kubeconfig_yaml.zig # Native kubeconfig parsing (no kubectl)
