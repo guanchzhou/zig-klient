@@ -18,6 +18,8 @@ const RequestRecord = struct {
     target: [512]u8 = undefined,
     authorization_len: usize = 0,
     authorization: [512]u8 = undefined,
+    accept_len: usize = 0,
+    accept: [512]u8 = undefined,
 
     fn targetSlice(self: *const RequestRecord) []const u8 {
         return self.target[0..self.target_len];
@@ -26,6 +28,11 @@ const RequestRecord = struct {
     fn authorizationSlice(self: *const RequestRecord) ?[]const u8 {
         if (self.authorization_len == 0) return null;
         return self.authorization[0..self.authorization_len];
+    }
+
+    fn acceptSlice(self: *const RequestRecord) ?[]const u8 {
+        if (self.accept_len == 0) return null;
+        return self.accept[0..self.accept_len];
     }
 };
 
@@ -127,6 +134,13 @@ const TestServer = struct {
                 @memcpy(
                     record.authorization[0..record.authorization_len],
                     header.value[0..record.authorization_len],
+                );
+            }
+            if (std.ascii.eqlIgnoreCase(header.name, "accept")) {
+                record.accept_len = @min(header.value.len, record.accept.len);
+                @memcpy(
+                    record.accept[0..record.accept_len],
+                    header.value[0..record.accept_len],
                 );
             }
         }
@@ -467,6 +481,36 @@ test "streamGet normalizes explicit pretty without disturbing query or fragment"
     for (cases, 0..) |case, index| {
         try std.testing.expectEqualStrings(case.expected, server.records[index].targetSlice());
     }
+}
+
+test "streamGet sends the requested Accept and otherwise leaves the server on its default" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const table_accept = "application/json;as=Table;v=v1;g=meta.k8s.io";
+    const responses: [3]ResponseSpec = @splat(.{});
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+    var client = try klient.K8sClient.init(allocator, io, .{ .server = base_url });
+    defer client.deinit();
+
+    var default_capture: StreamCapture = .{};
+    try client.streamGet(io, "/pods", .{}, &default_capture, StreamCapture.callback);
+    var table_capture: StreamCapture = .{};
+    try client.streamGet(io, "/pods", .{ .accept = table_accept }, &table_capture, StreamCapture.callback);
+    const buffered = try client.requestWithAccept(.GET, "/pods", null, table_accept);
+    defer allocator.free(buffered);
+    try server.finish();
+
+    try std.testing.expectEqual(@as(?[]const u8, null), server.records[0].acceptSlice());
+    try std.testing.expectEqualStrings(table_accept, server.records[1].acceptSlice().?);
+    try std.testing.expectEqualStrings(table_accept, server.records[2].acceptSlice().?);
 }
 
 test "streamGet follows same-host redirects with authorization" {

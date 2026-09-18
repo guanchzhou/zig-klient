@@ -11,6 +11,12 @@ pub const StreamGetOptions = struct {
     max_header_bytes: usize = 64 << 10,
     /// When set, replace or append an explicit Kubernetes `pretty` query value.
     pretty: ?bool = null,
+    /// When set, sent as `Accept` instead of leaving the server on its JSON default.
+    ///
+    /// The use for this is content negotiation the API server performs on its own,
+    /// such as `application/json;as=Table;v=v1;g=meta.k8s.io`, which makes the server
+    /// render a resource's printer columns rather than the objects themselves.
+    accept: ?[]const u8 = null,
 };
 
 /// Response metadata copied before a streaming callback starts reading the body.
@@ -436,6 +442,25 @@ pub const K8sClient = struct {
         return self.sendWithRetry(method, path, body, .{ .content_type = content_type }, false, null);
     }
 
+    /// Make a request with an explicit `Accept` header for Kubernetes content
+    /// negotiation, such as the meta.k8s.io Table representation.
+    pub fn requestWithAccept(
+        self: *K8sClient,
+        method: std.http.Method,
+        path: []const u8,
+        body: ?[]const u8,
+        accept: []const u8,
+    ) ![]u8 {
+        return self.sendWithRetry(
+            method,
+            path,
+            body,
+            .{ .content_type = "application/json", .accept = accept },
+            false,
+            null,
+        );
+    }
+
     /// Wire format for one attempt. The JSON and Protobuf paths differ only in these
     /// two headers; everything else — auth, redirects, status handling, decompression,
     /// size limiting — is identical and lives in `sendOnce`.
@@ -769,12 +794,16 @@ pub const K8sClient = struct {
         context: anytype,
         callback: anytype,
     ) !void {
+        const format: WireFormat = if (options.accept) |accept|
+            .{ .content_type = "application/json", .accept = accept }
+        else
+            .json;
         return self.requestScoped(
             io,
             .GET,
             path,
             null,
-            .json,
+            format,
             .{
                 .accept_compression = options.accept_compression,
                 .max_header_bytes = options.max_header_bytes,
