@@ -47,6 +47,7 @@ pub const APIGroupList = struct {
 pub const APIResource = struct {
     name: []const u8 = "",
     singularName: ?[]const u8 = null,
+    shortNames: [][]const u8 = &.{},
     namespaced: bool = false,
     kind: []const u8 = "",
     verbs: [][]const u8 = &.{},

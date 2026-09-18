@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-18
+
+### Added
+
+- Buffered and streaming GET requests can set an explicit `Accept` header for
+  Kubernetes content negotiation.
+- Discovery resources expose Kubernetes `shortNames`.
+
 ## [0.8.1] - 2026-09-10
 
 ### Changed
