@@ -1,6 +1,6 @@
 # Contributing to zig-klient
 
-Thanks for your interest! This is a Kubernetes client library for Zig **0.16.0**.
+Thanks for your interest! This is a Kubernetes client library for Zig **0.17.0**.
 
 ## Building & testing
 
@@ -11,9 +11,9 @@ zig build build-integration-tests   # compile the live integration entrypoints
 zig fmt --check src/ tests/ build.zig build.zig.zon   # formatting gate (CI enforces this)
 ```
 
-Dependencies (yaml-zig, zig-protobuf) are git-pinned in `build.zig.zon` and fetched
-automatically — no sibling checkout needed. Supported Zig is **0.16.0**; 0.17-dev
-fails in those two `build.zig` files (and on the `**` splat) — do not bump the pins.
+yaml-zig is git-pinned in `build.zig.zon` and fetched automatically — no sibling
+checkout needed. Supported Zig is **0.17.0**. Format with Zig 0.17.0: its `zig fmt`
+rewrites builtins that older compilers reject.
 
 ### Integration tests
 

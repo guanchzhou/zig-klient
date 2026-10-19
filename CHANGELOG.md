@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Zig 0.17.0 is now required. Zig 0.16 is no longer supported: 0.17 `zig fmt`
+  rewrites `@intFromEnum` and `@enumFromInt` to builtins that 0.16 rejects.
+- CI, docs and release builds use Zig 0.17.0.
+
 ## [0.8.2] - 2026-09-18
 
 ### Added

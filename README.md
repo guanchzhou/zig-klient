@@ -4,7 +4,7 @@ A Kubernetes client library for **Zig** — 73 resource types across 19 API grou
 
 |              |                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------- |
-| **Build**    | Zig 0.16.0 and current 0.17-dev                                                        |
+| **Build**    | Zig 0.17.0                                                                            |
 | **Coverage** | 73 resource types / 19 API groups, current through K8s 1.37                            |
 | **Tested**   | Live CRUD on **K8s 1.37.0** (`DeviceTaintRule`, `ClusterTrustBundle`, `StorageVersionMigration` v1) and on **1.36.1** (`MutatingAdmissionPolicy`), both via `kubectl proxy` |
 | **Deps**     | [yaml-zig](https://github.com/sakakibara/yaml-zig)                                    |
@@ -15,7 +15,7 @@ A Kubernetes client library for **Zig** — 73 resource types across 19 API grou
 > **Connecting & TLS — read this first.** Direct HTTPS does not work against a normal
 > Kubernetes API server. `std.crypto.tls.Client` has no handling for the
 > `certificate_request` handshake message ([ziglang/zig#19521](https://github.com/ziglang/zig/issues/19521)),
-> re-checked on Zig **0.16.0** and **0.17.0-dev.1936**. An API server sends one whenever
+> re-checked on Zig **0.17.0**. An API server sends one whenever
 > it is started with `--client-ca-file` — the default for every distribution, managed or
 > not. The handshake aborts with `TlsUnexpectedMessage`, which `std.http.Client` reports
 > as `error.TlsInitializationFailed`. This is not caused by self-signed certificates and
@@ -122,7 +122,7 @@ StorageVersionMigration
 
 ### Authentication
 - **Bearer token** — static token or in-cluster service-account token
-- **mTLS** — *not supported on Zig 0.16 or 0.17-dev* (`std.crypto.tls` cannot present a client
+- **mTLS** — *not supported on Zig 0.17.0* (`std.crypto.tls` cannot present a client
   certificate); `K8sClient.init` rejects client-cert options rather than ignoring them
 - **Exec credential plugins** — AWS EKS, GCP GKE, Azure AKS, generic OIDC
 - **In-cluster config** — automatic service-account detection inside a pod
@@ -297,7 +297,7 @@ var client = try klient.K8sClient.init(allocator, io, .{
 defer client.deinit();
 ```
 
-> **mTLS is not available on Zig 0.16 or 0.17-dev.** Setting `client_cert_data`, `client_key_data`,
+> **mTLS is not available on Zig 0.17.0.** Setting `client_cert_data`, `client_key_data`,
 > `client_cert_path`, `client_key_path`, `insecure_skip_verify` or `server_name` returns
 > an error from `init` (`error.ClientCertificatesUnsupported`,
 > `error.InsecureSkipVerifyUnsupported`, `error.TlsServerNameUnsupported`) — these were
@@ -816,7 +816,7 @@ zig-klient/
 
 ## Requirements
 
-- Zig **0.16.0** or **0.17-dev**
+- Zig **0.17.0**
 - kubectl (optional; only for `kubectl proxy` / integration tests)
 - Cloud CLI tools (optional, for exec credential plugins):
   - `aws` CLI for EKS
@@ -833,7 +833,7 @@ SemVer for `0.x`:
 
 The 1.0 line will stabilize the public surface once the resource API and the
 streaming/TLS paths have soaked. Each release's breaking changes are called out in
-[CHANGELOG.md](CHANGELOG.md). Targets Zig 0.16.0 and current 0.17-dev, and
+[CHANGELOG.md](CHANGELOG.md). Targets Zig 0.17.0 and
 Kubernetes through 1.37.
 
 ## License

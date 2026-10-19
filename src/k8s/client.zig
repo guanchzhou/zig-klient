@@ -126,10 +126,9 @@ pub const K8sClient = struct {
     /// Explains `error.TlsInitializationFailed`, which `std.http.Client` returns for
     /// every handshake failure with the cause discarded.
     ///
-    /// The usual cause is not a bad CA: Zig 0.16's TLS client has no handling for the
+    /// The usual cause is not a bad CA: Zig 0.17.0's TLS client has no handling for the
     /// `certificate_request` handshake message (it appears nowhere in
-    /// `std/crypto/tls/Client.zig`; ziglang/zig#19521). Re-checked on
-    /// 0.17.0-dev.1936+5a625d5f3 — still absent. A Kubernetes API server sends one
+    /// `std/crypto/tls/Client.zig`; ziglang/zig#19521). A Kubernetes API server sends one
     /// whenever it is started with `--client-ca-file` — the default for every
     /// distribution. The handshake then aborts with `TlsUnexpectedMessage`, which
     /// surfaces here masked.
@@ -657,7 +656,7 @@ pub const K8sClient = struct {
 
                 if (!options.accept_compression) {
                     req.accept_encoding = @splat(false);
-                    req.accept_encoding[@intFromEnum(std.http.ContentEncoding.identity)] = true;
+                    req.accept_encoding[@backingInt(std.http.ContentEncoding.identity)] = true;
                     req.headers.accept_encoding = .{ .override = "identity" };
                 }
 
@@ -754,7 +753,7 @@ pub const K8sClient = struct {
         const self = context.client;
         if (context.status_out) |out| out.* = meta.status;
         if (meta.status.class() != .success) {
-            const http_code: i64 = @intFromEnum(meta.status);
+            const http_code: i64 = @backingInt(meta.status);
             if (context.err_out) |out| out.* = ApiError{ .code = http_code };
 
             var error_buffer = try std.ArrayList(u8).initCapacity(self.allocator, 4096);

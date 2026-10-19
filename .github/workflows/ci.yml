@@ -14,15 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Zig 0.16.0
+      - name: Install Zig 0.17.0
         env:
-          ZIG_URL: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
-          ZIG_SHA: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+          ZIG_URL: https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
+          ZIG_SHA: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
         run: |
           curl -fsSL "$ZIG_URL" -o zig.tar.xz
           echo "$ZIG_SHA  zig.tar.xz" | shasum -a 256 -c -
           tar -xf zig.tar.xz
-          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+          echo "$PWD/zig-x86_64-linux-0.17.0" >> "$GITHUB_PATH"
       - name: Check formatting
         run: zig fmt --check src/ tests/ build.zig build.zig.zon
 
@@ -33,17 +33,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            zig_url: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
-            zig_sha: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
-            zig_dir: zig-x86_64-linux-0.16.0
+            zig_url: https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
+            zig_sha: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+            zig_dir: zig-x86_64-linux-0.17.0
           - os: macos-latest
-            zig_url: https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz
-            zig_sha: b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489
-            zig_dir: zig-aarch64-macos-0.16.0
+            zig_url: https://ziglang.org/download/0.17.0/zig-aarch64-macos-0.17.0.tar.xz
+            zig_sha: b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a
+            zig_dir: zig-aarch64-macos-0.17.0
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Zig 0.16.0
+      - name: Install Zig 0.17.0
         env:
           ZIG_URL: ${{ matrix.zig_url }}
           ZIG_SHA: ${{ matrix.zig_sha }}
