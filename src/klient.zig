@@ -2,7 +2,7 @@
 ///
 /// A Kubernetes client library for Zig, providing:
 /// - Typed CRUD on 73 Kubernetes resource types across 19 API groups (through 1.37)
-/// - Bearer token and exec credential authentication (mTLS is not available on Zig 0.16)
+/// - Bearer token and exec credential authentication (mTLS is not available on Zig 0.17.0)
 /// - Retry logic with exponential backoff
 /// - Watch API for real-time resource updates
 /// - Thread-safe connection pooling

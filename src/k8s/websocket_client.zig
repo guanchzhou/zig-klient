@@ -199,7 +199,7 @@ pub const WebSocketConnection = struct {
 
         // Build WebSocket frame header
         const fin: u8 = 0x80; // FIN bit set
-        const header_byte1 = fin | @intFromEnum(opcode);
+        const header_byte1 = fin | @backingInt(opcode);
         try self.write_buffer.append(self.allocator, header_byte1);
 
         // Payload length and masking (RFC 6455 Section 5.2 - network byte order / big-endian)
@@ -253,7 +253,7 @@ pub const WebSocketConnection = struct {
 
         // Parse header
         const fin = (header[0] & 0x80) != 0;
-        const opcode = @as(OpCode, @enumFromInt(header[0] & 0x0F));
+        const opcode = @as(OpCode, @fromBackingInt(@intCast(header[0] & 0x0F)));
         const masked = (header[1] & 0x80) != 0;
         var payload_len: u64 = header[1] & 0x7F;
 
@@ -380,7 +380,7 @@ pub const Channel = enum(u8) {
     resize = 4, // For TTY resize events
 
     pub fn toInt(self: Channel) u8 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 
