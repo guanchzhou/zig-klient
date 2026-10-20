@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-20
+
+### Fixed
+
+- Synced `klient.version`, `klient.versionString()`, and `sbom.cdx.json` with `build.zig.zon`.
+- Added bounded `watch_timeout_seconds` (`timeoutSeconds=30`) and immediate `running` checks in `Informer` so `stop()` returns promptly.
+- Serialized JSON payloads via `std.json.Stringify.valueAlloc` in `Pods.evict` and `Deployments.setImage` instead of raw string interpolation, and routed `Pods.logsWithOptions`, `Pods.evict`, and `Nodes.setSchedulable` through `ResourceClient.send` so `error_sink` is always invoked.
+
 ## [0.8.3] - 2026-10-19
 
 ### Changed

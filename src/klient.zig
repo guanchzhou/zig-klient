@@ -326,13 +326,13 @@ pub const AccessReview = auth.AccessReview;
 /// releases behind (it still read 0.1.0-alpha at 0.4.0).
 pub const version = .{
     .major = 0,
-    .minor = 7,
-    .patch = 0,
+    .minor = 8,
+    .patch = 4,
     .pre_release = @as(?[]const u8, null),
 };
 
 pub fn versionString() []const u8 {
-    return "0.7.0";
+    return "0.8.4";
 }
 
 test {

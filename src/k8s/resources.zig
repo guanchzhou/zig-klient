@@ -675,7 +675,7 @@ pub const Pods = struct {
             try allocator.dupe(u8, base_path);
         defer allocator.free(path);
 
-        return try self.client.client.request(.GET, path, null);
+        return try self.client.send(.GET, path, null, "application/json");
     }
 
     pub fn evict(self: Pods, name: []const u8, namespace: ?[]const u8) !void {
@@ -689,14 +689,17 @@ pub const Pods = struct {
         );
         defer allocator.free(path);
 
-        const body = try std.fmt.allocPrint(
-            allocator,
-            "{{\"apiVersion\":\"policy/v1\",\"kind\":\"Eviction\",\"metadata\":{{\"name\":\"{s}\",\"namespace\":\"{s}\"}}}}",
-            .{ name, ns },
-        );
+        const body = try ResourceClient(types.Pod).serializeJson(allocator, .{
+            .apiVersion = "policy/v1",
+            .kind = "Eviction",
+            .metadata = .{
+                .name = name,
+                .namespace = ns,
+            },
+        });
         defer allocator.free(body);
 
-        const response = try self.client.client.request(.POST, path, body);
+        const response = try self.client.send(.POST, path, body, "application/json");
         allocator.free(response);
     }
 };
@@ -720,11 +723,22 @@ pub const Deployments = struct {
 
     pub fn setImage(self: Deployments, name: []const u8, container_name: []const u8, image: []const u8, namespace: ?[]const u8) !void {
         const allocator = self.client.client.allocator;
-        const patch_json = try std.fmt.allocPrint(
-            allocator,
-            "{{\"spec\":{{\"template\":{{\"spec\":{{\"containers\":[{{\"name\":\"{s}\",\"image\":\"{s}\"}}]}}}}}}}}",
-            .{ container_name, image },
-        );
+        const ContainerImagePatch = struct {
+            name: []const u8,
+            image: []const u8,
+        };
+        const patch_json = try ResourceClient(types.Deployment).serializeJson(allocator, .{
+            .spec = .{
+                .template = .{
+                    .spec = .{
+                        .containers = &[_]ContainerImagePatch{.{
+                            .name = container_name,
+                            .image = image,
+                        }},
+                    },
+                },
+            },
+        });
         defer allocator.free(patch_json);
 
         const result = try self.client.patch(name, patch_json, namespace);
@@ -775,7 +789,7 @@ pub const Nodes = struct {
         else
             "{\"spec\":{\"unschedulable\":true}}";
 
-        const response = try self.client.client.requestWithContentType(
+        const response = try self.client.send(
             .PATCH,
             path,
             patch_json,

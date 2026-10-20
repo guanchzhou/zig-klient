@@ -670,6 +670,8 @@ pub fn Informer(comptime T: type) type {
         cache: std.StringHashMap(std.json.Parsed(T)),
         /// Owned (duped) copy — the source slice lives in a parse arena that gets freed.
         resource_version: ?[]const u8,
+        /// Per-watch request timeout in seconds so `stop()` is checked periodically even on quiet clusters.
+        watch_timeout_seconds: u32 = 30,
         running: std.atomic.Value(bool),
         mutex: std.atomic.Mutex,
 
@@ -839,6 +841,7 @@ pub fn Informer(comptime T: type) type {
                 self.namespace,
                 .{
                     .resource_version = self.resource_version,
+                    .timeout_seconds = self.watch_timeout_seconds,
                     .allow_watch_bookmarks = true,
                 },
             );
@@ -855,6 +858,7 @@ pub fn Informer(comptime T: type) type {
         /// Callback for watch events — updates the informer cache.
         fn handleWatchEvent(self: *Self, event: *WatchEvent(T)) anyerror!void {
             defer event.deinit();
+            if (!self.running.load(.acquire)) return error.Canceled;
 
             lockMutex(&self.mutex);
             defer self.mutex.unlock();
