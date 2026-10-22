@@ -327,12 +327,12 @@ pub const AccessReview = auth.AccessReview;
 pub const version = .{
     .major = 0,
     .minor = 8,
-    .patch = 4,
+    .patch = 5,
     .pre_release = @as(?[]const u8, null),
 };
 
 pub fn versionString() []const u8 {
-    return "0.8.4";
+    return "0.8.5";
 }
 
 test {

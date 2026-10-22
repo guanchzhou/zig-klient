@@ -1,6 +1,6 @@
 .{
     .name = .zig_klient,
-    .version = "0.8.4",
+    .version = "0.8.5",
     .fingerprint = 0x67475dbf5e099887,
     .minimum_zig_version = "0.17.0",
     .paths = .{
@@ -10,11 +10,9 @@
         "tests",
     },
     .dependencies = .{
-        // Dual-compatible fix proposed upstream:
-        // https://github.com/sakakibara/yaml-zig/pull/2
         .yaml = .{
-            .url = "git+https://github.com/guanchzhou/yaml-zig#7c2420ebf266bab8fbf3a3b87f12037ef89aaab2",
-            .hash = "yaml-0.4.0-MIhruOpADABl6nMLFgv_hcjam7BdGR_CQLZuLKBa8Nx3",
+            .url = "git+https://github.com/sakakibara/yaml-zig#v0.6.0",
+            .hash = "yaml-0.6.0-MIhruJByDQA7YzTxNpJRb_H2AFnhqBw17iZ9FCCqUBJZ",
         },
     },
 }

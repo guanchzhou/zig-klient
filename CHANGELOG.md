@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-22
+
+### Changed
+
+- yaml-zig is pinned to upstream v0.6.0. The temporary fork pin is removed.
+
 ## [0.8.4] - 2026-10-20
 
 ### Fixed
