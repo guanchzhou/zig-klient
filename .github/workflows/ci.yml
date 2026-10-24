@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 # Dependencies (yaml-zig, zig-protobuf) are git-pinned in build.zig.zon and fetched
 # by `zig build`, so no sibling checkout is needed.
 jobs:
@@ -13,7 +16,9 @@ jobs:
     name: zig fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Zig 0.17.0
         env:
           ZIG_URL: https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
@@ -42,7 +47,9 @@ jobs:
             zig_dir: zig-aarch64-macos-0.17.0
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Zig 0.17.0
         env:
           ZIG_URL: ${{ matrix.zig_url }}
@@ -77,7 +84,9 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Zig master
         run: |
           set -euo pipefail

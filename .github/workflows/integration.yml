@@ -7,12 +7,17 @@ on:
   schedule:
     - cron: "0 6 * * *"
 
+permissions:
+  contents: read
+
 jobs:
   kind-integration:
     name: Live integration on kind
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Zig 0.17.0
         env:
@@ -25,7 +30,7 @@ jobs:
           echo "$PWD/zig-x86_64-linux-0.17.0" >> "$GITHUB_PATH"
 
       - name: Create kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           # kind node image — bump as kind ships newer Kubernetes.
           node_image: kindest/node:v1.33.1
