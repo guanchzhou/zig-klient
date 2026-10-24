@@ -41,8 +41,9 @@ jobs:
       - name: Start kubectl proxy (allow exec/attach)
         run: |
           kubectl proxy --port=8080 --reject-paths='^$' &
-          for i in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:8080/healthz && break || sleep 1
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then break; fi
+            sleep 1
           done
 
       - name: Create exec target pod

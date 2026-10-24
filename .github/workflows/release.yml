@@ -59,12 +59,16 @@ jobs:
           cosign sign-blob --yes --bundle sbom.cdx.json.cosign.bundle sbom.cdx.json
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          body_path: release-notes.md
-          files: |
-            sbom.cdx.json
-            SHA256SUMS
-            SHA256SUMS.cosign.bundle
-            sbom.cdx.json.cosign.bundle
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            sbom.cdx.json \
+            SHA256SUMS \
+            SHA256SUMS.cosign.bundle \
+            sbom.cdx.json.cosign.bundle \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-file release-notes.md
