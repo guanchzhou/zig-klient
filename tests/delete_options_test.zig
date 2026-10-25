@@ -166,3 +166,42 @@ test "FieldValidation - toString" {
     try std.testing.expectEqualStrings("Warn", delete_opts.FieldValidation.warn.toString());
     try std.testing.expectEqualStrings("Ignore", delete_opts.FieldValidation.ignore.toString());
 }
+
+test "DeleteOptions - buildBody escapes quotes, backslashes and newlines" {
+    const allocator = std.testing.allocator;
+
+    const options = delete_opts.DeleteOptions{
+        .grace_period_seconds = 5,
+        .propagation_policy = "Background\",\"kind\":\"Evil",
+        .preconditions = .{
+            .resource_version = "12\\\"3\n",
+            .uid = "u\"id\r\n}",
+        },
+    };
+    const body = try options.buildBody(allocator);
+    defer allocator.free(body);
+
+    const Parsed = struct {
+        apiVersion: []const u8,
+        kind: []const u8,
+        gracePeriodSeconds: i64,
+        propagationPolicy: []const u8,
+        preconditions: struct { resourceVersion: []const u8, uid: []const u8 },
+    };
+    const parsed = try std.json.parseFromSlice(Parsed, allocator, body, .{});
+    defer parsed.deinit();
+
+    try std.testing.expectEqualStrings("v1", parsed.value.apiVersion);
+    try std.testing.expectEqualStrings("DeleteOptions", parsed.value.kind);
+    try std.testing.expectEqual(@as(i64, 5), parsed.value.gracePeriodSeconds);
+    try std.testing.expectEqualStrings(options.propagation_policy.?, parsed.value.propagationPolicy);
+    try std.testing.expectEqualStrings(options.preconditions.?.resource_version.?, parsed.value.preconditions.resourceVersion);
+    try std.testing.expectEqualStrings(options.preconditions.?.uid.?, parsed.value.preconditions.uid);
+}
+
+test "DeleteOptions - buildBody omits unset fields" {
+    const allocator = std.testing.allocator;
+    const body = try (delete_opts.DeleteOptions{}).buildBody(allocator);
+    defer allocator.free(body);
+    try std.testing.expectEqualStrings("{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\"}", body);
+}

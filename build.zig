@@ -48,6 +48,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-protobuf", .source = "tests/protobuf_request_test.zig", .desc = "Run raw Protobuf request tests" },
         .{ .name = "test-registry", .source = "tests/resource_registry_test.zig", .desc = "Run resource registry tests" },
         .{ .name = "test-query", .source = "tests/query_test.zig", .desc = "Run query builder tests" },
+        .{ .name = "test-path", .source = "tests/path_test.zig", .desc = "Run path segment and header validation tests" },
         .{ .name = "test-stream-get", .source = "tests/stream_get_test.zig", .desc = "Run streaming GET and local HTTP tests" },
         .{ .name = "test-watch", .source = "tests/watch_test.zig", .desc = "Run watch/informer tests" },
         .{ .name = "test-discovery", .source = "tests/discovery_test.zig", .desc = "Run API discovery tests" },

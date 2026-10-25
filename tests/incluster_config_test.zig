@@ -36,3 +36,19 @@ test "InClusterConfig - loadInClusterConfig error handling" {
     // We expect an error when not running in a cluster
     try testing.expectError(error.ServiceAccountTokenNotFound, result);
 }
+
+test "InClusterConfig - formatServerUrl brackets IPv6 hosts" {
+    const allocator = testing.allocator;
+    const cases = [_]struct { host: []const u8, port: []const u8, expected: []const u8 }{
+        .{ .host = "fd00::1", .port = "443", .expected = "https://[fd00::1]:443" },
+        .{ .host = "2001:db8::a:1", .port = "6443", .expected = "https://[2001:db8::a:1]:6443" },
+        .{ .host = "[fd00::1]", .port = "443", .expected = "https://[fd00::1]:443" },
+        .{ .host = "10.96.0.1", .port = "443", .expected = "https://10.96.0.1:443" },
+        .{ .host = "kubernetes.default.svc", .port = "443", .expected = "https://kubernetes.default.svc:443" },
+    };
+    for (cases) |case| {
+        const url = try klient.incluster.formatServerUrl(allocator, case.host, case.port);
+        defer allocator.free(url);
+        try testing.expectEqualStrings(case.expected, url);
+    }
+}

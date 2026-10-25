@@ -1,6 +1,7 @@
 const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
 const QueryWriter = @import("query.zig").QueryWriter;
+const validatePathSegment = @import("path.zig").validatePathSegment;
 
 /// Server-side apply options
 pub const ApplyOptions = struct {
@@ -99,6 +100,10 @@ pub const ApplyHelper = struct {
         // Build query string
         const query_string = try options.buildQueryString(self.client.allocator);
         defer self.client.allocator.free(query_string);
+
+        try validatePathSegment(resource);
+        try validatePathSegment(name);
+        if (namespace) |ns| try validatePathSegment(ns);
 
         // Build path
         const path = if (namespace) |ns|

@@ -2,6 +2,7 @@ const std = @import("std");
 const QueryWriter = @import("query.zig").QueryWriter;
 const crypto = std.crypto;
 const tls = @import("tls.zig");
+const path_mod = @import("path.zig");
 
 /// WebSocket client for the Kubernetes streaming protocol (SPDY channel framing
 /// over WebSocket). Used for: exec, attach, port-forward.
@@ -24,9 +25,14 @@ pub const WebSocketClient = struct {
         token: ?[]const u8,
         ca_cert_data: ?[]const u8,
     ) !WebSocketClient {
+        if (token) |t| try path_mod.validateBearerToken(t);
+
         var http_client = std.http.Client{ .allocator = allocator, .io = io };
+        errdefer http_client.deinit();
         const now = std.Io.Timestamp.now(io, .real);
-        http_client.ca_bundle.rescan(allocator, io, now) catch {};
+        // A supplied cluster CA replaces the system roots rather than joining them.
+        // Setting `now` is what stops std.http.Client from rescanning them lazily.
+        if (ca_cert_data == null) http_client.ca_bundle.rescan(allocator, io, now) catch {};
         http_client.now = now;
 
         const api_server_owned = try allocator.dupe(u8, api_server);
@@ -66,8 +72,10 @@ pub const WebSocketClient = struct {
         path: []const u8,
         subprotocol: []const u8,
     ) !WebSocketConnection {
+        try path_mod.validateHeaderValue(subprotocol);
         const ws_url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.api_server, path });
         defer self.allocator.free(ws_url);
+        try path_mod.validateRequestUrl(ws_url);
         const uri = try std.Uri.parse(ws_url);
 
         // RFC 6455 §4.1: random 16-byte nonce, base64-encoded.
@@ -99,6 +107,9 @@ pub const WebSocketClient = struct {
 
         var req = try self.http_client.request(.GET, uri, .{
             .keep_alive = false,
+            // Authorization is in extra_headers, which std.http.Client would replay
+            // to whatever host a redirect names.
+            .redirect_behavior = .not_allowed,
             // We emit "Connection: Upgrade" via extra_headers; suppress the auto header.
             .headers = .{ .connection = .omit },
             .extra_headers = extra[0..n],
@@ -161,6 +172,188 @@ pub const OpCode = enum(u8) {
 /// cluster advertising a huge length to force an unbounded allocation).
 const max_frame_payload: u64 = 16 * 1024 * 1024;
 
+/// RFC 6455 §5.5: control frames carry at most 125 payload bytes and are never fragmented.
+const max_control_payload: u64 = 125;
+
+/// One decoded WebSocket frame. `payload` borrows the buffer passed to `readFrame`
+/// and is valid until that buffer is next used.
+pub const Frame = struct {
+    opcode: OpCode,
+    payload: []const u8,
+};
+
+/// Read and unmask one frame from a raw WebSocket byte stream into `buffer`.
+///
+/// Rejects reserved opcodes and RSV bits (no extension is negotiated), control
+/// frames over 125 bytes or fragmented, payloads over 16 MiB, and fragmented data
+/// frames.
+pub fn readFrame(
+    allocator: std.mem.Allocator,
+    reader: *std.Io.Reader,
+    buffer: *std.ArrayList(u8),
+) !Frame {
+    buffer.clearRetainingCapacity();
+
+    var header: [2]u8 = undefined;
+    try reader.readSliceAll(&header);
+
+    const fin = (header[0] & 0x80) != 0;
+    if ((header[0] & 0x70) != 0) return error.ReservedBitsSet;
+    const raw_opcode: u4 = @truncate(header[0]);
+    const opcode: OpCode = switch (raw_opcode) {
+        0x0 => .continuation,
+        0x1 => .text,
+        0x2 => .binary,
+        0x8 => .close,
+        0x9 => .ping,
+        0xA => .pong,
+        else => return error.ReservedOpcode,
+    };
+    const masked = (header[1] & 0x80) != 0;
+    var payload_len: u64 = header[1] & 0x7F;
+
+    if ((raw_opcode & 0x8) != 0) {
+        if (payload_len > max_control_payload) return error.ControlFrameTooLarge;
+        if (!fin) return error.FragmentedControlFrame;
+    }
+
+    if (payload_len == 126) {
+        var len_bytes: [2]u8 = undefined;
+        try reader.readSliceAll(&len_bytes);
+        payload_len = std.mem.readInt(u16, &len_bytes, .big);
+    } else if (payload_len == 127) {
+        var len_bytes: [8]u8 = undefined;
+        try reader.readSliceAll(&len_bytes);
+        payload_len = std.mem.readInt(u64, &len_bytes, .big);
+    }
+
+    // Bound the advertised length so a malicious server cannot force an
+    // unbounded allocation.
+    if (payload_len > max_frame_payload) return error.FrameTooLarge;
+
+    var masking_key: [4]u8 = undefined;
+    if (masked) try reader.readSliceAll(&masking_key);
+
+    try buffer.resize(allocator, @intCast(payload_len));
+    try reader.readSliceAll(buffer.items);
+
+    if (masked) {
+        for (buffer.items, 0..) |*byte, i| {
+            byte.* ^= masking_key[i % 4];
+        }
+    }
+
+    if (!fin) return error.FragmentedFramesNotSupported;
+
+    return .{ .opcode = opcode, .payload = buffer.items };
+}
+
+/// Encode one masked client frame into `buffer` and write it to `writer`.
+/// The caller flushes.
+pub fn writeFrame(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    writer: *std.Io.Writer,
+    buffer: *std.ArrayList(u8),
+    opcode: OpCode,
+    payload: []const u8,
+) !void {
+    buffer.clearRetainingCapacity();
+
+    const fin: u8 = 0x80;
+    try buffer.append(allocator, fin | @backingInt(opcode));
+
+    // RFC 6455 §5.2: network byte order; client frames must be masked.
+    const mask_bit: u8 = 0x80;
+    if (payload.len < 126) {
+        try buffer.append(allocator, @as(u8, @intCast(payload.len)) | mask_bit);
+    } else if (payload.len <= 65535) {
+        try buffer.append(allocator, 126 | mask_bit);
+        var len_bytes: [2]u8 = undefined;
+        std.mem.writeInt(u16, &len_bytes, @intCast(payload.len), .big);
+        try buffer.appendSlice(allocator, &len_bytes);
+    } else {
+        try buffer.append(allocator, 127 | mask_bit);
+        var len_bytes: [8]u8 = undefined;
+        std.mem.writeInt(u64, &len_bytes, @intCast(payload.len), .big);
+        try buffer.appendSlice(allocator, &len_bytes);
+    }
+
+    // RFC 6455 §5.3 requires an unpredictable masking key.
+    var masking_key: [4]u8 = undefined;
+    try io.randomSecure(&masking_key);
+    try buffer.appendSlice(allocator, &masking_key);
+
+    const payload_start = buffer.items.len;
+    try buffer.appendSlice(allocator, payload);
+    for (buffer.items[payload_start..], 0..) |*byte, i| {
+        byte.* ^= masking_key[i % 4];
+    }
+
+    try writer.writeAll(buffer.items);
+}
+
+/// Read frames until one carries a SPDY channel message. Pings are answered via
+/// `pong(context, payload)`; control frames are consumed in a loop so a peer that
+/// streams pings costs a pong each, never stack depth.
+fn receiveChannelMessage(
+    allocator: std.mem.Allocator,
+    reader: *std.Io.Reader,
+    read_buffer: *std.ArrayList(u8),
+    context: anytype,
+    pong: anytype,
+) !ChannelMessage {
+    while (true) {
+        const frame = try readFrame(allocator, reader, read_buffer);
+        switch (frame.opcode) {
+            .close => return error.ConnectionClosed,
+            .ping => try pong(context, frame.payload),
+            .pong => {},
+            .binary, .text => {
+                if (frame.payload.len < 1) return error.InvalidSPDYFrame;
+                return ChannelMessage{
+                    .channel = frame.payload[0],
+                    .data = try allocator.dupe(u8, frame.payload[1..]),
+                };
+            },
+            .continuation => return error.UnexpectedFrameType,
+        }
+    }
+}
+
+/// `WebSocketConnection.receive` over an arbitrary raw WebSocket byte stream.
+/// Pongs are written to `writer` and flushed. Caller owns the returned message.
+pub fn receiveFromStream(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    reader: *std.Io.Reader,
+    writer: *std.Io.Writer,
+) !ChannelMessage {
+    var read_buffer: std.ArrayList(u8) = .empty;
+    defer read_buffer.deinit(allocator);
+    var write_buffer: std.ArrayList(u8) = .empty;
+    defer write_buffer.deinit(allocator);
+
+    const PongWriter = struct {
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        writer: *std.Io.Writer,
+        buffer: *std.ArrayList(u8),
+
+        fn pong(self: *const @This(), payload: []const u8) !void {
+            try writeFrame(self.allocator, self.io, self.writer, self.buffer, .pong, payload);
+            try self.writer.flush();
+        }
+    };
+    const pong_writer: PongWriter = .{
+        .allocator = allocator,
+        .io = io,
+        .writer = writer,
+        .buffer = &write_buffer,
+    };
+    return receiveChannelMessage(allocator, reader, &read_buffer, &pong_writer, PongWriter.pong);
+}
+
 /// WebSocket connection for Kubernetes streaming.
 /// Holds the upgraded HTTP request alive so its TLS-aware connection can be used
 /// for raw frame I/O; releasing `req` (in deinit) tears the connection down.
@@ -193,111 +386,12 @@ pub const WebSocketConnection = struct {
     /// Send a WebSocket frame
     fn sendFrame(self: *WebSocketConnection, opcode: OpCode, payload: []const u8) !void {
         if (!self.connected) return error.NotConnected;
-
-        // Clear write buffer
-        self.write_buffer.clearRetainingCapacity();
-
-        // Build WebSocket frame header
-        const fin: u8 = 0x80; // FIN bit set
-        const header_byte1 = fin | @backingInt(opcode);
-        try self.write_buffer.append(self.allocator, header_byte1);
-
-        // Payload length and masking (RFC 6455 Section 5.2 - network byte order / big-endian)
-        const mask_bit: u8 = 0x80; // Client must mask
-        if (payload.len < 126) {
-            const len_byte = @as(u8, @intCast(payload.len)) | mask_bit;
-            try self.write_buffer.append(self.allocator, len_byte);
-        } else if (payload.len <= 65535) {
-            try self.write_buffer.append(self.allocator, 126 | mask_bit);
-            var len_bytes: [2]u8 = undefined;
-            std.mem.writeInt(u16, &len_bytes, @intCast(payload.len), .big);
-            try self.write_buffer.appendSlice(self.allocator, &len_bytes);
-        } else {
-            try self.write_buffer.append(self.allocator, 127 | mask_bit);
-            var len_bytes: [8]u8 = undefined;
-            std.mem.writeInt(u64, &len_bytes, @intCast(payload.len), .big);
-            try self.write_buffer.appendSlice(self.allocator, &len_bytes);
-        }
-
-        // Generate masking key (RFC 6455 §5.3 requires client frames be masked
-        // with an unpredictable key).
-        var masking_key: [4]u8 = undefined;
-        try self.io.randomSecure(&masking_key);
-        try self.write_buffer.appendSlice(self.allocator, &masking_key);
-
-        // Mask and append payload
-        const payload_start = self.write_buffer.items.len;
-        try self.write_buffer.appendSlice(self.allocator, payload);
-        for (self.write_buffer.items[payload_start..], 0..) |*byte, i| {
-            byte.* ^= masking_key[i % 4];
-        }
-
-        // Send frame over the (TLS-aware) connection and flush.
-        const w = self.connWriter();
-        try w.writeAll(self.write_buffer.items);
+        try writeFrame(self.allocator, self.io, self.connWriter(), &self.write_buffer, opcode, payload);
         try self.req.connection.?.flush();
     }
 
-    /// Receive a WebSocket frame
-    fn receiveFrame(self: *WebSocketConnection) !struct { opcode: OpCode, payload: []const u8 } {
-        if (!self.connected) return error.NotConnected;
-
-        // Clear read buffer
-        self.read_buffer.clearRetainingCapacity();
-
-        const r = self.connReader();
-
-        // Read frame header (first 2 bytes)
-        var header: [2]u8 = undefined;
-        try r.readSliceAll(&header);
-
-        // Parse header
-        const fin = (header[0] & 0x80) != 0;
-        const opcode = @as(OpCode, @fromBackingInt(@intCast(header[0] & 0x0F)));
-        const masked = (header[1] & 0x80) != 0;
-        var payload_len: u64 = header[1] & 0x7F;
-
-        // Extended payload length
-        if (payload_len == 126) {
-            var len_bytes: [2]u8 = undefined;
-            try r.readSliceAll(&len_bytes);
-            payload_len = std.mem.readInt(u16, &len_bytes, .big);
-        } else if (payload_len == 127) {
-            var len_bytes: [8]u8 = undefined;
-            try r.readSliceAll(&len_bytes);
-            payload_len = std.mem.readInt(u64, &len_bytes, .big);
-        }
-
-        // Bound the advertised length so a malicious server cannot force an
-        // unbounded allocation.
-        if (payload_len > max_frame_payload) return error.FrameTooLarge;
-
-        // Read masking key (if masked)
-        var masking_key: [4]u8 = undefined;
-        if (masked) {
-            try r.readSliceAll(&masking_key);
-        }
-
-        // Read the full payload.
-        try self.read_buffer.resize(self.allocator, @intCast(payload_len));
-        try r.readSliceAll(self.read_buffer.items);
-
-        // Unmask payload (if masked)
-        if (masked) {
-            for (self.read_buffer.items, 0..) |*byte, i| {
-                byte.* ^= masking_key[i % 4];
-            }
-        }
-
-        if (!fin) {
-            // Handle fragmented frames (not common in Kubernetes)
-            return error.FragmentedFramesNotSupported;
-        }
-
-        return .{
-            .opcode = opcode,
-            .payload = self.read_buffer.items,
-        };
+    fn sendPong(self: *WebSocketConnection, payload: []const u8) !void {
+        return self.sendFrame(.pong, payload);
     }
 
     /// Send data on a specific SPDY channel
@@ -319,35 +413,16 @@ pub const WebSocketConnection = struct {
     pub fn receive(self: *WebSocketConnection) !ChannelMessage {
         if (!self.connected) return error.NotConnected;
 
-        const frame = try self.receiveFrame();
-
-        // Handle control frames
-        switch (frame.opcode) {
-            .close => {
-                self.connected = false;
-                return error.ConnectionClosed;
-            },
-            .ping => {
-                try self.sendFrame(.pong, frame.payload);
-                return try self.receive(); // Receive next frame
-            },
-            .pong => {
-                return try self.receive(); // Receive next frame
-            },
-            .binary, .text => {
-                // Parse SPDY frame
-                if (frame.payload.len < 1) return error.InvalidSPDYFrame;
-
-                const channel = frame.payload[0];
-                const data = try self.allocator.dupe(u8, frame.payload[1..]);
-
-                return ChannelMessage{
-                    .channel = channel,
-                    .data = data,
-                };
-            },
-            else => return error.UnexpectedFrameType,
-        }
+        return receiveChannelMessage(
+            self.allocator,
+            self.connReader(),
+            &self.read_buffer,
+            self,
+            sendPong,
+        ) catch |err| {
+            if (err == error.ConnectionClosed) self.connected = false;
+            return err;
+        };
     }
 
     /// Close the WebSocket connection (sends a close frame). The underlying
@@ -395,6 +470,10 @@ fn buildStreamPath(
     subresource: []const u8,
     query: *QueryWriter,
 ) ![]const u8 {
+    try path_mod.validatePathSegment(namespace);
+    try path_mod.validatePathSegment(pod_name);
+    try path_mod.validatePathSegment(subresource);
+
     const query_string = try query.toOwnedSlice();
     defer allocator.free(query_string);
 

@@ -204,3 +204,82 @@ test "buildPortForwardPath: emits one encoded ports param per port" {
         path,
     );
 }
+
+fn expectFrameError(expected: anyerror, bytes: []const u8) !void {
+    var reader: std.Io.Reader = .fixed(bytes);
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(std.testing.allocator);
+    try std.testing.expectError(expected, ws.readFrame(std.testing.allocator, &reader, &buffer));
+}
+
+test "WebSocket - readFrame rejects every reserved opcode" {
+    for ([_]u8{ 0x3, 0x4, 0x5, 0x6, 0x7, 0xB, 0xC, 0xD, 0xE, 0xF }) |opcode| {
+        try expectFrameError(error.ReservedOpcode, &.{ 0x80 | opcode, 0x00 });
+    }
+}
+
+test "WebSocket - readFrame rejects RSV bits and oversized or fragmented control frames" {
+    try expectFrameError(error.ReservedBitsSet, &.{ 0xC2, 0x00 });
+    try expectFrameError(error.ReservedBitsSet, &.{ 0x92, 0x00 });
+
+    var big_ping: [4 + 126]u8 = @splat(0);
+    big_ping[0] = 0x89;
+    big_ping[1] = 126;
+    big_ping[2] = 0;
+    big_ping[3] = 126;
+    try expectFrameError(error.ControlFrameTooLarge, &big_ping);
+
+    try expectFrameError(error.FragmentedControlFrame, &.{ 0x09, 0x00 });
+    try expectFrameError(error.FragmentedFramesNotSupported, &.{ 0x02, 0x00 });
+}
+
+test "WebSocket - readFrame accepts a 125-byte ping" {
+    var ping: [2 + 125]u8 = @splat('x');
+    ping[0] = 0x89;
+    ping[1] = 125;
+    var reader: std.Io.Reader = .fixed(&ping);
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(std.testing.allocator);
+    const frame = try ws.readFrame(std.testing.allocator, &reader, &buffer);
+    try std.testing.expectEqual(ws.OpCode.ping, frame.opcode);
+    try std.testing.expectEqual(@as(usize, 125), frame.payload.len);
+}
+
+test "WebSocket - a ping flood is answered without recursion" {
+    const allocator = std.testing.allocator;
+    const ping_count = 100_000;
+
+    const data_frame = [_]u8{ 0x82, 0x03, 0x01, 'h', 'i' };
+    const input = try allocator.alloc(u8, ping_count * 2 + data_frame.len);
+    defer allocator.free(input);
+    for (0..ping_count) |i| {
+        input[i * 2] = 0x89;
+        input[i * 2 + 1] = 0x00;
+    }
+    @memcpy(input[ping_count * 2 ..], &data_frame);
+
+    var reader: std.Io.Reader = .fixed(input);
+    var pongs: std.Io.Writer.Allocating = .init(allocator);
+    defer pongs.deinit();
+
+    const msg = try ws.receiveFromStream(allocator, std.testing.io, &reader, &pongs.writer);
+    defer msg.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u8, 1), msg.channel);
+    try std.testing.expectEqualStrings("hi", msg.data);
+    // Each pong is a masked, empty frame: two header bytes plus a four-byte mask.
+    const written = pongs.written();
+    try std.testing.expectEqual(@as(usize, ping_count * 6), written.len);
+    try std.testing.expectEqual(@as(u8, 0x8A), written[0]);
+    try std.testing.expectEqual(@as(u8, 0x80), written[1]);
+}
+
+test "WebSocket - receiveFromStream reports a close frame" {
+    var reader: std.Io.Reader = .fixed(&.{ 0x88, 0x00 });
+    var sink: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer sink.deinit();
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        ws.receiveFromStream(std.testing.allocator, std.testing.io, &reader, &sink.writer),
+    );
+}

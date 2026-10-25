@@ -1,6 +1,7 @@
 const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
 const discovery = @import("discovery.zig");
+const validatePathSegment = @import("path.zig").validatePathSegment;
 
 /// Default pin. metrics-server through 0.9.x and `master` as of 2026-08-30
 /// still registers only v1beta1 (`pkg/api/install.go`; kubernetes-sigs/metrics-server#1786
@@ -105,6 +106,7 @@ pub const MetricsClient = struct {
 
     /// Get metrics for a specific node
     pub fn getNodeMetricsByName(self: MetricsClient, name: []const u8) !std.json.Parsed(NodeMetrics) {
+        try validatePathSegment(name);
         const p = try self.path(self.client.allocator, "nodes/{s}", .{name});
         defer self.client.allocator.free(p);
 
@@ -136,6 +138,7 @@ pub const MetricsClient = struct {
 
     /// Get metrics for all pods in a namespace
     pub fn getPodMetrics(self: MetricsClient, namespace: []const u8) !std.json.Parsed(MetricsList(PodMetrics)) {
+        try validatePathSegment(namespace);
         const p = try self.path(self.client.allocator, "namespaces/{s}/pods", .{namespace});
         defer self.client.allocator.free(p);
 
@@ -152,6 +155,8 @@ pub const MetricsClient = struct {
 
     /// Get metrics for a specific pod
     pub fn getPodMetricsByName(self: MetricsClient, name: []const u8, namespace: []const u8) !std.json.Parsed(PodMetrics) {
+        try validatePathSegment(namespace);
+        try validatePathSegment(name);
         const p = try self.path(self.client.allocator, "namespaces/{s}/pods/{s}", .{ namespace, name });
         defer self.client.allocator.free(p);
 

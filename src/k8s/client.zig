@@ -2,6 +2,7 @@ const std = @import("std");
 const log = std.log.scoped(.klient);
 const retry_mod = @import("retry.zig");
 const tls_mod = @import("tls.zig");
+const path_mod = @import("path.zig");
 
 /// Controls one callback-scoped streaming GET request.
 pub const StreamGetOptions = struct {
@@ -56,6 +57,9 @@ pub const K8sClient = struct {
     retry_config: retry_mod.RetryConfig,
     tls_config: ?tls_mod.TlsConfig,
     max_response_size: usize,
+    /// `Bearer <token>`, built and validated once by `init` and owned by the client.
+    /// Null on a client assembled without `init`; requests then build it from `token`.
+    auth_header: ?[]const u8 = null,
 
     /// Structured Kubernetes API error. The strings are allocated with the client's
     /// allocator but owned by whoever captured it — call `deinit` with that same
@@ -147,6 +151,7 @@ pub const K8sClient = struct {
         // Validate before allocating anything: the CA bundle rescan below owns heap
         // memory, so bailing out after it would leak the whole system trust store.
         if (config.tls_config) |tls| try rejectUnsupportedTlsOptions(tls);
+        if (config.token) |t| try path_mod.validateBearerToken(t);
 
         var http_client = std.http.Client{
             .allocator = allocator,
@@ -156,32 +161,42 @@ pub const K8sClient = struct {
         // Every failure path past this point must release the bundle.
         errdefer http_client.deinit();
 
-        // Force an upfront certificate rescan so the first HTTPS request
-        // doesn't silently fail on platforms with non-standard CA paths (macOS).
+        const custom_ca = if (config.tls_config) |tls|
+            tls.ca_cert_data != null or tls.ca_cert_path != null
+        else
+            false;
+
+        // A supplied cluster CA replaces the system roots rather than joining them.
+        // Otherwise rescan upfront so the first HTTPS request doesn't silently fail
+        // on platforms with non-standard CA paths (macOS). Either way, setting `now`
+        // is what stops std.http.Client from rescanning lazily on first use.
         const now = std.Io.Timestamp.now(io, .real);
-        http_client.ca_bundle.rescan(allocator, io, now) catch {};
+        if (!custom_ca) http_client.ca_bundle.rescan(allocator, io, now) catch {};
         http_client.now = now;
 
-        // Configure custom CA bundle if TLS config provided
         if (config.tls_config) |tls| {
             if (tls.ca_cert_data) |ca_pem| {
-                // Hardened staging (random name + O_EXCL + immediate delete) lives in
-                // tls.addCaCertData; see there for the symlink/TOCTOU rationale.
                 try tls_mod.addCaCertData(&http_client, allocator, io, now, ca_pem);
             } else if (tls.ca_cert_path) |ca_path| {
-                http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, ca_path) catch |err| {
-                    // User explicitly provided a CA cert path that failed to load.
-                    return err;
-                };
+                try http_client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, ca_path);
             }
         }
+
+        const api_server = try allocator.dupe(u8, config.server);
+        errdefer allocator.free(api_server);
+        const token = if (config.token) |t| try allocator.dupe(u8, t) else null;
+        errdefer if (token) |t| allocator.free(t);
+        const auth_header = if (config.token) |t| try std.fmt.allocPrint(allocator, "Bearer {s}", .{t}) else null;
+        errdefer if (auth_header) |h| allocator.free(h);
+        const namespace = try allocator.dupe(u8, config.namespace orelse "default");
 
         return K8sClient{
             .allocator = allocator,
             .io = io,
-            .api_server = try allocator.dupe(u8, config.server),
-            .token = if (config.token) |t| try allocator.dupe(u8, t) else null,
-            .namespace = try allocator.dupe(u8, config.namespace orelse "default"),
+            .api_server = api_server,
+            .token = token,
+            .auth_header = auth_header,
+            .namespace = namespace,
             .http_client = http_client,
             .retry_config = config.retry_config orelse retry_mod.defaultConfig,
             .tls_config = config.tls_config,
@@ -192,6 +207,7 @@ pub const K8sClient = struct {
     pub fn deinit(self: *K8sClient) void {
         self.allocator.free(self.api_server);
         if (self.token) |t| self.allocator.free(t);
+        if (self.auth_header) |h| self.allocator.free(h);
         self.allocator.free(self.namespace);
         self.destroyHttpClient();
     }
@@ -381,7 +397,7 @@ pub const K8sClient = struct {
         }
 
         if (!force and !isIdempotent(method)) {
-            return self.sendOnce(method, path, body, format, err_out);
+            return self.sendOnce(method, path, body, format, err_out, null);
         }
 
         var retry_ctx = retry_mod.RetryContext.init(self.retry_config);
@@ -389,21 +405,22 @@ pub const K8sClient = struct {
             // The retry decision needs the status code even when the caller does not
             // want the detail, so always capture locally and hand over at the end.
             var attempt_err: ?ApiError = null;
-            const result = self.sendOnce(method, path, body, format, &attempt_err) catch |err| {
-                // A failed TLS handshake is deterministic — the CA, the URL and the
-                // peer's capabilities do not change between attempts. Retrying only
-                // burns the backoff budget and repeats the diagnostic N times.
-                if (err == error.TlsInitializationFailed) {
-                    if (attempt_err) |*e| e.deinit(self.allocator);
-                    return err;
-                }
-
+            var retry_after_seconds: ?u32 = null;
+            const result = self.sendOnce(method, path, body, format, &attempt_err, &retry_after_seconds) catch |err| {
                 const status_code: ?u16 = if (attempt_err) |api_err|
                     if (api_err.code) |code| std.math.cast(u16, code) else null
                 else
                     null;
 
-                if (!retry_ctx.shouldRetry(status_code)) {
+                // With a status the server answered and its code decides. Without one,
+                // only allow-listed transport failures are retried: a TLS handshake,
+                // an oversized body or a bad URL fails identically every attempt.
+                const retryable = if (err == error.K8sApiError)
+                    status_code != null
+                else
+                    retry_mod.isTransientError(err);
+
+                if (!retryable or !retry_ctx.shouldRetry(status_code)) {
                     // Last attempt: give the detail to the caller, or drop it.
                     if (err_out) |out| {
                         out.* = attempt_err;
@@ -417,7 +434,7 @@ pub const K8sClient = struct {
                 if (attempt_err) |*e| e.deinit(self.allocator);
 
                 retry_ctx.nextAttempt();
-                try retry_ctx.backoff();
+                try retry_ctx.sleepIo(self.io, retry_ctx.delayFor(status_code, retry_after_seconds));
                 continue;
             };
             return result;
@@ -485,10 +502,15 @@ pub const K8sClient = struct {
         client: *K8sClient,
         err_out: ?*?ApiError,
         status_out: ?*std.http.Status = null,
+        retry_after_out: ?*?u32 = null,
         result: ?[]u8 = null,
     };
 
     fn requestUrl(self: *K8sClient, path: []const u8, pretty: ?bool) ![]u8 {
+        // The URL is api_server ++ path plus, at most, a `pretty` parameter, so
+        // checking both parts covers the final URL.
+        try path_mod.validateRequestUrl(self.api_server);
+        try path_mod.validateRequestUrl(path);
         const base_len = std.math.add(usize, self.api_server.len, path.len) catch
             return error.RequestUrlTooLong;
         if (pretty == null) {
@@ -607,6 +629,17 @@ pub const K8sClient = struct {
             return error.IoMismatch;
         if (options.max_header_bytes == 0 or options.max_header_bytes > stream_header_capacity)
             return error.InvalidHeaderLimit;
+        // std.http.Client only asserts these are free of CR/LF, which is undefined
+        // behaviour in release builds rather than an error.
+        try path_mod.validateHeaderValue(format.content_type);
+        if (format.accept) |accept| try path_mod.validateHeaderValue(accept);
+
+        const fallback_auth: ?[]u8 = if (self.auth_header == null and self.token != null) blk: {
+            try path_mod.validateBearerToken(self.token.?);
+            break :blk try std.fmt.allocPrint(self.allocator, "Bearer {s}", .{self.token.?});
+        } else null;
+        defer if (fallback_auth) |value| self.allocator.free(value);
+        const auth_value: ?[]const u8 = self.auth_header orelse fallback_auth;
 
         var current_url = try self.requestUrl(path, options.pretty);
         defer self.allocator.free(current_url);
@@ -618,7 +651,6 @@ pub const K8sClient = struct {
             var next_url: ?[]u8 = null;
             {
                 const uri = try std.Uri.parse(current_url);
-                var header_buffer: [4096]u8 = undefined;
                 var headers = std.http.Client.Request.Headers{
                     .authorization = .omit,
                 };
@@ -633,10 +665,9 @@ pub const K8sClient = struct {
                     extra_headers = accept_header[0..1];
                 }
 
-                if (self.token) |token| {
+                if (auth_value) |value| {
                     if (try sameOrigin(self.api_server, current_url)) {
-                        const auth_value = try std.fmt.bufPrint(&header_buffer, "Bearer {s}", .{token});
-                        headers.authorization = .{ .override = auth_value };
+                        headers.authorization = .{ .override = value };
                     }
                 }
 
@@ -752,6 +783,7 @@ pub const K8sClient = struct {
     ) anyerror!void {
         const self = context.client;
         if (context.status_out) |out| out.* = meta.status;
+        if (context.retry_after_out) |out| out.* = meta.retry_after_seconds;
         if (meta.status.class() != .success) {
             const http_code: i64 = @backingInt(meta.status);
             if (context.err_out) |out| out.* = ApiError{ .code = http_code };
@@ -821,10 +853,12 @@ pub const K8sClient = struct {
         body: ?[]const u8,
         format: WireFormat,
         err_out: ?*?ApiError,
+        retry_after_out: ?*?u32,
     ) ![]u8 {
         var context: BufferedResponseContext = .{
             .client = self,
             .err_out = err_out,
+            .retry_after_out = retry_after_out,
         };
         try self.requestScoped(
             self.io,

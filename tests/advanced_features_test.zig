@@ -296,3 +296,41 @@ test "JsonPatch: replace still emits its value" {
         body,
     );
 }
+
+const test_ca_pem =
+    \\-----BEGIN CERTIFICATE-----
+    \\MIIBcTCCARagAwIBAgIUV4oQyF9qFO+kRGi3E6I9Ggks4QowCgYIKoZIzj0EAwIw
+    \\HTEbMBkGA1UEAwwSemlnLWtsaWVudC10ZXN0LWNhMCAXDTI2MTAyNTA1NDMwM1oY
+    \\DzIxMjYxMDAxMDU0MzAzWjAdMRswGQYDVQQDDBJ6aWcta2xpZW50LXRlc3QtY2Ew
+    \\WTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQ3Ahv1zlhVOyy8OFn2mFTW1AdM2fyL
+    \\d+mcwqLT+KzeLeoOWQ2/ssqEuT6wLox/SCwerGzKwnR9TR3i8aPwzPnWozIwMDAd
+    \\BgNVHQ4EFgQUv9DmqmnPPsSULCORKM4Y/zXwIjswDwYDVR0TAQH/BAUwAwEB/zAK
+    \\BggqhkjOPQQDAgNJADBGAiEA4bcsdp7o1KKJZckOtPtAmT3XyZ/lHUdZbixaSqMI
+    \\i5MCIQCZdwvU3bZY1L/oKEeJmq2iGN4WIpQGUJipJtud5+YJWw==
+    \\-----END CERTIFICATE-----
+    \\
+;
+
+test "TLS - addCertsFromPem parses a CA in memory" {
+    const allocator = std.testing.allocator;
+    var bundle: std.crypto.Certificate.Bundle = .empty;
+    defer bundle.deinit(allocator);
+
+    try tls.addCertsFromPem(&bundle, allocator, test_ca_pem, 1_800_000_000);
+    try std.testing.expectEqual(@as(u32, 1), bundle.map.count());
+}
+
+test "TLS - addCertsFromPem rejects input without a complete certificate" {
+    const allocator = std.testing.allocator;
+    var bundle: std.crypto.Certificate.Bundle = .empty;
+    defer bundle.deinit(allocator);
+
+    try std.testing.expectError(
+        error.NoCertificatesFound,
+        tls.addCertsFromPem(&bundle, allocator, "not a certificate", 1_800_000_000),
+    );
+    try std.testing.expectError(
+        error.MissingEndCertificateMarker,
+        tls.addCertsFromPem(&bundle, allocator, test_ca_pem[0..100], 1_800_000_000),
+    );
+}

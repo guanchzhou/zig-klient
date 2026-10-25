@@ -39,6 +39,10 @@ pub const StreamGetOptions = client.StreamGetOptions;
 pub const StreamResponseMeta = client.StreamResponseMeta;
 pub const resource_registry = @import("k8s/resource_registry.zig");
 
+// Request-path and header validation applied by every path builder
+pub const path = @import("k8s/path.zig");
+pub const validatePathSegment = path.validatePathSegment;
+
 // Proxy fallback for TLS limitations
 pub const proxy_fallback = @import("k8s/proxy_fallback.zig");
 pub const connectWithFallback = proxy_fallback.connectWithFallback;
@@ -327,12 +331,12 @@ pub const AccessReview = auth.AccessReview;
 pub const version = .{
     .major = 0,
     .minor = 8,
-    .patch = 5,
+    .patch = 6,
     .pre_release = @as(?[]const u8, null),
 };
 
 pub fn versionString() []const u8 {
-    return "0.8.5";
+    return "0.8.6";
 }
 
 test {

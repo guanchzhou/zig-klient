@@ -1,6 +1,7 @@
 const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
 const types = @import("types.zig");
+const validatePathSegment = @import("path.zig").validatePathSegment;
 
 /// Custom Resource Definition (CRD) metadata
 pub const CRDInfo = struct {
@@ -12,19 +13,24 @@ pub const CRDInfo = struct {
 
     /// Get API path for this CRD
     pub fn apiPath(self: CRDInfo, allocator: std.mem.Allocator) ![]const u8 {
+        try validatePathSegment(self.version);
         if (std.mem.eql(u8, self.group, "")) {
             return try std.fmt.allocPrint(allocator, "/api/{s}", .{self.version});
         }
+        try validatePathSegment(self.group);
         return try std.fmt.allocPrint(allocator, "/apis/{s}/{s}", .{ self.group, self.version });
     }
 
     /// Get resource path for this CRD
     pub fn resourcePath(self: CRDInfo, allocator: std.mem.Allocator, namespace: ?[]const u8, name: ?[]const u8) ![]const u8 {
+        try validatePathSegment(self.plural);
+        if (name) |n| try validatePathSegment(n);
         const api = try self.apiPath(allocator);
         defer allocator.free(api);
 
         if (self.namespaced) {
             const ns = namespace orelse "default";
+            try validatePathSegment(ns);
             if (name) |n| {
                 return try std.fmt.allocPrint(allocator, "{s}/namespaces/{s}/{s}/{s}", .{ api, ns, self.plural, n });
             }

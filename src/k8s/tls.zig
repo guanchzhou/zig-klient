@@ -3,11 +3,9 @@ const Io = std.Io;
 
 /// Load custom CA certificate PEM data into an `std.http.Client`'s trust bundle.
 ///
-/// SECURITY: the Certificate.Bundle parser only reads from a file, so the PEM is
-/// staged in a temp file using an UNPREDICTABLE random name + exclusive (O_EXCL)
-/// creation, and deleted immediately after the bundle copies the certs in. This
-/// prevents a local attacker on a shared /tmp from winning a symlink/TOCTOU race
-/// to inject their own CA (which would enable MITM of the API session).
+/// The PEM is parsed in memory; nothing touches the filesystem. Returns
+/// `error.NoCertificatesFound` when `ca_pem` holds no PEM certificate block, since
+/// a CA that silently adds nothing would leave the client trusting nobody.
 pub fn addCaCertData(
     client: *std.http.Client,
     allocator: std.mem.Allocator,
@@ -15,24 +13,46 @@ pub fn addCaCertData(
     now: Io.Timestamp,
     ca_pem: []const u8,
 ) !void {
-    var rand_bytes: [16]u8 = undefined;
-    try io.randomSecure(&rand_bytes);
-    const rand_hex = std.fmt.bytesToHex(rand_bytes, .lower);
-    const path = try std.fmt.allocPrint(allocator, "/tmp/zig-klient-ca-{s}.pem", .{&rand_hex});
-    defer allocator.free(path);
+    _ = io;
+    try addCertsFromPem(&client.ca_bundle, allocator, ca_pem, now.toSeconds());
+}
 
-    {
-        const file = try Io.Dir.createFileAbsolute(io, path, .{ .exclusive = true });
-        defer file.close(io);
-        var write_buf: [4096]u8 = undefined;
-        var file_writer = file.writer(io, &write_buf);
-        try file_writer.interface.writeAll(ca_pem);
-        try file_writer.flush();
+/// In-memory counterpart of `Certificate.Bundle.addCertsFromFile`: decode every
+/// `CERTIFICATE` PEM block in `pem` and add it to `bundle`. Expired certificates and
+/// ones with unrecognized object IDs are skipped, as the std loader does.
+pub fn addCertsFromPem(
+    bundle: *std.crypto.Certificate.Bundle,
+    allocator: std.mem.Allocator,
+    pem: []const u8,
+    now_sec: i64,
+) !void {
+    const begin_marker = "-----BEGIN CERTIFICATE-----";
+    const end_marker = "-----END CERTIFICATE-----";
+    const base64 = std.base64.standard.decoderWithIgnore(" \t\r\n");
+
+    var found = false;
+    var start_index: usize = 0;
+    while (std.mem.findPos(u8, pem, start_index, begin_marker)) |begin_marker_start| {
+        const cert_start = begin_marker_start + begin_marker.len;
+        const cert_end = std.mem.findPos(u8, pem, cert_start, end_marker) orelse
+            return error.MissingEndCertificateMarker;
+        start_index = cert_end + end_marker.len;
+
+        const encoded_cert = std.mem.trim(u8, pem[cert_start..cert_end], " \t\r\n");
+        const decoded_upper_bound = base64.calcSizeUpperBound(encoded_cert.len);
+        // Bundle indexes certificates with u32 offsets.
+        const decoded_start = std.math.cast(u32, bundle.bytes.items.len) orelse
+            return error.CertificateAuthorityBundleTooBig;
+        _ = std.math.cast(u32, bundle.bytes.items.len + decoded_upper_bound) orelse
+            return error.CertificateAuthorityBundleTooBig;
+
+        try bundle.bytes.ensureUnusedCapacity(allocator, decoded_upper_bound);
+        const decoded_len = try base64.decode(bundle.bytes.unusedCapacitySlice(), encoded_cert);
+        bundle.bytes.items.len += decoded_len;
+        try bundle.parseCert(allocator, decoded_start, now_sec);
+        found = true;
     }
-
-    const load_result = client.ca_bundle.addCertsFromFilePathAbsolute(allocator, io, now, path);
-    Io.Dir.deleteFileAbsolute(io, path) catch {};
-    try load_result;
+    if (!found) return error.NoCertificatesFound;
 }
 
 /// TLS configuration for custom CA certificates and mTLS authentication

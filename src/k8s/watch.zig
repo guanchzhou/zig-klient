@@ -5,16 +5,7 @@ const StreamResponseMeta = client_mod.StreamResponseMeta;
 const types = @import("types.zig");
 const ResourceClient = @import("resources.zig").ResourceClient;
 const QueryWriter = @import("query.zig").QueryWriter;
-
-/// Spin-wait until the mutex is acquired.
-/// std.atomic.Mutex in 0.16 only provides tryLock; there is no blocking lock().
-/// The informer holds this lock only briefly (cache reads/writes), so a short spin
-/// is acceptable.
-fn lockMutex(m: *std.atomic.Mutex) void {
-    while (!m.tryLock()) {
-        std.atomic.spinLoopHint();
-    }
-}
+const validatePathSegment = @import("path.zig").validatePathSegment;
 
 /// Watch event type
 pub const EventType = enum {
@@ -148,8 +139,8 @@ pub fn Watcher(comptime T: type) type {
         options: WatchOptions,
         resource_version: ?[]const u8,
         /// True once `resource_version` points at an allocation this watcher owns
-        /// (set when a BOOKMARK advances it). The initial value is borrowed from
-        /// `WatchOptions` and must not be freed.
+        /// (set when a handled event or BOOKMARK advances it). The initial value is
+        /// borrowed from `WatchOptions` and must not be freed.
         resource_version_owned: bool,
 
         const Self = @This();
@@ -224,10 +215,26 @@ pub fn Watcher(comptime T: type) type {
         /// is released, so storing it directly would dangle -- and the stale pointer
         /// would then be interpolated into the next watch URL.
         fn setResourceVersion(self: *Self, rv: []const u8) !void {
-            const owned = try self.client.allocator.dupe(u8, rv);
+            self.adoptResourceVersion(try self.client.allocator.dupe(u8, rv));
+        }
+
+        /// Take ownership of `owned` (allocated with the client's allocator) as the
+        /// new `resource_version`.
+        fn adoptResourceVersion(self: *Self, owned: []const u8) void {
             self.deinit();
             self.resource_version = owned;
             self.resource_version_owned = true;
+        }
+
+        /// Owned copy of an event object's `metadata.resourceVersion`, or null when
+        /// `T` has no such field or the object omits it.
+        fn dupeObjectResourceVersion(self: *Self, object: T) !?[]const u8 {
+            if (comptime !@hasField(T, "metadata")) return null;
+            const Meta = @TypeOf(object.metadata);
+            if (comptime !@hasField(Meta, "resourceVersion")) return null;
+            const rv = object.metadata.resourceVersion orelse return null;
+            if (rv.len == 0) return null;
+            return try self.client.allocator.dupe(u8, rv);
         }
 
         /// Start watching for resource changes (stateless callback).
@@ -543,10 +550,19 @@ pub fn Watcher(comptime T: type) type {
                             if (err == error.OutOfMemory) return err;
                             return .{ .malformed_event = .fromMalformed(err, line) };
                         };
+                        // Copied before the callback, which releases the event's arena.
+                        const next_rv = self.dupeObjectResourceVersion(event.object) catch |err| {
+                            event.deinit();
+                            return err;
+                        };
                         callback(context, &event) catch |err| {
+                            if (next_rv) |rv| self.client.allocator.free(rv);
                             callback_error.* = err;
                             return error.WatchCallbackFailed;
                         };
+                        // Only once handled: a reconnect resumes after this event
+                        // instead of replaying everything since the last BOOKMARK.
+                        if (next_rv) |rv| self.adoptResourceVersion(rv);
                     },
                 }
 
@@ -573,6 +589,9 @@ pub fn Watcher(comptime T: type) type {
             try query.addOptionalString("labelSelector", self.options.label_selector);
             try query.addOptionalString("fieldSelector", self.options.field_selector);
             try query.addBoolFlag("allowWatchBookmarks", self.options.allow_watch_bookmarks);
+
+            try validatePathSegment(self.resource);
+            if (self.namespace) |ns| try validatePathSegment(ns);
 
             const query_string = try query.toOwnedSlice();
             defer allocator.free(query_string);
@@ -672,10 +691,22 @@ pub fn Informer(comptime T: type) type {
         resource_version: ?[]const u8,
         /// Per-watch request timeout in seconds so `stop()` is checked periodically even on quiet clusters.
         watch_timeout_seconds: u32 = 30,
+        /// First delay before reconnecting after a failed watch; doubles per
+        /// consecutive failure up to `max_retry_backoff_ms`.
+        initial_retry_backoff_ms: u64 = 500,
+        max_retry_backoff_ms: u64 = 30_000,
         running: std.atomic.Value(bool),
-        mutex: std.atomic.Mutex,
+        mutex: std.Io.Mutex,
 
         const Self = @This();
+
+        fn lock(self: *Self) void {
+            self.mutex.lockUncancelable(self.client.io);
+        }
+
+        fn unlock(self: *Self) void {
+            self.mutex.unlock(self.client.io);
+        }
 
         pub fn init(
             allocator: std.mem.Allocator,
@@ -692,13 +723,13 @@ pub fn Informer(comptime T: type) type {
                 .cache = std.StringHashMap(std.json.Parsed(T)).init(allocator),
                 .resource_version = null,
                 .running = std.atomic.Value(bool).init(false),
-                .mutex = .unlocked,
+                .mutex = .init,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
+            self.lock();
+            defer self.unlock();
             const allocator = self.cache.allocator;
             var it = self.cache.valueIterator();
             while (it.next()) |parsed| parsed.deinit();
@@ -710,19 +741,22 @@ pub fn Informer(comptime T: type) type {
         /// Caller MUST hold the mutex. Re-serializes then re-parses so cached memory is
         /// independent of the transient list/watch parse arena that gets freed per event.
         fn cachePut(self: *Self, object: T) !void {
-            const allocator = self.cache.allocator;
-            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{ .emit_null_optional_fields = false });
-            defer allocator.free(json_bytes);
-            const parsed = try std.json.parseFromSlice(T, allocator, json_bytes, .{
-                .ignore_unknown_fields = true,
-                .allocate = .alloc_always,
-            });
+            const parsed = try deepCopy(self.cache.allocator, object);
             errdefer parsed.deinit();
             // Key slice lives in `parsed`'s arena, so it stays valid for the entry's
             // lifetime. Remove any prior entry first so its key+value are freed together.
             const key = parsed.value.metadata.name;
             if (self.cache.fetchRemove(key)) |old| old.value.deinit();
             try self.cache.put(key, parsed);
+        }
+
+        fn deepCopy(allocator: std.mem.Allocator, object: T) !std.json.Parsed(T) {
+            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{ .emit_null_optional_fields = false });
+            defer allocator.free(json_bytes);
+            return std.json.parseFromSlice(T, allocator, json_bytes, .{
+                .ignore_unknown_fields = true,
+                .allocate = .alloc_always,
+            });
         }
 
         /// Remove and free a cache entry by name. Caller MUST hold the mutex.
@@ -741,26 +775,75 @@ pub fn Informer(comptime T: type) type {
 
         /// Start the informer (list then watch).
         /// Blocks until stop() is called or an unrecoverable error occurs.
+        ///
+        /// Dropped connections, 5xx, throttling, malformed events and a failed relist
+        /// are retried with exponential backoff while the informer runs. It returns
+        /// `error.WatchFailed` on 401/403, and otherwise only errors from the initial
+        /// list, from cache updates, or cancellation.
         pub fn start(self: *Self) !void {
             self.running.store(true, .release);
 
             try self.initialList();
 
+            var delay_ms = self.initial_retry_backoff_ms;
+            var needs_relist = false;
             while (self.running.load(.acquire)) {
-                self.watchLoop() catch |err| {
-                    // On watch errors, retry if still running
+                if (needs_relist) {
+                    var api_err: ?K8sClient.ApiError = null;
+                    defer if (api_err) |*detail| detail.deinit(self.client.allocator);
+                    self.initialListCapturing(&api_err) catch |err| {
+                        if (!self.running.load(.acquire)) return;
+                        if (err == error.OutOfMemory) return err;
+                        if (api_err) |detail| {
+                            if (detail.code == 401 or detail.code == 403) return err;
+                        }
+                        try self.retrySleep(&delay_ms, null);
+                        continue;
+                    };
+                    needs_relist = false;
+                    delay_ms = self.initial_retry_backoff_ms;
+                }
+
+                const outcome = self.watchLoop() catch |err| {
                     if (!self.running.load(.acquire)) return;
-                    switch (err) {
-                        // resourceVersion expired (HTTP 410) — re-list from scratch and
-                        // resume watching from the fresh version (client-go's relist).
-                        error.ExpiredResourceVersion => {
-                            try self.setResourceVersion(null);
-                            try self.initialList();
-                        },
-                        else => return err,
-                    }
+                    return err;
                 };
+                if (!self.running.load(.acquire)) return;
+                switch (outcome) {
+                    .eof => delay_ms = self.initial_retry_backoff_ms,
+                    .canceled => return,
+                    .http_unauthorized, .http_forbidden => return error.WatchFailed,
+                    // resourceVersion expired — re-list from scratch and resume
+                    // watching from the fresh version (client-go's relist).
+                    .http_gone, .status_expired => {
+                        try self.setResourceVersion(null);
+                        needs_relist = true;
+                    },
+                    .http_throttled => |throttled| try self.retrySleep(&delay_ms, throttled.retry_after_seconds),
+                    .http_server_error,
+                    .http_error,
+                    .malformed_event,
+                    .status_error,
+                    .transport_error,
+                    .decode_error,
+                    => try self.retrySleep(&delay_ms, null),
+                }
             }
+        }
+
+        /// Wait before reconnecting, in short slices so `stop()` takes effect
+        /// promptly, then double `delay_ms` for the next consecutive failure.
+        fn retrySleep(self: *Self, delay_ms: *u64, retry_after_seconds: ?u32) !void {
+            var remaining: u64 = if (retry_after_seconds) |seconds|
+                @min(@as(u64, seconds) * std.time.ms_per_s, self.max_retry_backoff_ms)
+            else
+                delay_ms.*;
+            while (remaining > 0 and self.running.load(.acquire)) {
+                const slice = @min(remaining, 250);
+                try std.Io.sleep(self.client.io, .fromMilliseconds(@intCast(slice)), .awake);
+                remaining -= slice;
+            }
+            delay_ms.* = @min(delay_ms.* *| 2, self.max_retry_backoff_ms);
         }
 
         /// Stop the informer
@@ -768,20 +851,67 @@ pub fn Informer(comptime T: type) type {
             self.running.store(false, .release);
         }
 
-        /// Get resource from cache by name (thread-safe).
-        /// NOTE: the returned T borrows cache-owned memory; it is valid until the next
-        /// mutation of that entry. Copy out any fields you need to retain.
+        /// Get resource from cache by name.
+        ///
+        /// The returned T borrows cache-owned memory that the watch frees when the
+        /// entry is replaced or deleted, so it is only safe while `start()` is not
+        /// running concurrently. Otherwise use `getOwned`, `withEntry` or `forEach`.
         pub fn get(self: *Self, name: []const u8) ?T {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
+            self.lock();
+            defer self.unlock();
             if (self.cache.get(name)) |parsed| return parsed.value;
             return null;
         }
 
-        /// List all resources in cache (thread-safe)
+        /// Deep copy of the cached entry named `name`, or null. The caller owns the
+        /// result and must `deinit` it; it stays valid whatever the watch does.
+        pub fn getOwned(self: *Self, allocator: std.mem.Allocator, name: []const u8) !?std.json.Parsed(T) {
+            self.lock();
+            defer self.unlock();
+            const parsed = self.cache.get(name) orelse return null;
+            return try deepCopy(allocator, parsed.value);
+        }
+
+        /// Run `callback` on the cached entry named `name` with the cache lock held.
+        /// Returns false when there is no such entry.
+        ///
+        /// The pointer is valid only during the callback, which must not call back
+        /// into this informer.
+        pub fn withEntry(
+            self: *Self,
+            name: []const u8,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, *const T) anyerror!void,
+        ) !bool {
+            self.lock();
+            defer self.unlock();
+            const parsed = self.cache.getPtr(name) orelse return false;
+            try callback(context, &parsed.value);
+            return true;
+        }
+
+        /// Run `callback` on every cached entry with the cache lock held. The same
+        /// rules as `withEntry` apply; an error from the callback stops the walk.
+        pub fn forEach(
+            self: *Self,
+            comptime Ctx: type,
+            context: Ctx,
+            callback: *const fn (Ctx, *const T) anyerror!void,
+        ) !void {
+            self.lock();
+            defer self.unlock();
+            var it = self.cache.valueIterator();
+            while (it.next()) |parsed| try callback(context, &parsed.value);
+        }
+
+        /// List all resources in cache.
+        ///
+        /// The slice is caller-owned but its items borrow cache memory, so as with
+        /// `get` this is only safe while `start()` is not running concurrently.
         pub fn listCached(self: *Self) ![]T {
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
+            self.lock();
+            defer self.unlock();
 
             const allocator = self.cache.allocator;
             var result_list = try std.ArrayList(T).initCapacity(allocator, 0);
@@ -797,17 +927,22 @@ pub fn Informer(comptime T: type) type {
 
         /// Initial list to populate cache
         fn initialList(self: *Self) !void {
+            return self.initialListCapturing(null);
+        }
+
+        fn initialListCapturing(self: *Self, err_out: ?*?K8sClient.ApiError) !void {
             const rc = ResourceClient(T){
                 .client = self.client,
                 .api_path = self.api_path,
                 .resource = self.resource,
+                .error_sink = err_out,
             };
 
             const result = try rc.list(self.namespace);
             defer result.deinit();
 
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
+            self.lock();
+            defer self.unlock();
 
             // Replace the cache contents (this also runs on a relist after a 410, so
             // entries deleted while we were disconnected must not linger).
@@ -833,7 +968,7 @@ pub fn Informer(comptime T: type) type {
         /// Watch loop to keep cache updated.
         /// Uses watchWithContext to pass the informer as context to the callback,
         /// enabling cache updates from within the event handler.
-        fn watchLoop(self: *Self) !void {
+        fn watchLoop(self: *Self) !WatchOutcome {
             var watcher = Watcher(T).init(
                 self.client,
                 self.api_path,
@@ -848,11 +983,13 @@ pub fn Informer(comptime T: type) type {
 
             defer watcher.deinit();
 
-            try watcher.watchWithContext(*Self, self, handleWatchEvent);
+            const outcome = try watcher.watchWithContextOutcome(*Self, self, handleWatchEvent);
 
-            // After watch stream ends, update resource version for reconnection
-            // (duped — watcher's slice may live in a buffer freed when it goes out of scope).
+            // Resume from wherever the stream got to, failed or not: the watcher has
+            // advanced past every event it handled. Duped — the watcher's copy is
+            // freed when it goes out of scope.
             try self.setResourceVersion(watcher.resource_version);
+            return outcome;
         }
 
         /// Callback for watch events — updates the informer cache.
@@ -860,8 +997,8 @@ pub fn Informer(comptime T: type) type {
             defer event.deinit();
             if (!self.running.load(.acquire)) return error.Canceled;
 
-            lockMutex(&self.mutex);
-            defer self.mutex.unlock();
+            self.lock();
+            defer self.unlock();
 
             if (@hasField(T, "metadata")) {
                 const name = event.object.metadata.name;

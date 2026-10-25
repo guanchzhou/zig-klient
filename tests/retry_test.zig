@@ -127,3 +127,44 @@ test "RetryConfig - Preset configurations" {
     try std.testing.expectEqual(@as(u32, 2), retry.conservativeConfig.max_attempts);
     try std.testing.expect(retry.conservativeConfig.initial_backoff_ms > retry.defaultConfig.initial_backoff_ms);
 }
+
+test "isTransientError - only network-level failures are retried" {
+    for ([_]anyerror{
+        error.ConnectionRefused,
+        error.ConnectionResetByPeer,
+        error.ConnectionTimedOut,
+        error.Timeout,
+        error.ReadFailed,
+        error.EndOfStream,
+    }) |err| try std.testing.expect(retry.isTransientError(err));
+
+    for ([_]anyerror{
+        error.OutOfMemory,
+        error.StreamTooLong,
+        error.TlsInitializationFailed,
+        error.CertificateBundleLoadFailure,
+        error.InvalidPathSegment,
+        error.InvalidRequestUrl,
+        error.UnknownHostName,
+        error.TooManyHttpRedirects,
+        error.K8sApiError,
+    }) |err| try std.testing.expect(!retry.isTransientError(err));
+}
+
+test "RetryContext.delayFor - honours Retry-After on 429 and 503, capped" {
+    var ctx = retry.RetryContext.init(.{
+        .initial_backoff_ms = 100,
+        .max_backoff_ms = 10_000,
+        .jitter_factor = 0.0,
+    });
+
+    try std.testing.expectEqual(@as(u64, 3_000), ctx.delayFor(429, 3));
+    try std.testing.expectEqual(@as(u64, 0), ctx.delayFor(503, 0));
+    try std.testing.expectEqual(@as(u64, 10_000), ctx.delayFor(503, 3_600));
+    try std.testing.expectEqual(@as(u64, 10_000), ctx.delayFor(429, std.math.maxInt(u32)));
+
+    // Retry-After on other statuses, or no header, falls back to exponential backoff.
+    try std.testing.expectEqual(ctx.getBackoffDuration(), ctx.delayFor(500, 3));
+    try std.testing.expectEqual(ctx.getBackoffDuration(), ctx.delayFor(429, null));
+    try std.testing.expectEqual(ctx.getBackoffDuration(), ctx.delayFor(null, null));
+}

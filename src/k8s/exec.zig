@@ -60,6 +60,10 @@ pub const ExecClient = struct {
             };
             defer msg.deinit(self.allocator);
 
+            const buffered = result.stdout_buffer.items.len + result.stderr_buffer.items.len +
+                result.error_buffer.items.len;
+            if (msg.data.len > options.max_output_bytes -| buffered) return error.OutputTooLarge;
+
             switch (msg.channel) {
                 ws.Channel.stdout.toInt() => try result.stdout_buffer.appendSlice(self.allocator, msg.data),
                 ws.Channel.stderr.toInt() => try result.stderr_buffer.appendSlice(self.allocator, msg.data),
@@ -157,6 +161,10 @@ pub const ExecOptions = struct {
 
     /// Data to send to stdin (if stdin is enabled)
     stdin_data: ?[]const u8 = null,
+
+    /// Cap on stdout, stderr and the error stream combined. `exec` buffers all of
+    /// it in memory and fails with `error.OutputTooLarge` past this.
+    max_output_bytes: usize = 16 * 1024 * 1024,
 };
 
 /// Result of an exec operation

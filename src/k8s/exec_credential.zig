@@ -76,36 +76,44 @@ pub fn executeCredentialPlugin(
     // merged Map from a library context. Replacing the env with only config.env would
     // drop PATH/HOME and break the plugins, so we inherit until a parent-env accessor
     // is available. Plugins that need extra env can be invoked with it pre-set.
-    // stderr is INHERITED, not piped. A pipe nobody drains deadlocks: once the plugin
-    // writes more than the pipe buffer (~64 KiB -- easily reached by `aws eks get-token`
-    // emitting warnings) it blocks on write while we block in child.wait(), forever.
-    // Inheriting lets the plugin's diagnostics reach the caller's stderr, which is also
-    // where a human wants them.
+    //
+    // stdin is closed: an interactive plugin must not block on the caller's terminal.
+    // stderr is piped and drained concurrently with stdout, as std.process.run does —
+    // a pipe nobody drains deadlocks once the plugin writes more than the pipe buffer
+    // (~64 KiB, easily reached by `aws eks get-token` warnings). Only its tail is kept,
+    // for the failure log.
     var child = try std.process.spawn(io, .{
         .argv = cmd_args.items,
+        .stdin = .ignore,
         .stdout = .pipe,
-        .stderr = .inherit,
+        .stderr = .pipe,
     });
-    // Reap the child on every failure path below, or we leak a zombie and its fds.
-    // Guarded so it cannot double-wait once the explicit wait() below has succeeded
-    // and a later statement (a plugin non-zero exit, a JSON parse failure) errors out.
-    var reaped = false;
-    errdefer if (!reaped) {
-        _ = child.wait(io) catch {};
-    };
+    // Kills the plugin if we bail out early (oversized output, read error); after a
+    // successful wait() it only releases resources.
+    defer child.kill(io);
 
-    // Read stdout through the File reader. allocRemaining with a 10MiB limit
-    // replaces the old readToEndAlloc.
-    var read_buf: [4096]u8 = undefined;
-    var stdout_reader = child.stdout.?.reader(io, &read_buf);
-    const stdout = try stdout_reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024));
-    defer allocator.free(stdout);
+    var multi_reader_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
+    var multi_reader: std.Io.File.MultiReader = undefined;
+    multi_reader.init(allocator, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi_reader.deinit();
+    const stdout_reader = multi_reader.reader(0);
+    const stderr_reader = multi_reader.reader(1);
 
-    // Wait for completion
+    while (multi_reader.fill(64, .none)) |_| {
+        if (stdout_reader.bufferedLen() > max_plugin_stdout_bytes) return error.StreamTooLong;
+        const stderr_len = stderr_reader.bufferedLen();
+        if (stderr_len > max_plugin_stderr_bytes) stderr_reader.toss(stderr_len - max_plugin_stderr_bytes);
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return e,
+    }
+    try multi_reader.checkAnyError();
+
     const term = try child.wait(io);
-    reaped = true;
 
     if (term != .exited or term.exited != 0) {
+        const stderr_tail = std.mem.trim(u8, stderr_reader.buffered(), &std.ascii.whitespace);
+        if (stderr_tail.len > 0) log.warn("credential plugin stderr: {s}", .{stderr_tail});
         if (config.installHint) |hint| {
             log.warn("credential plugin failed; install hint: {s}", .{hint});
         }
@@ -113,13 +121,27 @@ pub fn executeCredentialPlugin(
     }
 
     // Parse JSON response — caller owns the Parsed arena
-    return std.json.parseFromSlice(
+    const parsed = try std.json.parseFromSlice(
         ExecCredential,
         allocator,
-        stdout,
+        stdout_reader.buffered(),
         .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
     );
+    errdefer parsed.deinit();
+
+    // The token is sent verbatim as an Authorization header value.
+    if (parsed.value.status) |status| {
+        if (status.token) |token| {
+            for (token) |byte| {
+                if (byte < 0x20 or byte == 0x7f) return error.InvalidCredentialToken;
+            }
+        }
+    }
+    return parsed;
 }
+
+const max_plugin_stdout_bytes = 10 * 1024 * 1024;
+const max_plugin_stderr_bytes = 4 * 1024;
 
 /// Common exec credential plugin configurations
 /// AWS EKS credential plugin (aws-iam-authenticator or aws eks get-token)

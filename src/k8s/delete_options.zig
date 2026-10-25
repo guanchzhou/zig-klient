@@ -40,45 +40,25 @@ pub const DeleteOptions = struct {
 
     /// Build delete options body (for POST to deletecollection)
     pub fn buildBody(self: DeleteOptions, allocator: std.mem.Allocator) ![]const u8 {
-        var buffer = try std.ArrayList(u8).initCapacity(allocator, 256);
-        errdefer buffer.deinit(allocator);
-
-        try buffer.appendSlice(allocator, "{\"apiVersion\":\"v1\",\"kind\":\"DeleteOptions\"");
-
-        if (self.grace_period_seconds) |grace| {
-            try buffer.appendSlice(allocator, ",\"gracePeriodSeconds\":");
-            var tmp: [32]u8 = undefined;
-            const s = std.fmt.bufPrint(&tmp, "{d}", .{grace}) catch unreachable;
-            try buffer.appendSlice(allocator, s);
-        }
-
-        if (self.propagation_policy) |policy| {
-            try buffer.appendSlice(allocator, ",\"propagationPolicy\":\"");
-            try buffer.appendSlice(allocator, policy);
-            try buffer.append(allocator, '"');
-        }
-
-        if (self.preconditions) |precond| {
-            try buffer.appendSlice(allocator, ",\"preconditions\":{");
-            var first = true;
-            if (precond.resource_version) |rv| {
-                try buffer.appendSlice(allocator, "\"resourceVersion\":\"");
-                try buffer.appendSlice(allocator, rv);
-                try buffer.append(allocator, '"');
-                first = false;
-            }
-            if (precond.uid) |uid| {
-                if (!first) try buffer.append(allocator, ',');
-                try buffer.appendSlice(allocator, "\"uid\":\"");
-                try buffer.appendSlice(allocator, uid);
-                try buffer.append(allocator, '"');
-            }
-            try buffer.append(allocator, '}');
-        }
-
-        try buffer.append(allocator, '}');
-
-        return try buffer.toOwnedSlice(allocator);
+        const Body = struct {
+            apiVersion: []const u8 = "v1",
+            kind: []const u8 = "DeleteOptions",
+            gracePeriodSeconds: ?i64 = null,
+            propagationPolicy: ?[]const u8 = null,
+            preconditions: ?struct {
+                resourceVersion: ?[]const u8 = null,
+                uid: ?[]const u8 = null,
+            } = null,
+        };
+        const body: Body = .{
+            .gracePeriodSeconds = self.grace_period_seconds,
+            .propagationPolicy = self.propagation_policy,
+            .preconditions = if (self.preconditions) |precond| .{
+                .resourceVersion = precond.resource_version,
+                .uid = precond.uid,
+            } else null,
+        };
+        return std.json.Stringify.valueAlloc(allocator, body, .{ .emit_null_optional_fields = false });
     }
 };
 

@@ -121,12 +121,7 @@ pub fn loadInClusterConfig(io: Io, allocator: std.mem.Allocator) !InClusterConfi
         return error.KubernetesServicePortNotSet;
     };
 
-    // Construct API server URL
-    const server = try std.fmt.allocPrint(
-        allocator,
-        "https://{s}:{s}",
-        .{ host, port },
-    );
+    const server = try formatServerUrl(allocator, host, port);
     errdefer allocator.free(server);
 
     return InClusterConfig{
@@ -162,11 +157,17 @@ pub fn getDefaultServer(allocator: std.mem.Allocator) ![]const u8 {
         return error.KubernetesServicePortNotSet;
     };
 
-    return try std.fmt.allocPrint(
-        allocator,
-        "https://{s}:{s}",
-        .{ host, port },
-    );
+    return formatServerUrl(allocator, host, port);
+}
+
+/// Build the in-cluster API server URL from `KUBERNETES_SERVICE_HOST` and
+/// `KUBERNETES_SERVICE_PORT`. An IPv6 host (IPv6-only or dual-stack clusters set
+/// e.g. `fd00::1`) is bracketed, as client-go does with net.JoinHostPort.
+pub fn formatServerUrl(allocator: std.mem.Allocator, host: []const u8, port: []const u8) ![]u8 {
+    const needs_brackets = std.mem.findScalar(u8, host, ':') != null and
+        !(host.len >= 2 and host[0] == '[' and host[host.len - 1] == ']');
+    if (needs_brackets) return std.fmt.allocPrint(allocator, "https://[{s}]:{s}", .{ host, port });
+    return std.fmt.allocPrint(allocator, "https://{s}:{s}", .{ host, port });
 }
 
 /// Get service account token

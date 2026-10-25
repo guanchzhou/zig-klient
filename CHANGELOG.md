@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-25
+
+### Security
+
+- Names, namespaces and other values placed in a URL path are validated.
+  Empty, `.`, `..`, or values containing `/`, `%`, `?`, `#`, whitespace or
+  control characters fail with `error.InvalidPathSegment`.
+- Bearer tokens, `Accept` and `Content-Type` values, and request URLs that
+  contain CR, LF or other control characters are rejected instead of reaching
+  the HTTP layer.
+- The WebSocket client no longer follows redirects, so the token is never
+  replayed to another host.
+- A configured CA certificate now replaces the system trust store instead of
+  being added to it. The CA PEM is parsed in memory and no longer written to
+  `/tmp`.
+- WebSocket frames with reserved opcodes or RSV bits, and control frames that
+  are larger than 125 bytes or fragmented, are rejected. A flood of pings is
+  answered in a loop rather than by recursion.
+- Exec credential plugins run with stdin closed. Their stderr is captured,
+  bounded and logged on failure, the child is killed if reading fails, and a
+  token containing control characters is rejected.
+- `ExecOptions.max_output_bytes` (default 16 MiB) bounds buffered exec output,
+  with `error.OutputTooLarge` when it is exceeded.
+
+### Fixed
+
+- Watches resume from the `resourceVersion` of the last handled event, not only
+  from bookmarks, so a reconnect no longer replays events.
+- `Informer.start()` retries transient list and watch failures with capped
+  exponential backoff, relists after `410 Gone`, honours `Retry-After` on
+  throttling, and stops on 401/403.
+- The `Informer` cache is guarded by `std.Io.Mutex`. New `getOwned`,
+  `withEntry` and `forEach` read the cache safely while a watch is running.
+- Request retries cover transient network errors and retryable HTTP statuses
+  only. They honour `Retry-After` on 429/503 (capped by `max_backoff_ms`) and
+  sleep through `std.Io`, so the sleep can be cancelled.
+- `DeleteOptions.buildBody` emits properly escaped JSON.
+- In-cluster config brackets IPv6 service hosts (`https://[fd00::1]:443`).
+- `K8sClient.init` and `WebSocketClient.init` no longer leak when they fail
+  partway.
+- The `Authorization` header value is built once at init rather than on every
+  request.
+
+### Changed
+
+- `Informer.mutex` is now a `std.Io.Mutex` (was `std.atomic.Mutex`). Code that
+  locked it directly should use `withEntry` or `forEach` instead.
+
+### Added
+
+- `klient.validatePathSegment`, plus the `klient.path` header and URL
+  validators.
+- `klient.incluster.formatServerUrl`, `klient.tls.addCertsFromPem`,
+  `klient.retry.isTransientError` and `RetryContext.delayFor`.
+- `klient.websocket.readFrame`, `writeFrame` and `receiveFromStream` for
+  working with raw WebSocket streams.
+
 ## [0.8.5] - 2026-10-22
 
 ### Changed

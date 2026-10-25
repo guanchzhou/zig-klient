@@ -19,6 +19,7 @@
 const std = @import("std");
 const K8sClient = @import("client.zig").K8sClient;
 const CRDInfo = @import("crd.zig").CRDInfo;
+const validatePathSegment = @import("path.zig").validatePathSegment;
 
 const log = std.log.scoped(.klient_discovery);
 
@@ -81,6 +82,8 @@ pub const Discovery = struct {
 
     /// Fetch the resources served for one group/version. Caller owns the arena.
     pub fn resources(self: Discovery, group: []const u8, version: []const u8) !std.json.Parsed(APIResourceList) {
+        try validatePathSegment(group);
+        try validatePathSegment(version);
         const path = try std.fmt.allocPrint(self.client.allocator, "/apis/{s}/{s}", .{ group, version });
         defer self.client.allocator.free(path);
 

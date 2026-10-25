@@ -824,7 +824,7 @@ test "code-only 410 Status is expired for structured and compatibility watch API
     try server.finish();
 }
 
-test "WatchOutcome preserves typed events and advances an owned BOOKMARK version" {
+test "WatchOutcome preserves typed events and advances the version past each handled event" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -881,7 +881,173 @@ test "WatchOutcome preserves typed events and advances an owned BOOKMARK version
     try std.testing.expectEqualStrings("modified", capture.names[1][0..capture.name_lengths[1]]);
     try std.testing.expectEqualStrings("deleted", capture.names[2][0..capture.name_lengths[2]]);
     try std.testing.expect(watcher.resource_version_owned);
-    try std.testing.expectEqualStrings("88", watcher.resource_version.?);
+    try std.testing.expectEqualStrings("91", watcher.resource_version.?);
+}
+
+test "watch does not advance past an event whose callback failed" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const body =
+        "{\"type\":\"ADDED\",\"object\":{\"metadata\":{\"name\":\"first\",\"resourceVersion\":\"5\"}}}\n" ++
+        "{\"type\":\"MODIFIED\",\"object\":{\"metadata\":{\"name\":\"second\",\"resourceVersion\":\"6\"}}}\n";
+    const responses = [_]ResponseSpec{.{ .body = body }};
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+    var client = try klient.K8sClient.init(allocator, io, .{ .server = base_url });
+    defer client.deinit();
+
+    var watcher = klient.Watcher(klient.Pod).init(&client, "/api/v1", "pods", null, .{
+        .resource_version = "4",
+    });
+    defer watcher.deinit();
+
+    const FailSecond = struct {
+        count: usize = 0,
+
+        fn callback(self: *@This(), event: *klient.watch.WatchEvent(klient.Pod)) anyerror!void {
+            defer event.deinit();
+            self.count += 1;
+            if (self.count == 2) return error.HandlerFailed;
+        }
+    };
+    var handler: FailSecond = .{};
+
+    try std.testing.expectError(
+        error.HandlerFailed,
+        watcher.watchWithContextOutcome(*FailSecond, &handler, FailSecond.callback),
+    );
+    try server.finish();
+    try std.testing.expectEqual(2, handler.count);
+    try std.testing.expectEqualStrings("5", watcher.resource_version.?);
+}
+
+test "a non-transient error is not retried" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const responses: [4]ResponseSpec = @splat(.{ .body = "this body is larger than the limit" });
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+    var client = try klient.K8sClient.init(allocator, io, .{
+        .server = base_url,
+        .max_response_size = 4,
+    });
+    defer client.deinit();
+
+    try std.testing.expectError(error.StreamTooLong, client.request(.GET, "/api/v1/pods", null));
+    try std.testing.expectEqual(@as(usize, 1), server.request_count);
+}
+
+test "Retry-After on 429 and 503 is honoured, capped by max_backoff_ms" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Uncapped, the 503's Retry-After would stall this test for an hour.
+    const responses = [_]ResponseSpec{
+        .{ .status = .too_many_requests, .retry_after = "0" },
+        .{ .status = .service_unavailable, .retry_after = "3600" },
+        .{ .body = "ok" },
+    };
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+    var client = try klient.K8sClient.init(allocator, io, .{
+        .server = base_url,
+        .retry_config = .{ .max_attempts = 3, .max_backoff_ms = 5, .jitter_factor = 0 },
+    });
+    defer client.deinit();
+
+    const body = try client.request(.GET, "/api/v1/pods", null);
+    defer allocator.free(body);
+    try server.finish();
+    try std.testing.expectEqualStrings("ok", body);
+    try std.testing.expectEqual(@as(usize, 3), server.request_count);
+}
+
+test "requests reject a path or header value that would split the request" {
+    const allocator = std.testing.allocator;
+    var client = try klient.K8sClient.init(allocator, std.testing.io, .{ .server = "http://127.0.0.1:1" });
+    defer client.deinit();
+
+    try std.testing.expectError(
+        error.InvalidRequestUrl,
+        client.request(.GET, "/api/v1/pods HTTP/1.1\r\nX-Injected: 1", null),
+    );
+    try std.testing.expectError(
+        error.InvalidHeaderValue,
+        client.requestWithAccept(.GET, "/api/v1/pods", null, "application/json\r\nX-Injected: 1"),
+    );
+}
+
+test "Informer retries a transient watch failure, resumes from the last event, and stops on 401" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const responses = [_]ResponseSpec{
+        .{ .body = "{\"apiVersion\":\"v1\",\"kind\":\"PodList\",\"metadata\":{\"resourceVersion\":\"10\"},\"items\":[{\"metadata\":{\"name\":\"listed\",\"resourceVersion\":\"9\"}}]}" },
+        .{ .body = "{\"type\":\"ADDED\",\"object\":{\"metadata\":{\"name\":\"watched\",\"resourceVersion\":\"11\"}}}\n" },
+        .{ .status = .internal_server_error },
+        .{ .status = .unauthorized },
+    };
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+    var client = try klient.K8sClient.init(allocator, io, .{ .server = base_url });
+    defer client.deinit();
+
+    var informer = klient.Informer(klient.Pod).init(allocator, &client, "/api/v1", "pods", "default");
+    defer informer.deinit();
+    informer.initial_retry_backoff_ms = 1;
+
+    try std.testing.expectError(error.WatchFailed, informer.start());
+    try server.finish();
+
+    try std.testing.expectEqual(@as(usize, 4), server.request_count);
+    try std.testing.expect(std.mem.indexOf(u8, server.records[1].targetSlice(), "resourceVersion=10") != null);
+    try std.testing.expect(std.mem.indexOf(u8, server.records[2].targetSlice(), "resourceVersion=11") != null);
+    try std.testing.expect(std.mem.indexOf(u8, server.records[3].targetSlice(), "resourceVersion=11") != null);
+
+    var owned = (try informer.getOwned(allocator, "watched")).?;
+    defer owned.deinit();
+    try std.testing.expectEqualStrings("11", owned.value.metadata.resourceVersion.?);
+
+    const NameCounter = struct {
+        count: usize = 0,
+
+        fn visit(self: *@This(), pod: *const klient.Pod) anyerror!void {
+            try std.testing.expect(pod.metadata.name.len > 0);
+            self.count += 1;
+        }
+    };
+    var counter: NameCounter = .{};
+    try informer.forEach(*NameCounter, &counter, NameCounter.visit);
+    try std.testing.expectEqual(2, counter.count);
+    try std.testing.expect(try informer.withEntry("listed", *NameCounter, &counter, NameCounter.visit));
+    try std.testing.expect(!try informer.withEntry("missing", *NameCounter, &counter, NameCounter.visit));
+    try std.testing.expect((try informer.getOwned(allocator, "missing")) == null);
 }
 
 const BlockedWatchContext = struct {

@@ -6,6 +6,7 @@ const apply_mod = @import("apply.zig");
 const delete_opts = @import("delete_options.zig");
 const registry = @import("resource_registry.zig");
 const QueryWriter = @import("query.zig").QueryWriter;
+const validatePathSegment = @import("path.zig").validatePathSegment;
 
 /// Scope-aware generic resource operations for any Kubernetes resource.
 ///
@@ -94,34 +95,34 @@ pub fn ResourceClient(comptime T: type) type {
 
         fn buildCollectionPath(self: Self, namespace: ?[]const u8) ![]const u8 {
             const allocator = self.client.allocator;
+            try validatePathSegment(self.resource);
             if (self.is_cluster_scoped) {
                 return std.fmt.allocPrint(allocator, "{s}/{s}", .{
                     self.api_path,
                     self.resource,
                 });
             }
+            const ns = namespace orelse self.client.namespace;
+            try validatePathSegment(ns);
             return std.fmt.allocPrint(allocator, "{s}/namespaces/{s}/{s}", .{
                 self.api_path,
-                namespace orelse self.client.namespace,
+                ns,
                 self.resource,
             });
         }
 
         fn buildResourcePath(self: Self, name: []const u8, namespace: ?[]const u8) ![]const u8 {
-            const allocator = self.client.allocator;
-            if (self.is_cluster_scoped) {
-                return std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{
-                    self.api_path,
-                    self.resource,
-                    name,
-                });
-            }
-            return std.fmt.allocPrint(allocator, "{s}/namespaces/{s}/{s}/{s}", .{
-                self.api_path,
-                namespace orelse self.client.namespace,
-                self.resource,
-                name,
-            });
+            try validatePathSegment(name);
+            const collection = try self.buildCollectionPath(namespace);
+            defer self.client.allocator.free(collection);
+            return std.fmt.allocPrint(self.client.allocator, "{s}/{s}", .{ collection, name });
+        }
+
+        /// Path of a named subresource such as `log` or `eviction`.
+        fn buildSubresourcePath(self: Self, name: []const u8, namespace: ?[]const u8, subresource: []const u8) ![]const u8 {
+            const resource_path = try self.buildResourcePath(name, namespace);
+            defer self.client.allocator.free(resource_path);
+            return std.fmt.allocPrint(self.client.allocator, "{s}/{s}", .{ resource_path, subresource });
         }
 
         fn appendQueryString(allocator: std.mem.Allocator, base_path: []const u8, query_string: []const u8) ![]const u8 {
@@ -135,6 +136,7 @@ pub fn ResourceClient(comptime T: type) type {
 
         /// The cross-namespace collection path: no `/namespaces/<ns>` segment.
         fn buildAllNamespacesPath(self: Self) ![]const u8 {
+            try validatePathSegment(self.resource);
             return std.fmt.allocPrint(self.client.allocator, "{s}/{s}", .{
                 self.api_path,
                 self.resource,
@@ -646,7 +648,6 @@ pub const Pods = struct {
     }
 
     pub fn logsWithOptions(self: Pods, name: []const u8, namespace: ?[]const u8, options: LogOptions) ![]const u8 {
-        const ns = namespace orelse self.client.client.namespace;
         const allocator = self.client.client.allocator;
 
         var qw = try QueryWriter.init(allocator);
@@ -662,11 +663,7 @@ pub const Pods = struct {
         const qs = try qw.toOwnedSlice();
         defer allocator.free(qs);
 
-        const base_path = try std.fmt.allocPrint(
-            allocator,
-            "{s}/namespaces/{s}/{s}/{s}/log",
-            .{ self.client.api_path, ns, self.client.resource, name },
-        );
+        const base_path = try self.client.buildSubresourcePath(name, namespace, "log");
         defer allocator.free(base_path);
 
         const path = if (qs.len > 0)
@@ -682,11 +679,7 @@ pub const Pods = struct {
         const ns = namespace orelse self.client.client.namespace;
         const allocator = self.client.client.allocator;
 
-        const path = try std.fmt.allocPrint(
-            allocator,
-            "{s}/namespaces/{s}/{s}/{s}/eviction",
-            .{ self.client.api_path, ns, self.client.resource, name },
-        );
+        const path = try self.client.buildSubresourcePath(name, ns, "eviction");
         defer allocator.free(path);
 
         const body = try ResourceClient(types.Pod).serializeJson(allocator, .{
@@ -779,9 +772,7 @@ pub const Nodes = struct {
 
     fn setSchedulable(self: Nodes, name: []const u8, schedulable: bool) !void {
         const allocator = self.client.client.allocator;
-        const path = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{
-            self.client.api_path, self.client.resource, name,
-        });
+        const path = try self.client.buildResourcePath(name, null);
         defer allocator.free(path);
 
         const patch_json = if (schedulable)

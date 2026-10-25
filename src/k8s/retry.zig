@@ -108,7 +108,31 @@ pub const RetryContext = struct {
         return @intFromFloat(backoff_duration);
     }
 
-    /// Sleep for the backoff duration
+    /// Milliseconds to wait before the next attempt. A 429 or 503 that carries
+    /// `Retry-After` waits what the server asked for, capped at `max_backoff_ms`;
+    /// anything else uses the exponential backoff.
+    pub fn delayFor(self: *RetryContext, status_code: ?u16, retry_after_seconds: ?u32) u64 {
+        if (status_code) |code| {
+            if (code == 429 or code == 503) {
+                if (retry_after_seconds) |seconds| {
+                    return @min(@as(u64, seconds) * std.time.ms_per_s, self.config.max_backoff_ms);
+                }
+            }
+        }
+        return self.getBackoffDuration();
+    }
+
+    /// Sleep `duration_ms` on `io`, so cancelling the owning task interrupts the wait.
+    pub fn sleepIo(self: *RetryContext, io: std.Io, duration_ms: u64) std.Io.Cancelable!void {
+        if (duration_ms == 0) return;
+        const clamped: i64 = @intCast(@min(duration_ms, std.math.maxInt(i64)));
+        try std.Io.sleep(io, .fromMilliseconds(clamped), .awake);
+        self.total_time_ms += duration_ms;
+    }
+
+    /// Sleep for the backoff duration.
+    ///
+    /// Blocks the OS thread and cannot be cancelled; prefer `sleepIo`.
     pub fn backoff(self: *RetryContext) !void {
         const duration_ms = self.getBackoffDuration();
         if (duration_ms == 0) return;
@@ -135,6 +159,26 @@ pub const RetryContext = struct {
         self.total_time_ms = 0;
     }
 };
+
+/// Whether a request that failed with `err` before producing an HTTP status is
+/// worth another attempt.
+///
+/// This is an allow-list of failures a later attempt can plausibly avoid: refused,
+/// reset or timed-out connections and a connection that died mid-response.
+/// Everything else — an oversized body, allocation failure, an invalid URL or
+/// header, redirect limits, TLS failure — fails the same way every time.
+pub fn isTransientError(err: anyerror) bool {
+    return switch (err) {
+        error.ConnectionRefused,
+        error.ConnectionResetByPeer,
+        error.ConnectionTimedOut,
+        error.Timeout,
+        error.ReadFailed,
+        error.EndOfStream,
+        => true,
+        else => false,
+    };
+}
 
 /// Default retry configuration for production use
 pub const defaultConfig = RetryConfig{
