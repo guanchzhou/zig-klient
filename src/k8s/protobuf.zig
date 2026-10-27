@@ -488,21 +488,10 @@ fn collectJson(
     }
     var array: std.json.Array = if (current) |value| switch (value) {
         .array => |a| a,
-        else => emptyJsonArray(arena),
-    } else emptyJsonArray(arena);
-    try appendJson(&array, arena, (try decodeJsonValue(field, false, arena, wire, wire_type)) orelse .null);
+        else => .init(arena),
+    } else .init(arena);
+    try array.append((try decodeJsonValue(field, false, arena, wire, wire_type)) orelse .null);
     return .{ .array = array };
-}
-
-/// `std.json.Array` carries its allocator in Zig 0.17 and not after it.
-const json_array_managed = @hasField(std.json.Array, "allocator");
-
-fn emptyJsonArray(arena: Allocator) std.json.Array {
-    return if (json_array_managed) .init(arena) else .empty;
-}
-
-fn appendJson(array: *std.json.Array, arena: Allocator, value: std.json.Value) Allocator.Error!void {
-    if (json_array_managed) try array.append(value) else try array.append(arena, value);
 }
 
 /// Decodes one encoded `message` into the JSON object the API server would
@@ -571,7 +560,7 @@ fn zeroJson(field: *const MessageField, arena: Allocator) Error!std.json.Value {
         .int32, .int64 => .{ .integer = 0 },
         .double => .{ .float = 0 },
         .quantity => .{ .string = "0" },
-        .string_list => .{ .array = emptyJsonArray(arena) },
+        .string_list => .{ .array = .init(arena) },
         .message => .{ .object = .empty },
         else => (try decodeJsonValue(field, false, arena, &empty, .len)) orelse .null,
     };
@@ -628,7 +617,7 @@ fn decodeJsonValue(field: *const MessageField, omit_zero: bool, arena: Allocator
         .int_or_string => return try decodeIntOrString(arena, bytes),
         .raw_json => return try decodeRawJson(arena, bytes),
         .string_list => {
-            var array = emptyJsonArray(arena);
+            var array: std.json.Array = .init(arena);
             var inner: Wire = .{ .bytes = bytes };
             while (!inner.atEnd()) {
                 const t = try inner.tag();
@@ -637,7 +626,7 @@ fn decodeJsonValue(field: *const MessageField, omit_zero: bool, arena: Allocator
                     continue;
                 }
                 try expectWire(t.wire, .len);
-                try appendJson(&array, arena, .{ .string = try arena.dupe(u8, try inner.lenPrefixed()) });
+                try array.append(.{ .string = try arena.dupe(u8, try inner.lenPrefixed()) });
             }
             return .{ .array = array };
         },

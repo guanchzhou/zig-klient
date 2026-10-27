@@ -592,10 +592,7 @@ pub const K8sClient = struct {
     }
 
     fn uriHost(uri: std.Uri, buffer: *[std.Io.net.HostName.max_len]u8) !std.Io.net.HostName {
-        if (comptime @hasDecl(std.Io.net.HostName, "fromUri")) {
-            return std.Io.net.HostName.fromUri(uri, buffer);
-        }
-        return uri.getHost(buffer);
+        return std.Io.net.HostName.fromUri(uri, buffer);
     }
 
     fn sameOrigin(base_url: []const u8, candidate_url: []const u8) !bool {
