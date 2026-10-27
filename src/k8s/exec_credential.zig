@@ -56,7 +56,7 @@ pub fn executeCredentialPlugin(
     config: ExecConfig,
 ) !std.json.Parsed(ExecCredential) {
     // Build command arguments
-    var cmd_args = std.ArrayListUnmanaged([]const u8).empty;
+    var cmd_args = std.ArrayList([]const u8).empty;
     defer cmd_args.deinit(allocator);
 
     try cmd_args.append(allocator, config.command);
@@ -146,7 +146,7 @@ const max_plugin_stderr_bytes = 4 * 1024;
 /// Common exec credential plugin configurations
 /// AWS EKS credential plugin (aws-iam-authenticator or aws eks get-token)
 pub fn awsEksConfig(allocator: std.mem.Allocator, cluster_name: []const u8) !ExecConfig {
-    var args = std.ArrayListUnmanaged([]const u8).empty;
+    var args = std.ArrayList([]const u8).empty;
     try args.append(allocator, "eks");
     try args.append(allocator, "get-token");
     try args.append(allocator, "--cluster-name");
@@ -173,14 +173,14 @@ pub fn gcpGkeConfig(allocator: std.mem.Allocator) !ExecConfig {
 
 /// Azure AKS credential plugin (kubelogin)
 pub fn azureAksConfig(allocator: std.mem.Allocator, server_id: []const u8) !ExecConfig {
-    var args = std.ArrayListUnmanaged([]const u8).empty;
+    var args = std.ArrayList([]const u8).empty;
     try args.append(allocator, "get-token");
     try args.append(allocator, "--server-id");
     try args.append(allocator, server_id);
     try args.append(allocator, "--login");
     try args.append(allocator, "azurecli");
 
-    var envs = std.ArrayListUnmanaged(EnvVar).empty;
+    var envs = std.ArrayList(EnvVar).empty;
     try envs.append(allocator, .{
         .name = "AAD_SERVICE_PRINCIPAL_CLIENT_ID",
         .value = "",
@@ -201,7 +201,7 @@ pub fn oidcConfig(
     issuer_url: []const u8,
     client_id: []const u8,
 ) !ExecConfig {
-    var args = std.ArrayListUnmanaged([]const u8).empty;
+    var args = std.ArrayList([]const u8).empty;
     try args.append(allocator, "oidc-login");
     try args.append(allocator, "get-token");
     try args.append(allocator, "--oidc-issuer-url");
