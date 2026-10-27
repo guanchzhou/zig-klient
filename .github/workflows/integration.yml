@@ -58,6 +58,28 @@ jobs:
       - name: Pod exec over WebSocket
         run: zig build test-pod-exec
 
+      - name: ListClient fixture scenarios
+        run: zig build test-list-client -Dh2=true
+
+      - name: ListClient Pod protobuf and CRD JSON
+        run: |
+          kubectl apply -f tests/fixtures/widget-crd.yaml
+          kubectl wait --for=condition=Established crd/widgets.example.com --timeout=90s
+          kubectl apply -f - <<'EOF'
+          apiVersion: example.com/v1
+          kind: Widget
+          metadata:
+            name: demo
+          EOF
+          for _ in $(seq 1 30); do
+            if kubectl get widgets.example.com >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          zig build h2-spike -Dh2=true -- --lists 1 --path /api/v1/pods --connect-timeout-ms 10000 | tee /tmp/pods.txt
+          grep -q 'application/vnd.kubernetes.protobuf' /tmp/pods.txt
+          zig build h2-spike -Dh2=true -- --lists 1 --path /apis/example.com/v1/widgets --connect-timeout-ms 10000 | tee /tmp/widgets.txt
+          grep -q 'application/json' /tmp/widgets.txt
+
       # MutatingAdmissionPolicy requires K8s >= 1.36; enable once kind ships a 1.36
       # node image:
       # - name: MutatingAdmissionPolicy CRUD

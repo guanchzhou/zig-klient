@@ -1,0 +1,1 @@
+{"kind":"PodList","apiVersion":"v1","metadata":{"resourceVersion":"99","continue":"eyJ2IjoibWV0YS5rOHMuaW8vdjEifQ","remainingItemCount":3},"items":[{"metadata":{"name":"bare","namespace":"default"},"spec":{"containers":[{"name":"c","image":"pause:3.10","resources":{}}]},"status":{"phase":"Pending"}}]}

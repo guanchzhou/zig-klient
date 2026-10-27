@@ -153,7 +153,6 @@ test "DeviceClass - create structure" {
         .spec = .{
             .selectors = null,
             .config = null,
-            .suitableNodes = null,
         },
     };
 
