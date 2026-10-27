@@ -1,3 +1,8 @@
+---
+type: note
+title: Changelog
+---
+
 # Changelog
 
 All notable changes to zig-klient are documented here.
