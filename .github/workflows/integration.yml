@@ -75,9 +75,10 @@ jobs:
             if kubectl get widgets.example.com >/dev/null 2>&1; then break; fi
             sleep 2
           done
-          zig build h2-spike -Dh2=true -- --lists 1 --path /api/v1/pods --connect-timeout-ms 10000 | tee /tmp/pods.txt
+          set -o pipefail
+          zig build h2-spike -Dh2=true -- --lists 1 --path /api/v1/pods --connect-timeout-ms 10000 2>&1 | tee /tmp/pods.txt
           grep -q 'application/vnd.kubernetes.protobuf' /tmp/pods.txt
-          zig build h2-spike -Dh2=true -- --lists 1 --path /apis/example.com/v1/widgets --connect-timeout-ms 10000 | tee /tmp/widgets.txt
+          zig build h2-spike -Dh2=true -- --lists 1 --path /apis/example.com/v1/widgets --connect-timeout-ms 10000 2>&1 | tee /tmp/widgets.txt
           grep -q 'application/json' /tmp/widgets.txt
 
       # MutatingAdmissionPolicy requires K8s >= 1.36; enable once kind ships a 1.36
