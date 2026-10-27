@@ -54,6 +54,6 @@ directory's README.
 
 ## Notes
 
-- CI runs the unit suite on Linux + macOS, a `zig fmt --check` gate, and a
-  non-blocking Zig-`master` canary. Integration entrypoints are compiled in CI but
-  run against a live cluster locally.
+- CI runs the unit suite on Linux + macOS with Zig 0.17.0, a `zig fmt --check`
+  gate, and a Protobuf schema drift check. Integration entrypoints are compiled
+  in CI; the kind workflow runs them nightly and on demand.
