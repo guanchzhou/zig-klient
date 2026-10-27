@@ -220,6 +220,9 @@ pub const aggressiveConfig = retry.aggressiveConfig;
 pub const conservativeConfig = retry.conservativeConfig;
 
 pub const watch = @import("k8s/watch.zig");
+pub const protobuf = @import("k8s/protobuf.zig");
+pub const byte_queue = @import("k8s/byte_queue.zig");
+pub const list_policy = @import("k8s/list_policy.zig");
 pub const discovery = @import("k8s/discovery.zig");
 pub const Discovery = discovery.Discovery;
 pub const Watcher = watch.Watcher;

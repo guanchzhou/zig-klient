@@ -46,6 +46,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-dra", .source = "tests/dra_test.zig", .desc = "Run Dynamic Resource Allocation tests (K8s 1.34)" },
         .{ .name = "test-volume-attributes", .source = "tests/volume_attributes_test.zig", .desc = "Run VolumeAttributesClass tests (K8s 1.34)" },
         .{ .name = "test-protobuf", .source = "tests/protobuf_request_test.zig", .desc = "Run raw Protobuf request tests" },
+        .{ .name = "test-protobuf-decode", .source = "tests/protobuf_test.zig", .desc = "Run Protobuf decoder tests against upstream-encoded fixtures" },
+        .{ .name = "test-protobuf-types", .source = "tests/protobuf_types_test.zig", .desc = "Decode every generated type's Protobuf fixture and compare it with its JSON" },
+        .{ .name = "test-list-policy", .source = "tests/list_policy_test.zig", .desc = "Run list retry policy tests (no network)" },
         .{ .name = "test-registry", .source = "tests/resource_registry_test.zig", .desc = "Run resource registry tests" },
         .{ .name = "test-query", .source = "tests/query_test.zig", .desc = "Run query builder tests" },
         .{ .name = "test-path", .source = "tests/path_test.zig", .desc = "Run path segment and header validation tests" },
@@ -123,6 +126,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "test-mutating-admission-policy", .source = "tests/entrypoints/test_mutating_admission_policy.zig", .desc = "MutatingAdmissionPolicy CRUD (requires K8s >= 1.36)" },
         .{ .name = "test-k8s-137-crud", .source = "tests/entrypoints/test_k8s_137_crud.zig", .desc = "DeviceTaintRule / ClusterTrustBundle / StorageVersionMigration v1 CRUD (requires K8s >= 1.37)" },
         .{ .name = "test-pod-exec", .source = "tests/entrypoints/test_pod_exec.zig", .desc = "Pod exec over WebSocket (requires a running pod + kubectl proxy)" },
+        .{ .name = "test-protobuf-parity", .source = "tests/entrypoints/test_protobuf_parity.zig", .desc = "Compare a Protobuf and a JSON Pod list body (-- --protobuf FILE --json FILE)" },
     };
 
     inline for (test_entrypoints) |entrypoint| {
@@ -144,6 +148,7 @@ pub fn build(b: *std.Build) void {
 
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.step.dependOn(&install_exe.step);
+        run_cmd.addPassthruArgs();
 
         const run_step = b.step(entrypoint.name, entrypoint.desc);
         run_step.dependOn(&run_cmd.step);
@@ -175,6 +180,82 @@ pub fn build(b: *std.Build) void {
         comprehensive_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
     }
 
+    // === libcurl with HTTP/2 (nghttp2) over mbedTLS, built from pinned sources ===
+    const with_h2 = b.option(bool, "h2", "Fetch and build the libcurl/nghttp2/mbedTLS/zlib sources (default: false)") orelse false;
+    const c_deps_step = b.step("build-c-deps", "Build static libcurl, nghttp2, mbedTLS and zlib for -Dtarget (needs -Dh2)");
+    const list_unit_step = b.step("test-list-client-unit", "Run ListClient loopback tests (needs -Dh2; no cluster)");
+    const fixture_step = b.step("test-list-client", "Run ListClient against the scripted HTTP/2 fixture (needs -Dh2 and Python; no cluster)");
+    const spike_step = b.step("h2-spike", "One HTTP/2 GET to the current kubeconfig context through libcurl (needs -Dh2; read-only)");
+    if (!with_h2) {
+        const fail = b.addFail("this step needs -Dh2=true");
+        c_deps_step.dependOn(&fail.step);
+        spike_step.dependOn(&fail.step);
+        list_unit_step.dependOn(&fail.step);
+        fixture_step.dependOn(&fail.step);
+    } else if (buildLibcurl(b, target, optimize)) |c| {
+        c_deps_step.dependOn(&b.addInstallArtifact(c.lib, .{}).step);
+
+        const spike_module = b.createModule(.{
+            .root_source_file = b.path("tests/entrypoints/test_h2_spike.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        spike_module.addImport("klient", klient_module);
+        spike_module.addImport("curl_c", c.bindings);
+        spike_module.linkLibrary(c.lib);
+
+        const list_module = b.addModule("klient-list", .{
+            .root_source_file = b.path("src/k8s/list_client.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        list_module.addImport("klient", klient_module);
+        list_module.addImport("curl_c", c.bindings);
+        list_module.linkLibrary(c.lib);
+        spike_module.addImport("klient-list", list_module);
+
+        const spike = b.addExecutable(.{ .name = "test-h2-spike", .root_module = spike_module });
+        c_deps_step.dependOn(&b.addInstallArtifact(spike, .{}).step);
+        const run_spike = b.addRunArtifact(spike);
+        run_spike.addPassthruArgs();
+        spike_step.dependOn(&run_spike.step);
+        const list_unit = b.addTest(.{ .name = "test-list-client-unit", .root_module = list_module });
+        list_unit_step.dependOn(&b.addRunArtifact(list_unit).step);
+
+        const fixture_module = b.createModule(.{
+            .root_source_file = b.path("tests/list_client_fixture_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        fixture_module.addImport("klient", klient_module);
+        fixture_module.addImport("klient-list", list_module);
+        fixture_module.linkLibrary(c.lib);
+        const run_fixture = b.addRunArtifact(b.addTest(.{ .name = "test-list-client", .root_module = fixture_module }));
+        const venv_python = ".zig-cache/fixture-venv/bin/python3";
+        const venv_step = b.addSystemCommand(&.{ "python3", "-m", "venv", ".zig-cache/fixture-venv" });
+        const pip_step = b.addSystemCommand(&.{ venv_python, "-m", "pip", "install", "--disable-pip-version-check", "h2" });
+        pip_step.step.dependOn(&venv_step.step);
+        run_fixture.step.dependOn(&pip_step.step);
+        run_fixture.setEnvironmentVariable("LIST_FIXTURE_PYTHON", venv_python);
+        fixture_step.dependOn(&run_fixture.step);
+    }
+
+    // === Protobuf schema and fixtures (needs Go; reads k8s.io/api) ===
+    const gen_protobuf_step = b.step("gen-protobuf", "Regenerate src/k8s/protobuf_generated.zig and its fixtures from k8s.io/api (needs Go)");
+    const gen_protobuf = b.addSystemCommand(&.{ "go", "run", "." });
+    gen_protobuf.setCwd(b.path("tools/protobuf-gen"));
+    gen_protobuf.addArg("-schema");
+    gen_protobuf.addFileArg(b.path("src/k8s/protobuf_generated.zig"));
+    gen_protobuf.addArg("-fixtures");
+    gen_protobuf.addDirectoryArg(b.path("tests/fixtures/protobuf"));
+    gen_protobuf.has_side_effects = true;
+    const fmt_generated = b.addFmt(.{ .paths = b.pathList(&.{"src/k8s/protobuf_generated.zig"}) });
+    fmt_generated.step.dependOn(&gen_protobuf.step);
+    gen_protobuf_step.dependOn(&fmt_generated.step);
+
     // === API documentation (zig build docs -> zig-out/docs) ===
     const docs_step = b.step("docs", "Generate API documentation into zig-out/docs");
     const docs_obj = b.addObject(.{ .name = "zig-klient", .root_module = klient_module });
@@ -184,6 +265,39 @@ pub fn build(b: *std.Build) void {
         .install_subdir = "docs",
     });
     docs_step.dependOn(&install_docs.step);
+}
+
+const Libcurl = struct {
+    lib: *std.Build.Step.Compile,
+    bindings: *std.Build.Module,
+};
+
+/// Returns null until the lazy C dependencies are fetched; the build runner
+/// fetches them and re-runs `build`.
+fn buildLibcurl(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) ?Libcurl {
+    const curl_dep = b.lazyDependency("curl", .{});
+    const nghttp2_dep = b.lazyDependency("nghttp2", .{});
+    const mbedtls_dep = b.lazyDependency("mbedtls", .{});
+    const zlib_dep = b.lazyDependency("zlib", .{});
+    if (curl_dep == null or nghttp2_dep == null or mbedtls_dep == null or zlib_dep == null) return null;
+
+    const curl = @import("libs/curl.zig").create(b, target, optimize, curl_dep.?, "");
+    const nghttp2 = @import("libs/nghttp2.zig").create(b, target, optimize, nghttp2_dep.?, "");
+    const mbedtls_build = @import("libs/mbedtls.zig");
+    const mbedtls = mbedtls_build.create(b, target, optimize, mbedtls_dep.?, "");
+    mbedtls_build.addConfig(curl.root_module);
+    const zlib = @import("libs/zlib.zig").create(b, target, optimize, zlib_dep.?, "");
+    curl.root_module.linkLibrary(nghttp2);
+    curl.root_module.linkLibrary(mbedtls);
+    curl.root_module.linkLibrary(zlib);
+
+    const translate = b.addTranslateC(.{
+        .root_source_file = b.path("libs/curl_c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    translate.addIncludePath(curl_dep.?.path("include"));
+    return .{ .lib = curl, .bindings = translate.createModule() };
 }
 
 // Export the module for use as a dependency

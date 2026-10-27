@@ -136,7 +136,6 @@ pub const ResourceSlice = Resource(ResourceSliceSpec);
 pub const DeviceClassSpec = struct {
     selectors: ?[]std.json.Value = null,
     config: ?[]std.json.Value = null,
-    suitableNodes: ?std.json.Value = null,
 };
 
 /// DeviceClass type alias

@@ -31,6 +31,32 @@ jobs:
       - name: Check formatting
         run: zig fmt --check src/ tests/ build.zig build.zig.zon
 
+  protobuf-drift:
+    name: Protobuf schema drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Zig 0.17.0
+        env:
+          ZIG_URL: https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
+          ZIG_SHA: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+        run: |
+          curl -fsSL "$ZIG_URL" -o zig.tar.xz
+          echo "$ZIG_SHA  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.17.0" >> "$GITHUB_PATH"
+      # The runner's Go fetches the toolchain go.mod asks for.
+      - name: Regenerate
+        env:
+          GOTOOLCHAIN: auto
+        run: zig build gen-protobuf
+      - name: Check for drift
+        run: |
+          git add -N src/k8s/protobuf_generated.zig tests/fixtures/protobuf
+          git diff --exit-code --stat -- src/k8s/protobuf_generated.zig tests/fixtures/protobuf
+
   build-test:
     name: Build & Test
     strategy:

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ListClient` (module `klient-list`, built with `-Dh2=true`): streamed list
+  reads over one reused HTTP/2 connection through libcurl, with the list retry
+  policy in `list_policy` (re-send before the first body byte, 401 credential
+  refresh, 429 wait then pages of 500, 410 restart, one JSON-over-HTTP/1.1
+  retry).
+- `protobuf`: Kubernetes Protobuf list and object decoding into the same
+  structs the JSON path fills, for the 47 built-in resource types. The message
+  tables in `protobuf_generated.zig` are generated from k8s.io/api v0.37.1 by
+  `zig build gen-protobuf` (needs Go); `std.json.Value` fields are decoded
+  through the same tables.
+- `StreamResponseMeta.page` and `continue_sink` for transports that page or
+  restart a list inside one call.
+
+### Removed
+
+- `DeviceClassSpec.suitableNodes`: upstream `resource.k8s.io/v1` dropped the
+  field before release, so servers never send it.
+
+### Dependencies
+
+With `-Dh2=true` these are fetched as lazy dependencies, built from source and
+linked statically; the default build does not use them:
+
+- libcurl 8.23.0 (curl license)
+- nghttp2 1.70.0 (MIT)
+- Mbed TLS 3.6.7 (Apache-2.0 OR GPL-2.0-or-later)
+- zlib 1.3.2 (Zlib)
+
+`sbom.cdx.json` lists them with their package hashes.
+
 ## [0.8.6] - 2026-10-25
 
 ### Security

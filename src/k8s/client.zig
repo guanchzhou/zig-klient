@@ -25,8 +25,14 @@ pub const StreamGetOptions = struct {
 /// `content_type` is valid only for the duration of the callback.
 pub const StreamResponseMeta = struct {
     status: std.http.Status,
-    retry_after_seconds: ?u32,
-    content_type: ?[]const u8,
+    retry_after_seconds: ?u32 = null,
+    content_type: ?[]const u8 = null,
+    /// `first` after an earlier response in the same read abandons that
+    /// response's rows; `next` continues the same list.
+    page: enum { first, next } = .first,
+    /// Set by transports that page: the callback stores the page's continue
+    /// token there, valid until the callback is next invoked.
+    continue_sink: ?*[]const u8 = null,
 };
 
 const stream_header_capacity = 64 << 10;
