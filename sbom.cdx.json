@@ -9,14 +9,14 @@
       {
         "vendor": "zig-klient",
         "name": "hand-authored-from-build.zig.zon",
-        "version": "0.9.0"
+        "version": "0.9.1"
       }
     ],
     "component": {
       "type": "library",
-      "bom-ref": "pkg:generic/zig-klient@0.9.0",
+      "bom-ref": "pkg:generic/zig-klient@0.9.1",
       "name": "zig-klient",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "description": "Kubernetes client library for Zig (73 resource types, through K8s 1.37)",
       "licenses": [
         {
@@ -199,7 +199,7 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:generic/zig-klient@0.9.0",
+      "ref": "pkg:generic/zig-klient@0.9.1",
       "dependsOn": [
         "pkg:generic/yaml@0.6.0",
         "pkg:generic/curl@8.23.0"

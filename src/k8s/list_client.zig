@@ -75,7 +75,7 @@ pub const ListClient = struct {
 
     // I/O thread only.
     active: std.ArrayList(*Transfer) = .empty,
-    key: ?StagedKey = null,
+    key: ?*StagedKey = null,
 
     const Command = union(enum) {
         add: *Transfer,
@@ -219,6 +219,7 @@ pub const ListClient = struct {
         if (c.curl_multi_add_handle(self.multi, transfer.easy) != c.CURLM_OK) {
             _ = self.active.pop();
             self.failUnstarted(transfer, error.CurlFailed);
+            self.releaseTransferKey(transfer);
             self.releaseKeyIfIdle();
         }
     }
@@ -243,19 +244,40 @@ pub const ListClient = struct {
             std.crypto.secureZero(u8, @constCast(value));
             self.gpa.free(value);
         };
-        if (changed) if (self.key) |*key| {
-            key.deinit(self.gpa);
+        // A replaced key stays on disk until its last transfer finishes.
+        if (changed) if (self.key) |key| {
             self.key = null;
+            if (key.users == 0) self.destroyKey(key);
         };
         const value = pem orelse return;
-        if (self.key == null) self.key = try StagedKey.stage(self.gpa, self.io, self.options.key_dir_prefix, value);
-        try setopt(transfer.easy, c.CURLOPT_SSLKEY, self.key.?.path.ptr);
+        if (self.key == null) {
+            const key = try self.gpa.create(StagedKey);
+            errdefer self.gpa.destroy(key);
+            key.* = try StagedKey.stage(self.gpa, self.io, self.options.key_dir_prefix, value);
+            self.key = key;
+        }
+        const key = self.key.?;
+        try setopt(transfer.easy, c.CURLOPT_SSLKEY, key.path.ptr);
+        key.users += 1;
+        transfer.key = key;
+    }
+
+    fn releaseTransferKey(self: *ListClient, transfer: *Transfer) void {
+        const key = transfer.key orelse return;
+        transfer.key = null;
+        key.users -= 1;
+        if (key.users == 0 and key != self.key) self.destroyKey(key);
     }
 
     fn releaseKeyIfIdle(self: *ListClient) void {
         if (self.active.items.len > 0) return;
-        if (self.key) |*key| key.deinit(self.gpa);
+        if (self.key) |key| self.destroyKey(key);
         self.key = null;
+    }
+
+    fn destroyKey(self: *ListClient, key: *StagedKey) void {
+        key.deinit(self.gpa);
+        self.gpa.destroy(key);
     }
 
     fn findActive(self: *ListClient, easy: ?*c.CURL) ?*Transfer {
@@ -275,6 +297,7 @@ pub const ListClient = struct {
         transfer.state = .finished;
         transfer.queue.finish(if (err) |e| .{ .failed = e } else .complete);
         transfer.headers_done.set(self.io);
+        self.releaseTransferKey(transfer);
         self.releaseKeyIfIdle();
     }
 
@@ -301,6 +324,8 @@ pub const Transfer = struct {
     reader_buffer: [reader_buffer_len]u8 = undefined,
     headers: ?*c.struct_curl_slist = null,
     url: ?[:0]u8 = null,
+    /// I/O thread only.
+    key: ?*StagedKey = null,
     /// I/O thread only once added.
     state: enum { pending, active, finished } = .pending,
     headers_done: Io.Event = .unset,
@@ -317,6 +342,7 @@ pub const Transfer = struct {
         const gpa = self.client.gpa;
         const easy = self.easy;
         self.url = try std.fmt.allocPrintSentinel(gpa, "{s}{s}", .{ std.mem.trimEnd(u8, creds.server, "/"), attempt.path }, 0);
+        try klient.path.validateRequestUrl(self.url.?);
         try setopt(easy, c.CURLOPT_URL, self.url.?.ptr);
         try setopt(easy, c.CURLOPT_HTTP_VERSION, @as(c_long, switch (attempt.protocol) {
             .http2 => c.CURL_HTTP_VERSION_2TLS,
@@ -356,6 +382,7 @@ pub const Transfer = struct {
         const accept = try std.fmt.bufPrintSentinel(&line_buffer, "Accept: {s}", .{attempt.accept.header()}, 0);
         try self.appendHeader(accept);
         if (creds.token) |token| {
+            try klient.path.validateBearerToken(token);
             const line = try std.fmt.allocPrintSentinel(gpa, "Authorization: Bearer {s}", .{token}, 0);
             defer {
                 std.crypto.secureZero(u8, line);
@@ -548,6 +575,8 @@ const OwnedCredentials = struct {
 /// in a fresh 0700 directory, present only while transfers are in flight.
 const StagedKey = struct {
     io: Io,
+    /// Active transfers whose handle points at this file.
+    users: usize = 0,
     dir_path: []u8,
     path: [:0]u8,
 
@@ -654,6 +683,45 @@ const fake_credentials: Credentials = .{
     .ca_pem = "not a certificate",
     .client_key_pem = "not a key",
 };
+
+test "a replaced client key stays on disk until its last transfer finishes" {
+    const keys = try TestKeyDir.init();
+    defer keys.deinit();
+    const client = try ListClient.init(testing.allocator, testing.io, fake_credentials, .{ .key_dir_prefix = keys.prefix });
+    defer client.deinit();
+
+    var first: Transfer = .{ .client = client, .queue = undefined, .easy = c.curl_easy_init().? };
+    defer c.curl_easy_cleanup(first.easy);
+    var second: Transfer = .{ .client = client, .queue = undefined, .easy = c.curl_easy_init().? };
+    defer c.curl_easy_cleanup(second.easy);
+
+    try client.prepareKey(&first);
+    try testing.expectEqual(@as(usize, 1), try keys.entries());
+    try client.setCredentials(fake_credentials);
+    try client.prepareKey(&second);
+    try testing.expectEqual(@as(usize, 2), try keys.entries());
+    client.releaseTransferKey(&first);
+    try testing.expectEqual(@as(usize, 1), try keys.entries());
+    client.releaseTransferKey(&second);
+    client.releaseKeyIfIdle();
+    try testing.expectEqual(@as(usize, 0), try keys.entries());
+}
+
+test "a control character in the token or path is rejected before the request" {
+    const keys = try TestKeyDir.init();
+    defer keys.deinit();
+    var credentials = fake_credentials;
+    credentials.token = "token\r\nX-Injected: 1";
+    const client = try ListClient.init(testing.allocator, testing.io, credentials, .{ .key_dir_prefix = keys.prefix });
+    defer client.deinit();
+    const attempt: policy.Attempt = .{ .path = "/api/v1/pods", .protocol = .http2, .accept = .protobuf_first };
+    try testing.expectError(error.InvalidBearerToken, client.open(attempt));
+
+    try client.setCredentials(fake_credentials);
+    var bad_path = attempt;
+    bad_path.path = "/api/v1/pods HTTP/1.1\r\nHost: x";
+    try testing.expectError(error.InvalidRequestUrl, client.open(bad_path));
+}
 
 test "a refused connection is a transport error before any body byte" {
     const keys = try TestKeyDir.init();
