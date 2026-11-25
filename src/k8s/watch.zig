@@ -127,7 +127,125 @@ pub const WatchOutcome = union(enum) {
     decode_error: WatchErrorDetail,
 };
 
+const initial_watch_line_bytes = 16 << 10;
 const max_watch_event_bytes = 4 << 20;
+pub const max_clone_depth: usize = 64;
+
+fn appendBoundedLine(allocator: std.mem.Allocator, list: *std.ArrayList(u8), data: []const u8) !void {
+    const needed = list.items.len + data.len;
+    if (needed > list.capacity) {
+        var next_cap = @max(list.capacity, initial_watch_line_bytes);
+        while (next_cap < needed) {
+            next_cap = @min(next_cap * 2, max_watch_event_bytes);
+            if (next_cap < needed and next_cap == max_watch_event_bytes) break;
+        }
+        try list.ensureTotalCapacityPrecise(allocator, @max(next_cap, needed));
+    }
+    list.appendSliceAssumeCapacity(data);
+}
+
+/// Deep-clone a `std.json.Value` into `arena`, bounded by `max_clone_depth`.
+pub fn cloneJsonValue(
+    arena: std.mem.Allocator,
+    value: std.json.Value,
+) error{ OutOfMemory, RecursionLimitExceeded }!std.json.Value {
+    return cloneJsonValueDepth(arena, value, 0);
+}
+
+fn cloneJsonValueDepth(
+    arena: std.mem.Allocator,
+    value: std.json.Value,
+    depth: usize,
+) error{ OutOfMemory, RecursionLimitExceeded }!std.json.Value {
+    if (depth >= max_clone_depth) return error.RecursionLimitExceeded;
+    return switch (value) {
+        .null => .null,
+        .bool => |b| .{ .bool = b },
+        .integer => |i| .{ .integer = i },
+        .float => |f| .{ .float = f },
+        .number_string => |s| .{ .number_string = try arena.dupe(u8, s) },
+        .string => |s| .{ .string = try arena.dupe(u8, s) },
+        .array => |arr| blk: {
+            var out = try std.json.Array.initCapacity(arena, arr.items.len);
+            for (arr.items) |item| {
+                out.appendAssumeCapacity(try cloneJsonValueDepth(arena, item, depth + 1));
+            }
+            break :blk .{ .array = out };
+        },
+        .object => |obj| blk: {
+            var out: std.json.ObjectMap = .empty;
+            try out.ensureTotalCapacity(arena, obj.count());
+            var it = obj.iterator();
+            while (it.next()) |entry| {
+                const k = try arena.dupe(u8, entry.key_ptr.*);
+                const v = try cloneJsonValueDepth(arena, entry.value_ptr.*, depth + 1);
+                out.putAssumeCapacity(k, v);
+            }
+            break :blk .{ .object = out };
+        },
+    };
+}
+
+fn cloneValue(
+    comptime V: type,
+    arena: std.mem.Allocator,
+    value: V,
+    depth: usize,
+) error{ OutOfMemory, RecursionLimitExceeded }!V {
+    if (depth >= max_clone_depth) return error.RecursionLimitExceeded;
+    if (V == std.json.Value) return cloneJsonValueDepth(arena, value, depth);
+
+    return switch (@typeInfo(V)) {
+        .bool, .int, .float, .@"enum", .void, .null => value,
+        .optional => |opt| if (value) |inner| try cloneValue(opt.child, arena, inner, depth) else null,
+        .array => |arr| blk: {
+            var out: V = undefined;
+            for (value, 0..) |item, i| {
+                out[i] = try cloneValue(arr.child, arena, item, depth + 1);
+            }
+            break :blk out;
+        },
+        .pointer => |ptr| switch (ptr.size) {
+            .slice => blk: {
+                if (comptime ptr.sentinel()) |sentinel| {
+                    const out = try arena.allocSentinel(ptr.child, value.len, sentinel);
+                    for (value, 0..) |item, i| {
+                        out[i] = try cloneValue(ptr.child, arena, item, depth + 1);
+                    }
+                    break :blk out;
+                }
+                if (ptr.child == u8) {
+                    break :blk try arena.dupe(u8, value);
+                }
+                const out = try arena.alloc(ptr.child, value.len);
+                for (value, 0..) |item, i| {
+                    out[i] = try cloneValue(ptr.child, arena, item, depth + 1);
+                }
+                break :blk out;
+            },
+            .one => blk: {
+                const out = try arena.create(ptr.child);
+                out.* = try cloneValue(ptr.child, arena, value.*, depth + 1);
+                break :blk out;
+            },
+            else => @compileError("unsupported pointer kind in Informer deepCopy: " ++ @typeName(V)),
+        },
+        .@"struct" => |info| blk: {
+            var out: V = undefined;
+            inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                @field(out, field_name) = try cloneValue(FieldType, arena, @field(value, field_name), depth + 1);
+            }
+            break :blk out;
+        },
+        .@"union" => |info| blk: {
+            if (info.tag_type == null) @compileError("untagged union unsupported in Informer deepCopy: " ++ @typeName(V));
+            break :blk switch (value) {
+                inline else => |payload, tag| @unionInit(V, @tagName(tag), try cloneValue(@TypeOf(payload), arena, payload, depth + 1)),
+            };
+        },
+        else => @compileError("unsupported type in Informer deepCopy: " ++ @typeName(V)),
+    };
+}
 
 /// Watcher for streaming resource changes
 pub fn Watcher(comptime T: type) type {
@@ -470,55 +588,56 @@ pub fn Watcher(comptime T: type) type {
             reader: *std.Io.Reader,
             callback_error: *?anyerror,
         ) !WatchOutcome {
-            const line_storage = try self.client.allocator.alloc(u8, max_watch_event_bytes + 1);
-            defer self.client.allocator.free(line_storage);
+            var line_buf: std.ArrayList(u8) = try .initCapacity(self.client.allocator, initial_watch_line_bytes);
+            defer line_buf.deinit(self.client.allocator);
 
             while (true) {
-                var line_writer: std.Io.Writer = .fixed(line_storage);
-                const line_len = reader.streamDelimiterLimit(
-                    &line_writer,
-                    '\n',
-                    .limited(line_storage.len),
-                ) catch |err| switch (err) {
-                    error.ReadFailed => return error.ReadFailed,
-                    error.StreamTooLong => return .{
-                        .malformed_event = .fromMalformed(error.StreamTooLong, line_writer.buffered()),
-                    },
-                    error.WriteFailed => return .{
-                        .decode_error = .fromMalformed(error.WriteFailed, line_writer.buffered()),
-                    },
-                };
-
+                line_buf.clearRetainingCapacity();
                 var ended = false;
-                const next = reader.peekByte() catch |err| switch (err) {
-                    error.EndOfStream => blk: {
-                        ended = true;
-                        break :blk null;
-                    },
-                    error.ReadFailed => return error.ReadFailed,
-                };
-                if (next) |byte| {
-                    if (byte != '\n') {
-                        return .{ .decode_error = .fromMalformed(
-                            error.WatchDelimiterMissing,
-                            line_writer.buffered(),
-                        ) };
+                var too_long = false;
+                while (true) {
+                    const chunk = reader.peekGreedy(1) catch |err| switch (err) {
+                        error.ReadFailed => return error.ReadFailed,
+                        error.EndOfStream => {
+                            ended = true;
+                            break;
+                        },
+                    };
+                    if (std.mem.indexOfScalar(u8, chunk, '\n')) |nl| {
+                        if (line_buf.items.len + nl > max_watch_event_bytes) {
+                            const take = max_watch_event_bytes - line_buf.items.len;
+                            if (take > 0) try appendBoundedLine(self.client.allocator, &line_buf, chunk[0..take]);
+                            reader.toss(nl + 1);
+                            too_long = true;
+                            break;
+                        }
+                        try appendBoundedLine(self.client.allocator, &line_buf, chunk[0..nl]);
+                        reader.toss(nl + 1);
+                        break;
                     }
-                    reader.toss(1);
+                    if (line_buf.items.len + chunk.len > max_watch_event_bytes) {
+                        const take = max_watch_event_bytes - line_buf.items.len;
+                        if (take > 0) try appendBoundedLine(self.client.allocator, &line_buf, chunk[0..take]);
+                        reader.toss(chunk.len);
+                        too_long = true;
+                        break;
+                    }
+                    try appendBoundedLine(self.client.allocator, &line_buf, chunk);
+                    reader.toss(chunk.len);
                 }
 
-                if (line_len > max_watch_event_bytes) {
+                if (too_long) {
                     return .{ .malformed_event = .fromMalformed(
                         error.StreamTooLong,
-                        line_writer.buffered(),
+                        line_buf.items,
                     ) };
                 }
-                if (line_len == 0) {
+                if (line_buf.items.len == 0) {
                     if (ended) return .eof;
                     continue;
                 }
 
-                const line = line_writer.buffered();
+                const line = line_buf.items;
                 const event_type = self.peekEventType(line) catch |err| {
                     if (err == error.OutOfMemory) return err;
                     return .{ .malformed_event = .fromMalformed(err, line) };
@@ -737,9 +856,9 @@ pub fn Informer(comptime T: type) type {
             if (self.resource_version) |rv| allocator.free(rv);
         }
 
-        /// Deep-own `object` in its own parsed arena and insert/replace it in the cache.
-        /// Caller MUST hold the mutex. Re-serializes then re-parses so cached memory is
-        /// independent of the transient list/watch parse arena that gets freed per event.
+        /// Deep-own `object` in its own arena and insert/replace it in the cache.
+        /// Caller MUST hold the mutex. Clones directly into a fresh arena so cached
+        /// memory is independent of the transient list/watch parse arena.
         fn cachePut(self: *Self, object: T) !void {
             const parsed = try deepCopy(self.cache.allocator, object);
             errdefer parsed.deinit();
@@ -751,12 +870,16 @@ pub fn Informer(comptime T: type) type {
         }
 
         fn deepCopy(allocator: std.mem.Allocator, object: T) !std.json.Parsed(T) {
-            const json_bytes = try std.json.Stringify.valueAlloc(allocator, object, .{ .emit_null_optional_fields = false });
-            defer allocator.free(json_bytes);
-            return std.json.parseFromSlice(T, allocator, json_bytes, .{
-                .ignore_unknown_fields = true,
-                .allocate = .alloc_always,
-            });
+            const arena = try allocator.create(std.heap.ArenaAllocator);
+            errdefer allocator.destroy(arena);
+            arena.* = std.heap.ArenaAllocator.init(allocator);
+            errdefer arena.deinit();
+
+            const cloned = try cloneValue(T, arena.allocator(), object, 0);
+            return .{
+                .arena = arena,
+                .value = cloned,
+            };
         }
 
         /// Remove and free a cache entry by name. Caller MUST hold the mutex.

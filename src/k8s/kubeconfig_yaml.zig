@@ -187,16 +187,27 @@ pub const KubeconfigParser = struct {
         return self.loadFromPath(config_path);
     }
 
+    pub const max_file_bytes: usize = 10 * 1024 * 1024;
+
     /// Load kubeconfig from specific path
     pub fn loadFromPath(self: *KubeconfigParser, path: []const u8) !Kubeconfig {
+        return self.loadFromPathLimited(path, max_file_bytes);
+    }
+
+    /// Load kubeconfig from `path`, rejecting files larger than `max_bytes`.
+    pub fn loadFromPathLimited(self: *KubeconfigParser, path: []const u8, max_bytes: usize) !Kubeconfig {
         const file = try std.Io.Dir.cwd().openFile(self.io, path, .{});
         defer file.close(self.io);
 
         var buf: [4096]u8 = undefined;
         var reader = file.reader(self.io, &buf);
-        const size = try reader.getSize();
-        const read_len = @min(@as(usize, @intCast(size)), 10 * 1024 * 1024);
-        const content = try reader.interface.readAlloc(self.allocator, read_len);
+        if (reader.getSize()) |size| {
+            if (size > max_bytes) return error.FileTooBig;
+        } else |_| {}
+        const content = reader.interface.allocRemaining(self.allocator, .limited(max_bytes)) catch |err| switch (err) {
+            error.StreamTooLong => return error.FileTooBig,
+            else => |e| return e,
+        };
         defer self.allocator.free(content);
 
         return self.parseYaml(content);

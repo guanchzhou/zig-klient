@@ -168,3 +168,33 @@ test "RetryContext.delayFor - honours Retry-After on 429 and 503, capped" {
     try std.testing.expectEqual(ctx.getBackoffDuration(), ctx.delayFor(429, null));
     try std.testing.expectEqual(ctx.getBackoffDuration(), ctx.delayFor(null, null));
 }
+
+test "RetryContext.getBackoffDuration guards NaN, infinity, negative multiplier, and huge attempts" {
+    const cases = [_]struct { mult: f64, jitter: f64, attempt: u32 }{
+        .{ .mult = std.math.nan(f64), .jitter = 0.0, .attempt = 3 },
+        .{ .mult = std.math.inf(f64), .jitter = 0.2, .attempt = 3 },
+        .{ .mult = -std.math.inf(f64), .jitter = 0.2, .attempt = 3 },
+        .{ .mult = -2.0, .jitter = 0.5, .attempt = 3 },
+        .{ .mult = 2.0, .jitter = std.math.nan(f64), .attempt = 3 },
+        .{ .mult = 2.0, .jitter = std.math.inf(f64), .attempt = 3 },
+        .{ .mult = 2.0, .jitter = 5.0, .attempt = 10_000 },
+    };
+    for (cases) |c| {
+        var ctx = retry.RetryContext.init(.{
+            .initial_backoff_ms = 100,
+            .max_backoff_ms = 5_000,
+            .backoff_multiplier = c.mult,
+            .jitter_factor = c.jitter,
+        });
+        ctx.current_attempt = c.attempt;
+        const d = ctx.getBackoffDuration();
+        try std.testing.expect(d <= 5_000);
+    }
+}
+
+test "retry.durationMsToNanos saturates to maxInt(i64) without overflow" {
+    try std.testing.expectEqual(@as(i64, 0), retry.RetryContext.durationMsToNanos(0));
+    try std.testing.expectEqual(@as(i64, 250 * std.time.ns_per_ms), retry.RetryContext.durationMsToNanos(250));
+    try std.testing.expectEqual(std.math.maxInt(i64), retry.RetryContext.durationMsToNanos(std.math.maxInt(u64)));
+    try std.testing.expectEqual(std.math.maxInt(i64), retry.RetryContext.durationMsToNanos(@as(u64, std.math.maxInt(i64))));
+}

@@ -57,8 +57,12 @@ pub const Error = error{
     InvalidTime,
     /// One item, or the list metadata, is larger than `max_object_size`.
     ObjectTooLarge,
+    /// Nested messages exceeded the maximum recursion depth.
+    RecursionLimitExceeded,
     OutOfMemory,
 };
+
+pub const max_recursion_depth: usize = 64;
 
 pub const WireType = enum(u3) {
     varint = 0,
@@ -223,10 +227,10 @@ fn expectWire(actual: WireType, expected: WireType) Error!void {
 /// Decodes one encoded message of type `T`. Strings and slices are allocated
 /// from `arena`; nothing points into `bytes` afterwards.
 pub fn decode(comptime T: type, arena: Allocator, bytes: []const u8) Error!T {
-    return decodeMessage(T, schema.of(T), arena, bytes);
+    return decodeMessage(T, schema.of(T), arena, bytes, 0);
 }
 
-fn decodeMessage(comptime T: type, comptime fields: []const Field, arena: Allocator, bytes: []const u8) Error!T {
+fn decodeMessage(comptime T: type, comptime fields: []const Field, arena: Allocator, bytes: []const u8, depth: usize) Error!T {
     const info = @typeInfo(T).@"struct";
     var out: T = undefined;
     var seen: std.StaticBitSet(info.field_names.len) = .empty;
@@ -236,43 +240,49 @@ fn decodeMessage(comptime T: type, comptime fields: []const Field, arena: Alloca
             seen.set(i);
         }
     }
-    try decodeFields(T, fields, arena, bytes, &out, &seen);
+    try decodeFields(T, fields, arena, bytes, &out, &seen, depth);
     if (seen.count() != info.field_names.len) return error.MissingField;
     return out;
 }
 
-fn decodeFields(
+pub fn decodeFields(
     comptime T: type,
     comptime fields: []const Field,
     arena: Allocator,
     bytes: []const u8,
     out: *T,
     seen: anytype,
+    depth: usize,
 ) Error!void {
-    var counts: [fields.len]usize = @splat(0);
-    var wire: Wire = .{ .bytes = bytes };
-    while (!wire.atEnd()) {
-        const t = try wire.tag();
+    if (depth >= max_recursion_depth) return error.RecursionLimitExceeded;
+
+    const has_repeated = comptime hasRepeated(T, fields);
+    var filled: [if (has_repeated) fields.len else 0]usize = @splat(0);
+    if (comptime has_repeated) {
+        var counts: [fields.len]usize = @splat(0);
+        var count_wire: Wire = .{ .bytes = bytes };
+        while (!count_wire.atEnd()) {
+            const t = try count_wire.tag();
+            inline for (fields, 0..) |field, i| {
+                if (comptime isRepeated(T, field)) {
+                    if (t.number == field.number) counts[i] += 1;
+                }
+            }
+            try count_wire.skip(t.wire);
+        }
+
         inline for (fields, 0..) |field, i| {
             if (comptime isRepeated(T, field)) {
-                if (t.number == field.number) counts[i] += 1;
-            }
-        }
-        try wire.skip(t.wire);
-    }
-
-    var filled: [fields.len]usize = @splat(0);
-    inline for (fields, 0..) |field, i| {
-        if (comptime isRepeated(T, field)) {
-            if (counts[i] != 0) {
-                const Elem = @typeInfo(Unwrapped(@FieldType(T, field.name))).pointer.child;
-                @field(out, field.name) = try arena.alloc(Elem, counts[i]);
-                seen.set(comptime fieldIndex(T, field.name));
+                if (counts[i] != 0) {
+                    const Elem = @typeInfo(Unwrapped(@FieldType(T, field.name))).pointer.child;
+                    @field(out, field.name) = try arena.alloc(Elem, counts[i]);
+                    seen.set(comptime fieldIndex(T, field.name));
+                }
             }
         }
     }
 
-    wire = .{ .bytes = bytes };
+    var wire: Wire = .{ .bytes = bytes };
     fields: while (!wire.atEnd()) {
         const t = try wire.tag();
         inline for (fields, 0..) |field, i| {
@@ -280,7 +290,7 @@ fn decodeFields(
                 switch (field.kind) {
                     .embedded => |inner| {
                         try expectWire(t.wire, .len);
-                        try decodeFields(T, inner, arena, try wire.lenPrefixed(), out, seen);
+                        try decodeFields(T, inner, arena, try wire.lenPrefixed(), out, seen, depth + 1);
                     },
                     else => {
                         if (comptime isRepeated(T, field)) {
@@ -292,10 +302,10 @@ fn decodeFields(
                                 f.omit_zero = false;
                                 break :blk f;
                             };
-                            items[filled[i]] = (try decodeValue(Elem, element, arena, &wire, t.wire)) orelse zeroOf(Elem);
+                            items[filled[i]] = (try decodeValue(Elem, element, arena, &wire, t.wire, depth)) orelse zeroOf(Elem);
                             filled[i] += 1;
                         } else {
-                            try decodeInto(T, field, arena, &wire, t.wire, out);
+                            try decodeInto(T, field, arena, &wire, t.wire, out, depth);
                         }
                         seen.set(comptime fieldIndex(T, field.name));
                     },
@@ -314,14 +324,15 @@ fn decodeInto(
     wire: *Wire,
     wire_type: WireType,
     out: *T,
+    depth: usize,
 ) Error!void {
     const F = @FieldType(T, field.name);
     const optional = @typeInfo(F) == .optional;
     const V = Unwrapped(F);
     if (comptime field.kind == .json and (field.kind.json.map or field.kind.json.repeated)) {
         const current: ?std.json.Value = @field(out, field.name);
-        @field(out, field.name) = try collectJson(current, field.kind.json, arena, wire, wire_type);
-    } else if (try decodeValue(V, field, arena, wire, wire_type)) |value| {
+        @field(out, field.name) = try collectJson(current, field.kind.json, arena, wire, wire_type, depth);
+    } else if (try decodeValue(V, field, arena, wire, wire_type, depth)) |value| {
         @field(out, field.name) = value;
     } else if (comptime optional) {
         @field(out, field.name) = null;
@@ -332,7 +343,7 @@ fn decodeInto(
 
 /// Decodes one value of Zig type `V`. Null means "unset": a zero value under
 /// `omit_zero`, or a zero timestamp.
-fn decodeValue(comptime V: type, comptime field: Field, arena: Allocator, wire: *Wire, wire_type: WireType) Error!?V {
+fn decodeValue(comptime V: type, comptime field: Field, arena: Allocator, wire: *Wire, wire_type: WireType, depth: usize) Error!?V {
     switch (field.kind) {
         .time, .micro_time => {
             comptime assertString(V, field);
@@ -353,7 +364,7 @@ fn decodeValue(comptime V: type, comptime field: Field, arena: Allocator, wire: 
         },
         .json => |message_field| {
             if (V != std.json.Value) @compileError(field.name ++ ": .json needs a std.json.Value field");
-            return decodeJsonValue(message_field, field.omit_zero, arena, wire, wire_type);
+            return decodeJsonValue(message_field, field.omit_zero, arena, wire, wire_type, depth);
         },
         .auto => {},
         else => @compileError(field.name ++ ": unsupported kind for this position"),
@@ -387,7 +398,7 @@ fn decodeValue(comptime V: type, comptime field: Field, arena: Allocator, wire: 
             if (V == std.json.Value) @compileError(field.name ++ ": std.json.Value needs an explicit kind");
             const fields = field.message orelse @compileError(field.name ++ ": struct field without a message table");
             try expectWire(wire_type, .len);
-            return try decodeMessage(V, fields, arena, try wire.lenPrefixed());
+            return try decodeMessage(V, fields, arena, try wire.lenPrefixed(), depth + 1);
         },
         else => @compileError(field.name ++ ": unsupported field type " ++ @typeName(V)),
     }
@@ -476,6 +487,7 @@ fn collectJson(
     arena: Allocator,
     wire: *Wire,
     wire_type: WireType,
+    depth: usize,
 ) Error!std.json.Value {
     if (field.map) {
         var object: std.json.ObjectMap = if (current) |value| switch (value) {
@@ -483,30 +495,31 @@ fn collectJson(
             else => .empty,
         } else .empty;
         try expectWire(wire_type, .len);
-        try putMapEntry(&object, field, arena, try wire.lenPrefixed());
+        try putMapEntry(&object, field, arena, try wire.lenPrefixed(), depth);
         return .{ .object = object };
     }
     var array: std.json.Array = if (current) |value| switch (value) {
         .array => |a| a,
         else => .init(arena),
     } else .init(arena);
-    try array.append((try decodeJsonValue(field, false, arena, wire, wire_type)) orelse .null);
+    try array.append((try decodeJsonValue(field, false, arena, wire, wire_type, depth)) orelse .null);
     return .{ .array = array };
 }
 
 /// Decodes one encoded `message` into the JSON object the API server would
 /// send for it, without type meta.
 pub fn decodeJson(message: *const Message, arena: Allocator, bytes: []const u8) Error!std.json.Value {
-    return .{ .object = try decodeJsonObject(message, arena, bytes) };
+    return .{ .object = try decodeJsonObject(message, arena, bytes, 0) };
 }
 
-fn decodeJsonObject(message: *const Message, arena: Allocator, bytes: []const u8) Error!std.json.ObjectMap {
+fn decodeJsonObject(message: *const Message, arena: Allocator, bytes: []const u8, depth: usize) Error!std.json.ObjectMap {
     var object: std.json.ObjectMap = .empty;
-    try decodeJsonFields(message, arena, bytes, &object);
+    try decodeJsonFields(message, arena, bytes, &object, depth);
     return object;
 }
 
-fn decodeJsonFields(message: *const Message, arena: Allocator, bytes: []const u8, object: *std.json.ObjectMap) Error!void {
+fn decodeJsonFields(message: *const Message, arena: Allocator, bytes: []const u8, object: *std.json.ObjectMap, depth: usize) Error!void {
+    if (depth >= max_recursion_depth) return error.RecursionLimitExceeded;
     var wire: Wire = .{ .bytes = bytes };
     while (!wire.atEnd()) {
         const t = try wire.tag();
@@ -516,11 +529,11 @@ fn decodeJsonFields(message: *const Message, arena: Allocator, bytes: []const u8
         };
         if (field.embedded) {
             try expectWire(t.wire, .len);
-            try decodeJsonFields(field.message.?, arena, try wire.lenPrefixed(), object);
+            try decodeJsonFields(field.message.?, arena, try wire.lenPrefixed(), object, depth + 1);
         } else if (field.map or field.repeated) {
             const slot = try object.getOrPut(arena, field.json);
-            slot.value_ptr.* = try collectJson(if (slot.found_existing) slot.value_ptr.* else null, field, arena, &wire, t.wire);
-        } else if (try decodeJsonValue(field, field.omit_zero, arena, &wire, t.wire)) |value| {
+            slot.value_ptr.* = try collectJson(if (slot.found_existing) slot.value_ptr.* else null, field, arena, &wire, t.wire, depth);
+        } else if (try decodeJsonValue(field, field.omit_zero, arena, &wire, t.wire, depth)) |value| {
             try object.put(arena, field.json, value);
         }
     }
@@ -533,7 +546,7 @@ fn findField(message: *const Message, number: u32) ?*const MessageField {
     return null;
 }
 
-fn putMapEntry(object: *std.json.ObjectMap, field: *const MessageField, arena: Allocator, bytes: []const u8) Error!void {
+fn putMapEntry(object: *std.json.ObjectMap, field: *const MessageField, arena: Allocator, bytes: []const u8, depth: usize) Error!void {
     var key: []const u8 = "";
     var value: ?std.json.Value = null;
     var wire: Wire = .{ .bytes = bytes };
@@ -544,15 +557,15 @@ fn putMapEntry(object: *std.json.ObjectMap, field: *const MessageField, arena: A
                 try expectWire(t.wire, .len);
                 key = try wire.lenPrefixed();
             },
-            2 => value = try decodeJsonValue(field, false, arena, &wire, t.wire),
+            2 => value = try decodeJsonValue(field, false, arena, &wire, t.wire, depth),
             else => try wire.skip(t.wire),
         }
     }
-    try object.put(arena, try arena.dupe(u8, key), value orelse try zeroJson(field, arena));
+    try object.put(arena, try arena.dupe(u8, key), value orelse try zeroJson(field, arena, depth));
 }
 
 /// The JSON of a map value whose entry left the value out.
-fn zeroJson(field: *const MessageField, arena: Allocator) Error!std.json.Value {
+fn zeroJson(field: *const MessageField, arena: Allocator, depth: usize) Error!std.json.Value {
     var empty: Wire = .{ .bytes = "" };
     return switch (field.type) {
         .string, .bytes => .{ .string = "" },
@@ -562,13 +575,14 @@ fn zeroJson(field: *const MessageField, arena: Allocator) Error!std.json.Value {
         .quantity => .{ .string = "0" },
         .string_list => .{ .array = .init(arena) },
         .message => .{ .object = .empty },
-        else => (try decodeJsonValue(field, false, arena, &empty, .len)) orelse .null,
+        else => (try decodeJsonValue(field, false, arena, &empty, .len, depth)) orelse .null,
     };
 }
 
 /// One value of `field`, ignoring `repeated` and `map`. Null means "unset":
 /// a zero value under `omit_zero`, a zero timestamp, or empty raw JSON.
-fn decodeJsonValue(field: *const MessageField, omit_zero: bool, arena: Allocator, wire: *Wire, wire_type: WireType) Error!?std.json.Value {
+fn decodeJsonValue(field: *const MessageField, omit_zero: bool, arena: Allocator, wire: *Wire, wire_type: WireType, depth: usize) Error!?std.json.Value {
+    if (depth >= max_recursion_depth) return error.RecursionLimitExceeded;
     switch (field.type) {
         .bool => {
             try expectWire(wire_type, .varint);
@@ -605,7 +619,7 @@ fn decodeJsonValue(field: *const MessageField, omit_zero: bool, arena: Allocator
             return .{ .string = try encodeBase64(arena, bytes) };
         },
         .message => {
-            const object = try decodeJsonObject(field.message.?, arena, bytes);
+            const object = try decodeJsonObject(field.message.?, arena, bytes, depth + 1);
             if (omit_zero and object.count() == 0) return null;
             return .{ .object = object };
         },
@@ -699,6 +713,13 @@ fn isRepeated(comptime T: type, comptime field: Field) bool {
     const V = Unwrapped(@FieldType(T, field.name));
     if (V == []const u8) return false;
     return @typeInfo(V) == .pointer and @typeInfo(V).pointer.size == .slice;
+}
+
+fn hasRepeated(comptime T: type, comptime fields: []const Field) bool {
+    inline for (fields) |field| {
+        if (isRepeated(T, field)) return true;
+    }
+    return false;
 }
 
 fn fieldIndex(comptime T: type, comptime name: []const u8) usize {

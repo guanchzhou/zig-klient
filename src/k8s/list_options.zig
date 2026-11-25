@@ -78,12 +78,14 @@ pub const LabelSelector = struct {
     /// Add equality selector: key=value
     pub fn addEquals(self: *LabelSelector, key: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}={s}", .{ key, value });
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 
     /// Add inequality selector: key!=value
     pub fn addNotEquals(self: *LabelSelector, key: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}!={s}", .{ key, value });
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 
@@ -93,6 +95,7 @@ pub const LabelSelector = struct {
         defer self.allocator.free(values_joined);
 
         const selector = try std.fmt.allocPrint(self.allocator, "{s} in ({s})", .{ key, values_joined });
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 
@@ -102,18 +105,21 @@ pub const LabelSelector = struct {
         defer self.allocator.free(values_joined);
 
         const selector = try std.fmt.allocPrint(self.allocator, "{s} notin ({s})", .{ key, values_joined });
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 
     /// Add existence selector: key
     pub fn addExists(self: *LabelSelector, key: []const u8) !void {
         const selector = try self.allocator.dupe(u8, key);
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 
     /// Add non-existence selector: !key
     pub fn addNotExists(self: *LabelSelector, key: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "!{s}", .{key});
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 
@@ -148,12 +154,14 @@ pub const FieldSelector = struct {
     /// Add equality selector: key=value
     pub fn addEquals(self: *FieldSelector, field: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}={s}", .{ field, value });
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 
     /// Add inequality selector: key!=value
     pub fn addNotEquals(self: *FieldSelector, field: []const u8, value: []const u8) !void {
         const selector = try std.fmt.allocPrint(self.allocator, "{s}!={s}", .{ field, value });
+        errdefer self.allocator.free(selector);
         try self.selectors.append(self.allocator, selector);
     }
 

@@ -145,11 +145,18 @@ pub const Discovery = struct {
             // Subresources appear as "pods/log"; they are not listable collections.
             if (std.mem.indexOfScalar(u8, r.name, '/') != null) continue;
 
+            const group_copy = try self.client.allocator.dupe(u8, group);
+            errdefer self.client.allocator.free(group_copy);
+            const kind_copy = try self.client.allocator.dupe(u8, r.kind);
+            errdefer self.client.allocator.free(kind_copy);
+            const plural_copy = try self.client.allocator.dupe(u8, r.name);
+            errdefer self.client.allocator.free(plural_copy);
+
             return CRDInfo{
-                .group = try self.client.allocator.dupe(u8, group),
+                .group = group_copy,
                 .version = version,
-                .kind = try self.client.allocator.dupe(u8, r.kind),
-                .plural = try self.client.allocator.dupe(u8, r.name),
+                .kind = kind_copy,
+                .plural = plural_copy,
                 .namespaced = r.namespaced,
             };
         }

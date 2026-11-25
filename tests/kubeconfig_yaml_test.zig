@@ -389,3 +389,41 @@ test "kubeconfig - parses the developer's real ~/.kube/config" {
         try std.testing.expect(config.getUserByName(c.user) != null);
     }
 }
+
+test "kubeconfig - loadFromPathLimited rejects files larger than max_bytes instead of truncating" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const yaml_content =
+        \\apiVersion: v1
+        \\kind: Config
+        \\current-context: dev
+        \\clusters:
+        \\- name: c
+        \\  cluster:
+        \\    server: https://127.0.0.1:6443
+        \\contexts:
+        \\- name: dev
+        \\  context:
+        \\    cluster: c
+        \\    user: u
+        \\users:
+        \\- name: u
+        \\  user:
+        \\    token: tok
+        \\
+    ;
+    try tmp.dir.writeFile(io, .{ .sub_path = "config.yaml", .data = yaml_content });
+    const full_path = try tmp.dir.realPathFileAlloc(io, "config.yaml", allocator);
+    defer allocator.free(full_path);
+
+    var parser = klient.KubeconfigParser.init(allocator, io);
+    try std.testing.expectError(error.FileTooBig, parser.loadFromPathLimited(full_path, yaml_content.len - 1));
+
+    var cfg = try parser.loadFromPathLimited(full_path, yaml_content.len);
+    defer cfg.deinit(allocator);
+    try std.testing.expectEqualStrings("dev", cfg.current_context);
+}

@@ -153,3 +153,29 @@ test "FieldSelector - empty selector" {
 
     try testing.expectEqualStrings("", result);
 }
+
+test "LabelSelector and FieldSelector do not leak on OOM" {
+    const run = struct {
+        fn f(allocator: std.mem.Allocator) !void {
+            var ls = try klient.LabelSelector.init(allocator);
+            defer ls.deinit();
+            try ls.addEquals("app", "web");
+            try ls.addNotEquals("env", "dev");
+            try ls.addIn("tier", &.{ "fe", "be" });
+            try ls.addNotIn("zone", &.{ "a", "b" });
+            try ls.addExists("managed");
+            try ls.addNotExists("ephemeral");
+            const built_ls = try ls.build();
+            defer allocator.free(built_ls);
+
+            var fs = try klient.FieldSelector.init(allocator);
+            defer fs.deinit();
+            try fs.addEquals("status.phase", "Running");
+            try fs.addNotEquals("metadata.namespace", "kube-system");
+            const built_fs = try fs.build();
+            defer allocator.free(built_fs);
+        }
+    }.f;
+
+    try testing.checkAllAllocationFailures(testing.allocator, run, .{});
+}

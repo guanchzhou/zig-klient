@@ -195,7 +195,7 @@ pub const MetricsClient = struct {
 
         // Whole cores: "2" → 2000
         const cores = std.fmt.parseInt(u64, cpu_str, 10) catch return null;
-        return cores * 1000;
+        return std.math.mul(u64, cores, 1000) catch null;
     }
 
     /// Parse memory string to bytes.
@@ -222,7 +222,7 @@ pub const MetricsClient = struct {
 
             if (binary_mult) |mult| {
                 const value = std.fmt.parseInt(u64, num2, 10) catch return null;
-                return value * mult;
+                return std.math.mul(u64, value, mult) catch null;
             }
         }
 
@@ -241,7 +241,7 @@ pub const MetricsClient = struct {
 
             if (decimal_mult) |mult| {
                 const value = std.fmt.parseInt(u64, num1, 10) catch return null;
-                return value * mult;
+                return std.math.mul(u64, value, mult) catch null;
             }
         }
 

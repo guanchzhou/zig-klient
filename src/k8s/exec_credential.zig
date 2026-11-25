@@ -67,16 +67,30 @@ pub fn executeCredentialPlugin(
         }
     }
 
-    // Zig 0.16: std.process.Child.init was removed. Use std.process.spawn.
-    //
-    // NOTE: config.env (kubeconfig-scoped plugin env vars) is intentionally not
-    // applied yet — the child inherits the parent environment only. The k8s spec
-    // ADDS these to the parent env, but SpawnOptions.environ_map *replaces* the env,
-    // and Zig 0.16 exposes no public accessor for the live process environ to seed a
-    // merged Map from a library context. Replacing the env with only config.env would
-    // drop PATH/HOME and break the plugins, so we inherit until a parent-env accessor
-    // is available. Plugins that need extra env can be invoked with it pre-set.
-    //
+    // Merge config.env onto the inherited process environment when specified.
+    var merged_env: ?std.process.Environ.Map = null;
+    defer if (merged_env) |*m| m.deinit();
+    if (config.env) |envs| {
+        if (envs.len > 0) {
+            var env_map = std.process.Environ.Map.init(allocator);
+            errdefer env_map.deinit();
+
+            var i: usize = 0;
+            while (std.c.environ[i]) |entry_ptr| : (i += 1) {
+                const entry = std.mem.span(entry_ptr);
+                const eq = std.mem.indexOfScalar(u8, entry, '=') orelse continue;
+                const key = entry[0..eq];
+                if (!std.process.Environ.Map.validateKeyForPut(key)) continue;
+                try env_map.put(key, entry[eq + 1 ..]);
+            }
+            for (envs) |ev| {
+                if (!std.process.Environ.Map.validateKeyForPut(ev.name)) return error.InvalidEnvVarName;
+                try env_map.put(ev.name, ev.value);
+            }
+            merged_env = env_map;
+        }
+    }
+
     // stdin is closed: an interactive plugin must not block on the caller's terminal.
     // stderr is piped and drained concurrently with stdout, as std.process.run does —
     // a pipe nobody drains deadlocks once the plugin writes more than the pipe buffer
@@ -84,6 +98,7 @@ pub fn executeCredentialPlugin(
     // for the failure log.
     var child = try std.process.spawn(io, .{
         .argv = cmd_args.items,
+        .environ_map = if (merged_env) |*m| m else null,
         .stdin = .ignore,
         .stdout = .pipe,
         .stderr = .pipe,
@@ -113,7 +128,11 @@ pub fn executeCredentialPlugin(
 
     if (term != .exited or term.exited != 0) {
         const stderr_tail = std.mem.trim(u8, stderr_reader.buffered(), &std.ascii.whitespace);
-        if (stderr_tail.len > 0) log.warn("credential plugin stderr: {s}", .{stderr_tail});
+        if (stderr_tail.len > 0) {
+            var scrubbed_buf: [max_plugin_stderr_bytes]u8 = undefined;
+            const scrubbed = scrubSecrets(&scrubbed_buf, stderr_tail);
+            log.warn("credential plugin stderr: {s}", .{scrubbed});
+        }
         if (config.installHint) |hint| {
             log.warn("credential plugin failed; install hint: {s}", .{hint});
         }
@@ -142,6 +161,129 @@ pub fn executeCredentialPlugin(
 
 const max_plugin_stdout_bytes = 10 * 1024 * 1024;
 const max_plugin_stderr_bytes = 4 * 1024;
+
+/// Copy `input` into `out`, redacting raw bearer tokens, JWTs, and common
+/// token fields so credential plugin stderr logs never leak secrets.
+pub fn scrubSecrets(out: []u8, input: []const u8) []const u8 {
+    var w: usize = 0;
+    var i: usize = 0;
+    while (i < input.len and w < out.len) {
+        // Redact "Bearer <token>" (case-insensitive)
+        if (i + 7 <= input.len and std.ascii.eqlIgnoreCase(input[i .. i + 7], "bearer ")) {
+            w += copySlice(out[w..], input[i .. i + 7]);
+            i += 7;
+            while (i < input.len and (input[i] == ' ' or input[i] == '\t')) : (i += 1) {
+                w += copySlice(out[w..], input[i .. i + 1]);
+            }
+            const start = i;
+            while (i < input.len and !isTokenDelimiter(input[i])) : (i += 1) {}
+            if (i > start) w += copySlice(out[w..], "[REDACTED]");
+            continue;
+        }
+        // Redact JSON `"token":"..."` / `"access_token":"..."` / `"id_token":"..."`
+        if (matchJsonTokenField(input, i)) |m| {
+            w += copySlice(out[w..], input[i..m.value_start]);
+            w += copySlice(out[w..], "[REDACTED]");
+            i = m.value_end;
+            continue;
+        }
+        // Redact `token=<value>` / `access_token=<value>` / `id_token=<value>`
+        if (matchKvTokenField(input, i)) |m| {
+            w += copySlice(out[w..], input[i..m.value_start]);
+            w += copySlice(out[w..], "[REDACTED]");
+            i = m.value_end;
+            continue;
+        }
+        // Redact JWTs (`eyJ<b64>.<b64>.<b64>`)
+        if (i + 4 <= input.len and std.mem.startsWith(u8, input[i..], "eyJ")) {
+            if (matchJwtEnd(input, i)) |end| {
+                w += copySlice(out[w..], "[REDACTED]");
+                i = end;
+                continue;
+            }
+        }
+        out[w] = input[i];
+        w += 1;
+        i += 1;
+    }
+    return out[0..w];
+}
+
+const TokenSpan = struct { value_start: usize, value_end: usize };
+
+fn copySlice(dst: []u8, src: []const u8) usize {
+    const n = @min(dst.len, src.len);
+    @memcpy(dst[0..n], src[0..n]);
+    return n;
+}
+
+fn isTokenDelimiter(b: u8) bool {
+    return b <= 0x20 or b == 0x7f or b == '"' or b == '\'' or b == ',' or b == ';' or b == ')' or b == ']' or b == '}';
+}
+
+fn isIdentChar(b: u8) bool {
+    return std.ascii.isAlphanumeric(b) or b == '_' or b == '-';
+}
+
+fn isJwtChar(b: u8) bool {
+    return std.ascii.isAlphanumeric(b) or b == '-' or b == '_' or b == '+' or b == '/' or b == '=';
+}
+
+fn matchJwtEnd(input: []const u8, start: usize) ?usize {
+    var i = start;
+    var dots: usize = 0;
+    var seg_len: usize = 0;
+    while (i < input.len) : (i += 1) {
+        const b = input[i];
+        if (b == '.') {
+            if (seg_len < 4) return null;
+            dots += 1;
+            seg_len = 0;
+            if (dots > 2) return null;
+        } else if (isJwtChar(b)) {
+            seg_len += 1;
+        } else {
+            break;
+        }
+    }
+    if (dots == 2 and i - start >= 20) return i;
+    return null;
+}
+
+fn matchJsonTokenField(input: []const u8, start: usize) ?TokenSpan {
+    const keys = [_][]const u8{ "\"token\"", "\"access_token\"", "\"id_token\"", "\"refresh_token\"" };
+    for (keys) |key| {
+        if (start + key.len >= input.len) continue;
+        if (!std.ascii.eqlIgnoreCase(input[start .. start + key.len], key)) continue;
+        var i = start + key.len;
+        while (i < input.len and (input[i] == ' ' or input[i] == '\t')) : (i += 1) {}
+        if (i >= input.len or input[i] != ':') continue;
+        i += 1;
+        while (i < input.len and (input[i] == ' ' or input[i] == '\t')) : (i += 1) {}
+        if (i >= input.len or input[i] != '"') continue;
+        i += 1;
+        const val_start = i;
+        while (i < input.len and input[i] != '"') : (i += 1) {
+            if (input[i] == '\\' and i + 1 < input.len) i += 1;
+        }
+        if (i > val_start) return .{ .value_start = val_start, .value_end = i };
+    }
+    return null;
+}
+
+fn matchKvTokenField(input: []const u8, start: usize) ?TokenSpan {
+    if (start > 0 and isIdentChar(input[start - 1])) return null;
+    const keys = [_][]const u8{ "token=", "access_token=", "id_token=", "refresh_token=" };
+    for (keys) |key| {
+        if (start + key.len >= input.len) continue;
+        if (!std.ascii.eqlIgnoreCase(input[start .. start + key.len], key)) continue;
+        const val_start = start + key.len;
+        var i = val_start;
+        while (i < input.len and !isTokenDelimiter(input[i])) : (i += 1) {}
+        if (i > val_start) return .{ .value_start = val_start, .value_end = i };
+    }
+    return null;
+}
 
 /// Common exec credential plugin configurations
 /// AWS EKS credential plugin (aws-iam-authenticator or aws eks get-token)

@@ -52,3 +52,28 @@ test "InClusterConfig - formatServerUrl brackets IPv6 hosts" {
         try testing.expectEqualStrings(case.expected, url);
     }
 }
+
+test "InClusterConfig - readFileAlloc rejects files larger than max_bytes" {
+    const allocator = testing.allocator;
+    const io = std.testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const payload = "0123456789abcdef";
+    try tmp.dir.writeFile(io, .{ .sub_path = "token", .data = payload });
+
+    {
+        const file = try tmp.dir.openFile(io, "token", .{});
+        defer file.close(io);
+        try testing.expectError(error.FileTooBig, klient.incluster.readFileAlloc(io, file, allocator, payload.len - 1));
+    }
+
+    {
+        const file = try tmp.dir.openFile(io, "token", .{});
+        defer file.close(io);
+        const exact = try klient.incluster.readFileAlloc(io, file, allocator, payload.len);
+        defer allocator.free(exact);
+        try testing.expectEqualStrings(payload, exact);
+    }
+}

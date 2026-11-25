@@ -198,6 +198,10 @@ test "metrics: parseCpuMillicores edge cases" {
     // Invalid
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseCpuMillicores("abc"));
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseCpuMillicores(""));
+
+    // Overflow (u64::MAX / 1000 + 1 cores would overflow * 1000)
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseCpuMillicores("18446744073709552"));
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseCpuMillicores("18446744073709551615"));
 }
 
 test "metrics: parseMemoryBytes edge cases" {
@@ -214,6 +218,14 @@ test "metrics: parseMemoryBytes edge cases" {
     // Invalid
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes(""));
     try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("abc"));
+
+    // Overflow on binary and decimal multipliers
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("18446744073709551615Ki"));
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("18446744073709551615Mi"));
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("18446744073709551615Gi"));
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("18446744073709551615Ti"));
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("18446744073709551615K"));
+    try std.testing.expectEqual(@as(?u64, null), klient.MetricsClient.parseMemoryBytes("18446744073709551615T"));
 }
 
 test "metrics: default pin is v1beta1 until discovery prefers v1" {

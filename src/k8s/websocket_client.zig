@@ -124,27 +124,21 @@ pub const WebSocketClient = struct {
             return error.WebSocketHandshakeFailed;
         }
 
-        // Verify Sec-WebSocket-Accept (RFC 6455 §4.2.2).
+        // Verify Upgrade, Connection, and Sec-WebSocket-Accept (RFC 6455 §4.1 / §4.2.2).
+        var upgrade_ok = false;
+        var connection_ok = false;
         var accept_value: ?[]const u8 = null;
         var hit = response.head.iterateHeaders();
         while (hit.next()) |h| {
-            if (std.ascii.eqlIgnoreCase(h.name, "sec-websocket-accept")) {
+            if (std.ascii.eqlIgnoreCase(h.name, "upgrade")) {
+                if (headerContainsToken(h.value, "websocket")) upgrade_ok = true;
+            } else if (std.ascii.eqlIgnoreCase(h.name, "connection")) {
+                if (headerContainsToken(h.value, "upgrade")) connection_ok = true;
+            } else if (std.ascii.eqlIgnoreCase(h.name, "sec-websocket-accept")) {
                 accept_value = h.value;
-                break;
             }
         }
-        const accept_header = accept_value orelse return error.MissingAcceptHeader;
-
-        var hasher = crypto.hash.Sha1.init(.{});
-        hasher.update(&ws_key);
-        hasher.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"); // RFC 6455 magic GUID
-        var hash: [20]u8 = undefined;
-        hasher.final(&hash);
-        var expected_accept: [28]u8 = undefined;
-        _ = std.base64.standard.Encoder.encode(&expected_accept, &hash);
-        if (!std.mem.eql(u8, accept_header, &expected_accept)) {
-            return error.InvalidAcceptHeader;
-        }
+        try validateHandshakeHeaders(upgrade_ok, connection_ok, accept_value, &ws_key);
 
         return WebSocketConnection{
             .allocator = self.allocator,
@@ -157,6 +151,40 @@ pub const WebSocketClient = struct {
         };
     }
 };
+
+/// Case-insensitive HTTP header token membership check (comma-separated list).
+pub fn headerContainsToken(header_value: []const u8, token: []const u8) bool {
+    var it = std.mem.splitScalar(u8, header_value, ',');
+    while (it.next()) |part| {
+        const trimmed = std.mem.trim(u8, part, " \t");
+        if (std.ascii.eqlIgnoreCase(trimmed, token)) return true;
+    }
+    return false;
+}
+
+/// Validate RFC 6455 §4.1 handshake response headers (`Upgrade`, `Connection`,
+/// and `Sec-WebSocket-Accept`).
+pub fn validateHandshakeHeaders(
+    upgrade_ok: bool,
+    connection_ok: bool,
+    accept_value: ?[]const u8,
+    ws_key: []const u8,
+) !void {
+    if (!upgrade_ok) return error.InvalidUpgradeHeader;
+    if (!connection_ok) return error.InvalidConnectionHeader;
+    const accept_header = accept_value orelse return error.MissingAcceptHeader;
+
+    var hasher = crypto.hash.Sha1.init(.{});
+    hasher.update(ws_key);
+    hasher.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"); // RFC 6455 magic GUID
+    var hash: [20]u8 = undefined;
+    hasher.final(&hash);
+    var expected_accept: [28]u8 = undefined;
+    _ = std.base64.standard.Encoder.encode(&expected_accept, &hash);
+    if (!std.mem.eql(u8, accept_header, &expected_accept)) {
+        return error.InvalidAcceptHeader;
+    }
+}
 
 /// WebSocket frame opcode
 pub const OpCode = enum(u8) {
@@ -293,9 +321,14 @@ pub fn writeFrame(
     try writer.writeAll(buffer.items);
 }
 
+/// Maximum consecutive control (ping/pong) frames tolerated before a data frame
+/// arrives, bounding CPU/IO against an infinite control-frame flood.
+pub const max_consecutive_control_frames: usize = 1024;
+
 /// Read frames until one carries a SPDY channel message. Pings are answered via
-/// `pong(context, payload)`; control frames are consumed in a loop so a peer that
-/// streams pings costs a pong each, never stack depth.
+/// `pong(context, payload)`; control frames are consumed in a loop up to
+/// `max_consecutive_control_frames` so a peer cannot stall `receive` forever or
+/// overflow the stack.
 fn receiveChannelMessage(
     allocator: std.mem.Allocator,
     reader: *std.Io.Reader,
@@ -303,12 +336,20 @@ fn receiveChannelMessage(
     context: anytype,
     pong: anytype,
 ) !ChannelMessage {
+    var consecutive_control: usize = 0;
     while (true) {
         const frame = try readFrame(allocator, reader, read_buffer);
         switch (frame.opcode) {
             .close => return error.ConnectionClosed,
-            .ping => try pong(context, frame.payload),
-            .pong => {},
+            .ping => {
+                consecutive_control += 1;
+                if (consecutive_control > max_consecutive_control_frames) return error.TooManyControlFrames;
+                try pong(context, frame.payload);
+            },
+            .pong => {
+                consecutive_control += 1;
+                if (consecutive_control > max_consecutive_control_frames) return error.TooManyControlFrames;
+            },
             .binary, .text => {
                 if (frame.payload.len < 1) return error.InvalidSPDYFrame;
                 return ChannelMessage{

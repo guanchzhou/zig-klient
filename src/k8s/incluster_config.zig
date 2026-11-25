@@ -46,10 +46,10 @@ pub const InClusterConfig = struct {
     }
 };
 
-/// Read the entire contents of a file opened via Io.Dir.openFileAbsolute into a
-/// newly-allocated slice.  `max_bytes` caps the allocation to guard against
-/// unexpectedly large files.
-fn readFileAlloc(
+/// Read the entire contents of an opened file into a newly-allocated slice.
+/// Rejects files larger than `max_bytes` with `error.FileTooBig` instead of
+/// truncating.
+pub fn readFileAlloc(
     io: Io,
     file: Io.File,
     allocator: std.mem.Allocator,
@@ -57,9 +57,13 @@ fn readFileAlloc(
 ) ![]u8 {
     var buf: [4096]u8 = undefined;
     var file_reader = file.reader(io, &buf);
-    const size = try file_reader.getSize();
-    const read_len = @min(@as(usize, @intCast(size)), max_bytes);
-    return file_reader.interface.readAlloc(allocator, read_len);
+    if (file_reader.getSize()) |size| {
+        if (size > max_bytes) return error.FileTooBig;
+    } else |_| {}
+    return file_reader.interface.allocRemaining(allocator, .limited(max_bytes)) catch |err| switch (err) {
+        error.StreamTooLong => error.FileTooBig,
+        else => |e| e,
+    };
 }
 
 /// Load in-cluster configuration from service account files
@@ -72,8 +76,8 @@ pub fn loadInClusterConfig(io: Io, allocator: std.mem.Allocator) !InClusterConfi
     };
     defer token_file.close(io);
 
-    const token = readFileAlloc(io, token_file, allocator, 64 * 1024) catch { // 64KB max
-        return error.ServiceAccountTokenNotFound;
+    const token = readFileAlloc(io, token_file, allocator, 64 * 1024) catch |err| { // 64KB max
+        return if (err == error.FileTooBig) error.FileTooBig else error.ServiceAccountTokenNotFound;
     };
     // `defer`, not `errdefer`: the raw token is freed on every path once the trimmed
     // copy exists. With an errdefer plus an unconditional free below, any later
@@ -92,8 +96,8 @@ pub fn loadInClusterConfig(io: Io, allocator: std.mem.Allocator) !InClusterConfi
     };
     defer ca_file.close(io);
 
-    const ca_cert_data = readFileAlloc(io, ca_file, allocator, 10 * 1024 * 1024) catch { // 10MB max
-        return error.ServiceAccountCANotFound;
+    const ca_cert_data = readFileAlloc(io, ca_file, allocator, 10 * 1024 * 1024) catch |err| { // 10MB max
+        return if (err == error.FileTooBig) error.FileTooBig else error.ServiceAccountCANotFound;
     };
     errdefer allocator.free(ca_cert_data);
 
@@ -103,8 +107,8 @@ pub fn loadInClusterConfig(io: Io, allocator: std.mem.Allocator) !InClusterConfi
     };
     defer ns_file.close(io);
 
-    const ns_data = readFileAlloc(io, ns_file, allocator, 1024) catch { // 1KB max
-        return error.ServiceAccountNamespaceNotFound;
+    const ns_data = readFileAlloc(io, ns_file, allocator, 1024) catch |err| { // 1KB max
+        return if (err == error.FileTooBig) error.FileTooBig else error.ServiceAccountNamespaceNotFound;
     };
     defer allocator.free(ns_data);
 
@@ -177,8 +181,8 @@ pub fn getServiceAccountToken(io: Io, allocator: std.mem.Allocator) ![]const u8 
     };
     defer token_file.close(io);
 
-    const token = readFileAlloc(io, token_file, allocator, 64 * 1024) catch { // 64KB max
-        return error.ServiceAccountTokenNotFound;
+    const token = readFileAlloc(io, token_file, allocator, 64 * 1024) catch |err| { // 64KB max
+        return if (err == error.FileTooBig) error.FileTooBig else error.ServiceAccountTokenNotFound;
     };
     defer allocator.free(token);
 
@@ -203,8 +207,8 @@ pub fn getServiceAccountNamespace(io: Io, allocator: std.mem.Allocator) ![]const
     };
     defer ns_file.close(io);
 
-    const ns_data = readFileAlloc(io, ns_file, allocator, 1024) catch { // 1KB max
-        return error.ServiceAccountNamespaceNotFound;
+    const ns_data = readFileAlloc(io, ns_file, allocator, 1024) catch |err| { // 1KB max
+        return if (err == error.FileTooBig) error.FileTooBig else error.ServiceAccountNamespaceNotFound;
     };
     defer allocator.free(ns_data);
 

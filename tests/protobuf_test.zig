@@ -219,6 +219,76 @@ test "content type and table support checks" {
     try testing.expect(!pb.supports(klient.Gateway));
 }
 
+test "decodeJson enforces recursion limit at depth 64" {
+    const SelfMsg = struct {
+        const fields = [_]pb.MessageField{
+            .{ .number = 1, .json = "child", .type = .message, .message = &msg },
+        };
+        const msg: pb.Message = .{ .fields = &fields };
+    };
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Build nested protobuf bytes of depth `d`: tag 0x0a (field 1, len-delimited) wrapping inner bytes.
+    const buildNested = struct {
+        fn build(alloc: std.mem.Allocator, depth: usize) ![]u8 {
+            var cur = try alloc.dupe(u8, &.{});
+            for (0..depth) |_| {
+                var next: std.ArrayList(u8) = .empty;
+                try next.append(alloc, 0x0a);
+                // encode varint length of `cur`
+                var len = cur.len;
+                while (len >= 0x80) {
+                    try next.append(alloc, @as(u8, @intCast((len & 0x7f) | 0x80)));
+                    len >>= 7;
+                }
+                try next.append(alloc, @as(u8, @intCast(len)));
+                try next.appendSlice(alloc, cur);
+                alloc.free(cur);
+                cur = try next.toOwnedSlice(alloc);
+            }
+            return cur;
+        }
+    }.build;
+
+    const ok_bytes = try buildNested(testing.allocator, 10);
+    defer testing.allocator.free(ok_bytes);
+    const val = try pb.decodeJson(&SelfMsg.msg, a, ok_bytes);
+    try testing.expect(val == .object);
+
+    const deep_bytes = try buildNested(testing.allocator, pb.max_recursion_depth + 1);
+    defer testing.allocator.free(deep_bytes);
+    try testing.expectError(error.RecursionLimitExceeded, pb.decodeJson(&SelfMsg.msg, a, deep_bytes));
+}
+
+test "decode single-pass fast path works for structs with no repeated fields" {
+    const Flat = struct {
+        name: []const u8 = "",
+        count: i32 = 0,
+    };
+    const fields = [_]pb.Field{
+        .{ .name = "name", .number = 1 },
+        .{ .name = "count", .number = 2 },
+    };
+    const wire_bytes = [_]u8{
+        0x0a, 0x05, 'h', 'e', 'l', 'l', 'o',
+        0x10, 0x2a,
+    };
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var flat: Flat = .{};
+    var seen: std.StaticBitSet(2) = .empty;
+    try pb.decodeFields(Flat, &fields, arena.allocator(), &wire_bytes, &flat, &seen, 0);
+    try testing.expectEqualStrings("hello", flat.name);
+    try testing.expectEqual(@as(i32, 42), flat.count);
+    try testing.expectError(
+        error.RecursionLimitExceeded,
+        pb.decodeFields(Flat, &fields, arena.allocator(), &wire_bytes, &flat, &seen, pb.max_recursion_depth),
+    );
+}
+
 /// Bytes of item `index` inside a list body, found with the wire reader.
 fn itemBytes(body: []const u8, index: usize) ![]const u8 {
     const start = try itemOffset(body, index);

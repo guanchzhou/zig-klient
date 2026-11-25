@@ -245,9 +245,9 @@ test "WebSocket - readFrame accepts a 125-byte ping" {
     try std.testing.expectEqual(@as(usize, 125), frame.payload.len);
 }
 
-test "WebSocket - a ping flood is answered without recursion" {
+test "WebSocket - a ping flood up to the cap is answered without recursion" {
     const allocator = std.testing.allocator;
-    const ping_count = 100_000;
+    const ping_count = ws.max_consecutive_control_frames;
 
     const data_frame = [_]u8{ 0x82, 0x03, 0x01, 'h', 'i' };
     const input = try allocator.alloc(u8, ping_count * 2 + data_frame.len);
@@ -272,6 +272,88 @@ test "WebSocket - a ping flood is answered without recursion" {
     try std.testing.expectEqual(@as(usize, ping_count * 6), written.len);
     try std.testing.expectEqual(@as(u8, 0x8A), written[0]);
     try std.testing.expectEqual(@as(u8, 0x80), written[1]);
+}
+
+test "WebSocket - excessive consecutive ping or pong frames return TooManyControlFrames" {
+    const allocator = std.testing.allocator;
+    const over_cap = ws.max_consecutive_control_frames + 1;
+
+    for ([_]u8{ 0x89, 0x8A }) |opcode_byte| {
+        const input = try allocator.alloc(u8, over_cap * 2);
+        defer allocator.free(input);
+        for (0..over_cap) |i| {
+            input[i * 2] = opcode_byte;
+            input[i * 2 + 1] = 0x00;
+        }
+        var reader: std.Io.Reader = .fixed(input);
+        var pongs: std.Io.Writer.Allocating = .init(allocator);
+        defer pongs.deinit();
+
+        try std.testing.expectError(
+            error.TooManyControlFrames,
+            ws.receiveFromStream(allocator, std.testing.io, &reader, &pongs.writer),
+        );
+    }
+}
+
+test "WebSocket - handshake response validates Upgrade, Connection, and Sec-WebSocket-Accept" {
+    const ws_key = "dGhlIHNhbXBsZSBub25jZQ==";
+    const expected = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
+
+    try std.testing.expect(ws.headerContainsToken("keep-alive, Upgrade", "upgrade"));
+    try std.testing.expect(ws.headerContainsToken("WebSocket", "websocket"));
+    try std.testing.expect(!ws.headerContainsToken("keep-alive", "upgrade"));
+    try std.testing.expect(!ws.headerContainsToken("h2c", "websocket"));
+
+    // Valid
+    try ws.validateHandshakeHeaders(true, true, expected, ws_key);
+
+    // Missing/invalid Upgrade
+    try std.testing.expectError(
+        error.InvalidUpgradeHeader,
+        ws.validateHandshakeHeaders(false, true, expected, ws_key),
+    );
+
+    // Missing/invalid Connection
+    try std.testing.expectError(
+        error.InvalidConnectionHeader,
+        ws.validateHandshakeHeaders(true, false, expected, ws_key),
+    );
+
+    // Missing Sec-WebSocket-Accept
+    try std.testing.expectError(
+        error.MissingAcceptHeader,
+        ws.validateHandshakeHeaders(true, true, null, ws_key),
+    );
+
+    // Wrong Sec-WebSocket-Accept
+    try std.testing.expectError(
+        error.InvalidAcceptHeader,
+        ws.validateHandshakeHeaders(true, true, "wrong==", ws_key),
+    );
+}
+
+test "PortForwarder rejects > 127 ports and invalid port index" {
+    var ws_client = try ws.WebSocketClient.init(std.testing.allocator, std.testing.io, "http://127.0.0.1:8080", null, null);
+    defer ws_client.deinit();
+    var pf = klient.PortForwarder.init(std.testing.allocator, &ws_client);
+
+    var too_many: [128]klient.PortMapping = undefined;
+    for (&too_many, 0..) |*m, i| {
+        m.* = .{ .local = @intCast(10000 + i), .remote = @intCast(8000 + i) };
+    }
+    try std.testing.expectError(error.TooManyPorts, pf.forward("p", "default", .{
+        .ports = &too_many,
+    }));
+
+    var session = klient.ForwardSession{
+        .conn = undefined,
+        .ports = &.{.{ .local = 8080, .remote = 80 }},
+        .allocator = std.testing.allocator,
+        .active = true,
+    };
+    try std.testing.expectError(error.InvalidPortIndex, session.forwardToRemote(1, "hi"));
+    try std.testing.expectError(error.InvalidPortIndex, session.forwardToRemote(128, "hi"));
 }
 
 test "WebSocket - receiveFromStream reports a close frame" {

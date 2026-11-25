@@ -12,6 +12,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-25
+
+### Security
+
+- `ListClient.setCredentials` now validates that the server URL uses `https://`,
+  cleans up staged client keys via `errdefer` on failure, and rejects HTTP
+  status codes outside `100..599`.
+- Enforced a depth-64 recursion limit when decoding nested Protobuf messages.
+- Replaced unchecked integer arithmetic with checked arithmetic in `metrics`,
+  `retry`, `client`, and `port_forward`.
+- Scrubbed bearer tokens from exec credential plugin stderr output before
+  logging.
+- Kubeconfig and in-cluster config loaders now reject oversized files instead of
+  silently truncating them.
+- Validated WebSocket handshake response headers and capped incoming control
+  frames.
+
+### Fixed
+
+- Replaced `ListClient` cancellation with a non-allocating intrusive atomic
+  cancel path, fixing a use-after-free in `Transfer.close`.
+- Initialized libcurl once process-wide rather than per client instance.
+- Fixed memory leaks in `connectWithFallback` and missing `errdefer` cleanup
+  paths in `discovery` and `list_options`.
+- Passed configured `exec.env` variables through to exec credential plugins.
+
+### Performance
+
+- `Informer.deepCopy` now clones JSON values directly into the target arena via
+  `cloneJsonValue`.
+- Replaced the fixed watch line buffer with a growable 16 KiB–4 MiB buffer.
+- Added comptime single-pass Protobuf decoding for structs without repeated
+  fields.
+
 ## [0.9.1] - 2026-10-27
 
 ### Security

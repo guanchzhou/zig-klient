@@ -270,6 +270,8 @@ pub const K8sClient = struct {
         });
         defer parsed.deinit();
 
+        if (parsed.value != .object) return error.InvalidClusterInfo;
+
         const git_version = if (parsed.value.object.get("gitVersion")) |v|
             (if (v == .string) v.string else "unknown")
         else
@@ -310,7 +312,9 @@ pub const K8sClient = struct {
         // remainingItemCount is absent on the last (or only) page.
         const remaining = parsed.value.metadata.remainingItemCount orelse 0;
         if (remaining < 0) return null;
-        return std.math.cast(u32, @as(i64, @intCast(parsed.value.items.len)) + remaining);
+        const items_len = std.math.cast(u64, parsed.value.items.len) orelse return null;
+        const total = std.math.add(u64, items_len, @intCast(remaining)) catch return null;
+        return std.math.cast(u32, total);
     }
 
     /// HTTP method alias for convenience
@@ -707,7 +711,7 @@ pub const K8sClient = struct {
                 var response = req.receiveHead(&.{}) catch |err| {
                     if (err == error.ReadFailed) {
                         if (req.connection) |connection|
-                            return connection.getReadError().?;
+                            return connection.getReadError() orelse error.ReadFailed;
                     }
                     return err;
                 };

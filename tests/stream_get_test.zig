@@ -1090,3 +1090,192 @@ test "WatchOutcome reports cancellation from the owning Future" {
     release_response.set(io);
     try server.finish();
 }
+
+test "getClusterInfo rejects non-object JSON without panic" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const responses = [_]ResponseSpec{
+        .{ .body = "[]" },
+        .{ .body = "\"just-a-string\"" },
+    };
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+    var client = try klient.K8sClient.init(allocator, io, .{ .server = base_url });
+    defer client.deinit();
+
+    try std.testing.expectError(error.InvalidClusterInfo, client.getClusterInfo());
+    try std.testing.expectError(error.InvalidClusterInfo, client.getClusterInfo());
+    try server.finish();
+}
+
+test "connectWithFallback frees cluster info without leaking k8s_version" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const responses = [_]ResponseSpec{
+        .{ .body = "{\"gitVersion\":\"v1.37.0\"}" },
+        .{ .body = "{\"items\":[{},{}]}" },
+    };
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+
+    var conn = try klient.connectWithFallback(allocator, io, base_url, null, null);
+    defer conn.deinit();
+    const info = try conn.getClusterInfo();
+    defer info.deinit(allocator);
+    try std.testing.expectEqualStrings("v1.37.0", info.k8s_version);
+    try std.testing.expectEqual(@as(?u32, 2), info.node_count);
+    try server.finish();
+}
+
+test "Watcher does not unconditionally allocate 4 MiB for small watch events" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const event_line =
+        \\{"type":"ADDED","object":{"metadata":{"name":"tiny-pod","resourceVersion":"1"}}}
+    ++ "\n";
+    const responses = [_]ResponseSpec{.{ .body = event_line }};
+    var server: TestServer = undefined;
+    try server.init(allocator, io, &responses);
+    defer server.deinit();
+
+    const base_url = try server.baseUrl(allocator);
+    defer allocator.free(base_url);
+
+    // Track peak single allocation size during watch consumption.
+    const CappedAllocator = struct {
+        backing: std.mem.Allocator,
+        max_single_alloc: usize,
+        saw_too_large: bool = false,
+
+        fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (len > self.max_single_alloc) {
+                self.saw_too_large = true;
+                return null;
+            }
+            return self.backing.rawAlloc(len, alignment, ret_addr);
+        }
+        fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (new_len > self.max_single_alloc) {
+                self.saw_too_large = true;
+                return false;
+            }
+            return self.backing.rawResize(memory, alignment, new_len, ret_addr);
+        }
+        fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (new_len > self.max_single_alloc) {
+                self.saw_too_large = true;
+                return null;
+            }
+            return self.backing.rawRemap(memory, alignment, new_len, ret_addr);
+        }
+        fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.backing.rawFree(memory, alignment, ret_addr);
+        }
+        fn allocatorVTable(self: *@This()) std.mem.Allocator {
+            return .{
+                .ptr = self,
+                .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free },
+            };
+        }
+    };
+
+    var capped: CappedAllocator = .{
+        .backing = allocator,
+        .max_single_alloc = std.math.maxInt(usize),
+    };
+    var client = try klient.K8sClient.init(capped.allocatorVTable(), io, .{ .server = base_url });
+    defer client.deinit();
+
+    // Enforce a 256 KiB single-allocation ceiling only during the watch stream itself
+    // (16x below the 4 MiB max watch line size).
+    capped.max_single_alloc = 256 * 1024;
+    capped.saw_too_large = false;
+
+    var watcher = klient.Watcher(klient.Pod).init(&client, "/api/v1", "pods", "default", .{});
+    defer watcher.deinit();
+    const outcome = try watcher.watchOutcome(discardPodEvent);
+    try std.testing.expectEqual(klient.WatchOutcome.eof, outcome);
+    try std.testing.expect(!capped.saw_too_large);
+    try server.finish();
+}
+
+test "DiscoveryClient.findResource does not leak on OOM while cloning resource info" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const apis_body =
+        \\{"groups":[{"name":"apps","preferredVersion":{"groupVersion":"apps/v1","version":"v1"},"versions":[{"groupVersion":"apps/v1","version":"v1"}]}]}
+    ;
+    const apps_body =
+        \\{"groupVersion":"apps/v1","resources":[{"name":"deployments","singularName":"deployment","namespaced":true,"kind":"Deployment","verbs":["get","list"]}]}
+    ;
+
+    const responses = [_]ResponseSpec{
+        .{ .body = apis_body },
+        .{ .body = apps_body },
+    };
+
+    // First run once without failures to verify happy path and count total allocations.
+    var total_allocs: usize = 0;
+    {
+        var server: TestServer = undefined;
+        try server.init(allocator, io, &responses);
+        defer server.deinit();
+        const base_url = try server.baseUrl(allocator);
+        defer allocator.free(base_url);
+
+        var counting = std.testing.FailingAllocator.init(allocator, .{});
+        var client = try klient.K8sClient.init(counting.allocator(), io, .{ .server = base_url });
+        defer client.deinit();
+        var disc = klient.Discovery.init(&client);
+        const info = (try disc.findResource("apps", "Deployment")).?;
+        defer disc.freeResource(info);
+        try std.testing.expectEqualStrings("apps", info.group);
+        try std.testing.expectEqualStrings("v1", info.version);
+        try std.testing.expectEqualStrings("Deployment", info.kind);
+        try std.testing.expectEqualStrings("deployments", info.plural);
+        total_allocs = counting.alloc_index;
+        try server.finish();
+    }
+
+    // Fail each of the final 3 allocations (group_copy, kind_copy, plural_copy) after both HTTP
+    // responses have completed, asserting zero leaks on OOM.
+    const start_idx = total_allocs - 3;
+    var fail_index = start_idx;
+    while (fail_index < total_allocs) : (fail_index += 1) {
+        var server: TestServer = undefined;
+        try server.init(allocator, io, &responses);
+        defer server.deinit();
+        const base_url = try server.baseUrl(allocator);
+        defer allocator.free(base_url);
+
+        var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = fail_index });
+        var client = try klient.K8sClient.init(failing.allocator(), io, .{ .server = base_url });
+        defer client.deinit();
+        var disc = klient.Discovery.init(&client);
+        try std.testing.expectError(error.OutOfMemory, disc.findResource("apps", "Deployment"));
+    }
+}

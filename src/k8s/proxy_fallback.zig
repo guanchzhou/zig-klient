@@ -55,10 +55,11 @@ pub fn connectWithFallback(
     };
 
     // Test the connection
-    _ = direct_client.getClusterInfo() catch |err| {
+    const info = direct_client.getClusterInfo() catch |err| {
         direct_client.deinit();
         return tryProxyConnection(allocator, io, namespace) orelse return err;
     };
+    info.deinit(allocator);
 
     return direct_client;
 }

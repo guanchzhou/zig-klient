@@ -159,3 +159,100 @@ test "watch: Watcher.deinit is safe when the resourceVersion is borrowed, and id
     watcher.deinit();
     try std.testing.expectEqualStrings("borrowed-do-not-free", watcher.resource_version.?);
 }
+
+test "watch: cloneJsonValue deep-clones nested structures and enforces recursion limit" {
+    const allocator = std.testing.allocator;
+
+    const json_str =
+        \\{"labels":{"app":"web","nested":[1,true,null,"hello",{"k":"v"}]}}
+    ;
+    var src = try std.json.parseFromSlice(std.json.Value, allocator, json_str, .{});
+
+    var dst_arena = std.heap.ArenaAllocator.init(allocator);
+    defer dst_arena.deinit();
+    const cloned = try watch.cloneJsonValue(dst_arena.allocator(), src.value);
+
+    // Destroy the source parsed arena completely; cloned must remain intact.
+    src.deinit();
+
+    const labels = cloned.object.get("labels").?.object;
+    try std.testing.expectEqualStrings("web", labels.get("app").?.string);
+    const nested = labels.get("nested").?.array.items;
+    try std.testing.expectEqual(@as(i64, 1), nested[0].integer);
+    try std.testing.expectEqual(true, nested[1].bool);
+    try std.testing.expect(nested[2] == .null);
+    try std.testing.expectEqualStrings("hello", nested[3].string);
+    try std.testing.expectEqualStrings("v", nested[4].object.get("k").?.string);
+
+    // Nesting deeper than max_clone_depth must return error.RecursionLimitExceeded.
+    var deep_arena = std.heap.ArenaAllocator.init(allocator);
+    defer deep_arena.deinit();
+    var deep: std.json.Value = .null;
+    for (0..watch.max_clone_depth + 1) |_| {
+        var arr = try std.json.Array.initCapacity(deep_arena.allocator(), 1);
+        arr.appendAssumeCapacity(deep);
+        deep = .{ .array = arr };
+    }
+
+    var out_arena = std.heap.ArenaAllocator.init(allocator);
+    defer out_arena.deinit();
+    try std.testing.expectError(
+        error.RecursionLimitExceeded,
+        watch.cloneJsonValue(out_arena.allocator(), deep),
+    );
+}
+
+test "watch: Informer deepCopy clones nested std.json.Value fields without JSON round-trip" {
+    const allocator = std.testing.allocator;
+
+    var client = klient.K8sClient{
+        .allocator = allocator,
+        .io = std.testing.io,
+        .http_client = undefined,
+        .api_server = "http://127.0.0.1:8080",
+        .token = null,
+        .namespace = "default",
+        .retry_config = .{},
+        .tls_config = .{},
+        .max_response_size = 1024,
+    };
+
+    var informer = watch.Informer(klient.Pod).init(allocator, &client, "/api/v1", "pods", "default");
+    defer informer.deinit();
+
+    var parsed_pod = try std.json.parseFromSlice(
+        klient.Pod,
+        allocator,
+        \\{"metadata":{"name":"web-1","namespace":"default","labels":{"app":"web","tier":"frontend"},"annotations":{"note":"hi"}}}
+    ,
+        .{ .ignore_unknown_fields = true },
+    );
+
+    // Insert into informer cache via cache-backed getOwned after putting directly via event path
+    // or verify clone + deinit of source parsed_pod does not invalidate cached entry.
+    try informer.cache.put(
+        parsed_pod.value.metadata.name,
+        .{
+            .arena = blk: {
+                const a = try allocator.create(std.heap.ArenaAllocator);
+                a.* = std.heap.ArenaAllocator.init(allocator);
+                break :blk a;
+            },
+            .value = parsed_pod.value,
+        },
+    );
+    // Actually exercise getOwned (which calls Informer.deepCopy directly) before releasing source.
+    var owned = (try informer.getOwned(allocator, "web-1")).?;
+    defer owned.deinit();
+
+    // Remove the temporary raw entry (do not double-free parsed_pod).
+    const removed = informer.cache.fetchRemove("web-1").?;
+    removed.value.arena.deinit();
+    allocator.destroy(removed.value.arena);
+    parsed_pod.deinit();
+
+    try std.testing.expectEqualStrings("web-1", owned.value.metadata.name);
+    try std.testing.expectEqualStrings("web", owned.value.metadata.labels.?.object.get("app").?.string);
+    try std.testing.expectEqualStrings("frontend", owned.value.metadata.labels.?.object.get("tier").?.string);
+    try std.testing.expectEqualStrings("hi", owned.value.metadata.annotations.?.object.get("note").?.string);
+}

@@ -53,6 +53,31 @@ pub const Error = error{
     CurlFailed,
 };
 
+var curl_global_state: std.atomic.Value(u8) = .init(0);
+
+fn ensureCurlGlobalInit() !void {
+    while (true) {
+        switch (curl_global_state.load(.acquire)) {
+            2 => return,
+            0 => {
+                if (curl_global_state.cmpxchgWeak(0, 1, .acquire, .monotonic) == null) {
+                    if (c.curl_global_init(c.CURL_GLOBAL_DEFAULT) != c.CURLE_OK) {
+                        curl_global_state.store(0, .release);
+                        return error.CurlInitFailed;
+                    }
+                    curl_global_state.store(2, .release);
+                    return;
+                }
+            },
+            else => std.atomic.spinLoopHint(),
+        }
+    }
+}
+
+fn validateServer(server: []const u8) error{InvalidApiServer}!void {
+    if (!std.mem.startsWith(u8, server, "https://")) return error.InvalidApiServer;
+}
+
 const reader_buffer_len = 64 << 10;
 
 pub const ListClient = struct {
@@ -79,14 +104,11 @@ pub const ListClient = struct {
 
     const Command = union(enum) {
         add: *Transfer,
-        resume_transfer: *Transfer,
-        cancel: *Transfer,
     };
 
     pub fn init(gpa: std.mem.Allocator, io: Io, credentials: Credentials, options: Options) !*ListClient {
-        if (!std.mem.startsWith(u8, credentials.server, "https://")) return error.InvalidApiServer;
-        if (c.curl_global_init(c.CURL_GLOBAL_DEFAULT) != c.CURLE_OK) return error.CurlInitFailed;
-        errdefer c.curl_global_cleanup();
+        try validateServer(credentials.server);
+        try ensureCurlGlobalInit();
         const self = try gpa.create(ListClient);
         errdefer gpa.destroy(self);
         var owned = try OwnedCredentials.dupe(gpa, credentials);
@@ -115,12 +137,12 @@ pub const ListClient = struct {
         self.credentials.deinit(self.gpa);
         const gpa = self.gpa;
         gpa.destroy(self);
-        c.curl_global_cleanup();
     }
 
     /// New credentials apply to transfers opened afterwards; a changed client
     /// key is re-staged the next time a transfer starts.
     pub fn setCredentials(self: *ListClient, credentials: Credentials) !void {
+        try validateServer(credentials.server);
         var owned = try OwnedCredentials.dupe(self.gpa, credentials);
         self.mutex.lockUncancelable(self.io);
         defer self.mutex.unlock(self.io);
@@ -181,15 +203,21 @@ pub const ListClient = struct {
             }
             for (batch.items) |command| switch (command) {
                 .add => |transfer| self.start(transfer),
-                .resume_transfer => |transfer| if (transfer.state == .active) {
-                    _ = c.curl_easy_pause(transfer.easy, c.CURLPAUSE_CONT);
-                },
-                .cancel => |transfer| {
-                    if (transfer.state == .active) self.finishTransfer(transfer, error.Canceled);
-                    transfer.cancel_acknowledged.set(self.io);
-                },
             };
             batch.clearRetainingCapacity();
+
+            var i: usize = 0;
+            while (i < self.active.items.len) {
+                const transfer = self.active.items[i];
+                if (transfer.cancel_requested.load(.acquire)) {
+                    self.finishTransfer(transfer, error.Canceled);
+                    continue;
+                }
+                if (transfer.resume_requested.swap(false, .acquire)) {
+                    _ = c.curl_easy_pause(transfer.easy, c.CURLPAUSE_CONT);
+                }
+                i += 1;
+            }
 
             var running: c_int = 0;
             _ = c.curl_multi_perform(self.multi, &running);
@@ -206,28 +234,32 @@ pub const ListClient = struct {
 
     fn start(self: *ListClient, transfer: *Transfer) void {
         if (transfer.state != .pending) return;
-        transfer.state = .active;
-        self.active.append(self.gpa, transfer) catch {
-            self.failUnstarted(transfer, error.OutOfMemory);
+        if (transfer.cancel_requested.load(.acquire)) {
+            self.failUnstarted(transfer, error.Canceled);
             return;
-        };
-        self.prepareKey(transfer) catch |err| {
-            _ = self.active.pop();
-            self.failUnstarted(transfer, err);
-            return;
-        };
-        if (c.curl_multi_add_handle(self.multi, transfer.easy) != c.CURLM_OK) {
-            _ = self.active.pop();
-            self.failUnstarted(transfer, error.CurlFailed);
-            self.releaseTransferKey(transfer);
-            self.releaseKeyIfIdle();
         }
+        self.startActive(transfer) catch |err| {
+            self.failUnstarted(transfer, err);
+        };
+    }
+
+    fn startActive(self: *ListClient, transfer: *Transfer) !void {
+        try self.active.append(self.gpa, transfer);
+        errdefer self.releaseKeyIfIdle();
+        errdefer _ = self.active.pop();
+        try self.prepareKey(transfer);
+        errdefer self.releaseTransferKey(transfer);
+        if (c.curl_multi_add_handle(self.multi, transfer.easy) != c.CURLM_OK) {
+            return error.CurlFailed;
+        }
+        transfer.state = .active;
     }
 
     fn failUnstarted(self: *ListClient, transfer: *Transfer, err: anyerror) void {
         transfer.state = .finished;
         transfer.queue.finish(.{ .failed = err });
         transfer.headers_done.set(self.io);
+        transfer.io_done.set(self.io);
     }
 
     fn prepareKey(self: *ListClient, transfer: *Transfer) !void {
@@ -250,14 +282,21 @@ pub const ListClient = struct {
             if (key.users == 0) self.destroyKey(key);
         };
         const value = pem orelse return;
-        if (self.key == null) {
+        const newly_staged = self.key == null;
+        if (newly_staged) {
             const key = try self.gpa.create(StagedKey);
             errdefer self.gpa.destroy(key);
             key.* = try StagedKey.stage(self.gpa, self.io, self.options.key_dir_prefix, value);
             self.key = key;
         }
         const key = self.key.?;
-        try setopt(transfer.easy, c.CURLOPT_SSLKEY, key.path.ptr);
+        setopt(transfer.easy, c.CURLOPT_SSLKEY, key.path.ptr) catch |err| {
+            if (newly_staged) {
+                self.key = null;
+                self.destroyKey(key);
+            }
+            return err;
+        };
         key.users += 1;
         transfer.key = key;
     }
@@ -299,18 +338,20 @@ pub const ListClient = struct {
         transfer.headers_done.set(self.io);
         self.releaseTransferKey(transfer);
         self.releaseKeyIfIdle();
+        transfer.io_done.set(self.io);
     }
 
     fn shutdown(self: *ListClient, batch: []const Command) void {
-        self.mutex.lockUncancelable(self.io);
-        self.stopped = true;
-        const late = self.commands.toOwnedSlice(self.gpa) catch &.{};
-        self.mutex.unlock(self.io);
-        defer self.gpa.free(late);
-        for ([_][]const Command{ batch, late }) |commands| for (commands) |command| switch (command) {
+        var late: std.ArrayList(Command) = .empty;
+        defer late.deinit(self.gpa);
+        {
+            self.mutex.lockUncancelable(self.io);
+            defer self.mutex.unlock(self.io);
+            self.stopped = true;
+            std.mem.swap(std.ArrayList(Command), &late, &self.commands);
+        }
+        for ([_][]const Command{ batch, late.items }) |commands| for (commands) |command| switch (command) {
             .add => |transfer| if (transfer.state == .pending) self.failUnstarted(transfer, error.Canceled),
-            .cancel => |transfer| transfer.cancel_acknowledged.set(self.io),
-            .resume_transfer => {},
         };
         while (self.active.items.len > 0) self.finishTransfer(self.active.items[0], error.Canceled);
         self.releaseKeyIfIdle();
@@ -329,7 +370,9 @@ pub const Transfer = struct {
     /// I/O thread only once added.
     state: enum { pending, active, finished } = .pending,
     headers_done: Io.Event = .unset,
-    cancel_acknowledged: Io.Event = .unset,
+    cancel_requested: std.atomic.Value(bool) = .init(false),
+    resume_requested: std.atomic.Value(bool) = .init(false),
+    io_done: Io.Event = .unset,
     body_started: std.atomic.Value(bool) = .init(false),
     status: u16 = 0,
     retry_after_seconds: ?u32 = null,
@@ -400,9 +443,11 @@ pub const Transfer = struct {
     /// Blocks until the final response headers arrive or the transfer fails first.
     pub fn waitHeaders(self: *Transfer) !policy.Meta {
         self.headers_done.waitUncancelable(self.client.io);
-        if (self.status < 200 or self.in_final_headers) return self.queue.failure() orelse error.CurlFailed;
+        if (self.status < 200 or self.status > 599 or self.in_final_headers) {
+            return self.queue.failure() orelse error.CurlFailed;
+        }
         return .{
-            .status = @fromBackingInt(@intCast(self.status)),
+            .status = @fromBackingInt(@as(u10, @intCast(self.status))),
             .retry_after_seconds = self.retry_after_seconds,
             .content_type = if (self.content_type_len > 0) self.content_type_buffer[0..self.content_type_len] else null,
         };
@@ -426,9 +471,9 @@ pub const Transfer = struct {
     pub fn close(self: *Transfer) void {
         const client = self.client;
         self.queue.close();
-        if (client.post(.{ .cancel = self })) {
-            self.cancel_acknowledged.waitUncancelable(client.io);
-        } else |_| {}
+        self.cancel_requested.store(true, .release);
+        _ = c.curl_multi_wakeup(client.multi);
+        self.io_done.waitUncancelable(client.io);
         self.headers_done.waitUncancelable(client.io);
         c.curl_easy_cleanup(self.easy);
         if (self.headers) |list| c.curl_slist_free_all(list);
@@ -444,7 +489,8 @@ pub const Transfer = struct {
 
     fn requestResume(context: *anyopaque) void {
         const self: *Transfer = @ptrCast(@alignCast(context));
-        self.client.post(.{ .resume_transfer = self }) catch {};
+        self.resume_requested.store(true, .release);
+        _ = c.curl_multi_wakeup(self.client.multi);
     }
 
     fn onHeader(data: [*c]u8, size: usize, count: usize, user: ?*anyopaque) callconv(.c) usize {
@@ -455,7 +501,8 @@ pub const Transfer = struct {
         if (std.mem.startsWith(u8, line, "HTTP/")) {
             var fields = std.mem.tokenizeScalar(u8, line, ' ');
             _ = fields.next();
-            self.status = std.fmt.parseInt(u16, fields.next() orelse "0", 10) catch 0;
+            const parsed = std.fmt.parseInt(u16, fields.next() orelse "0", 10) catch 0;
+            self.status = if (parsed >= 100 and parsed <= 599) parsed else 0;
             self.retry_after_seconds = null;
             self.content_type_len = 0;
             self.in_final_headers = self.status >= 200;
@@ -812,4 +859,56 @@ test "deinit fails a stalled transfer and waits for its owner to close it" {
     owner.join();
     try testing.expectEqual(@as(?anyerror, error.Canceled), owner_result);
     try testing.expectEqual(@as(usize, 0), try keys.entries());
+}
+
+test "setCredentials rejects non-https servers" {
+    const keys = try TestKeyDir.init();
+    defer keys.deinit();
+    const client = try ListClient.init(testing.allocator, testing.io, fake_credentials, .{ .key_dir_prefix = keys.prefix });
+    defer client.deinit();
+
+    var bad = fake_credentials;
+    bad.server = "http://127.0.0.1:6443";
+    try testing.expectError(error.InvalidApiServer, client.setCredentials(bad));
+
+    bad.server = "";
+    try testing.expectError(error.InvalidApiServer, client.setCredentials(bad));
+}
+
+test "headerCallback rejects out-of-range HTTP status codes" {
+    const keys = try TestKeyDir.init();
+    defer keys.deinit();
+    const client = try ListClient.init(testing.allocator, testing.io, fake_credentials, .{ .key_dir_prefix = keys.prefix });
+    defer client.deinit();
+
+    var transfer: Transfer = .{
+        .client = client,
+        .easy = undefined,
+        .queue = undefined,
+    };
+    const bad_high = "HTTP/2 9999 \r\n";
+    try testing.expectEqual(bad_high.len, Transfer.onHeader(@constCast(bad_high.ptr), 1, bad_high.len, &transfer));
+    try testing.expectEqual(@as(u16, 0), transfer.status);
+    try testing.expect(!transfer.in_final_headers);
+
+    const bad_low = "HTTP/2 99 \r\n";
+    try testing.expectEqual(bad_low.len, Transfer.onHeader(@constCast(bad_low.ptr), 1, bad_low.len, &transfer));
+    try testing.expectEqual(@as(u16, 0), transfer.status);
+    try testing.expect(!transfer.in_final_headers);
+
+    const ok_line = "HTTP/2 200 \r\n";
+    try testing.expectEqual(ok_line.len, Transfer.onHeader(@constCast(ok_line.ptr), 1, ok_line.len, &transfer));
+    try testing.expectEqual(@as(u16, 200), transfer.status);
+    try testing.expect(transfer.in_final_headers);
+}
+
+test "multiple ListClient instances share process-wide curl init safely" {
+    const keys = try TestKeyDir.init();
+    defer keys.deinit();
+    const first = try ListClient.init(testing.allocator, testing.io, fake_credentials, .{ .key_dir_prefix = keys.prefix });
+    const second = try ListClient.init(testing.allocator, testing.io, fake_credentials, .{ .key_dir_prefix = keys.prefix });
+    first.deinit();
+    // Second client must remain fully functional after first.deinit() returns.
+    try second.setCredentials(fake_credentials);
+    second.deinit();
 }

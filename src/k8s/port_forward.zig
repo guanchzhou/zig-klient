@@ -20,6 +20,8 @@ pub const PortForwarder = struct {
         namespace: []const u8,
         options: PortForwardOptions,
     ) !ForwardSession {
+        if (options.ports.len > 127) return error.TooManyPorts;
+
         // Extract remote ports
         var remote_ports = try self.allocator.alloc(u16, options.ports.len);
         defer self.allocator.free(remote_ports);
@@ -42,6 +44,7 @@ pub const PortForwarder = struct {
         errdefer self.allocator.destroy(conn);
 
         conn.* = try self.ws_client.connect(path, ws.Subprotocol.v4_channel.toString());
+        errdefer conn.deinit();
 
         // Create port mappings
         const mappings = try self.allocator.dupe(PortMapping, options.ports);
@@ -106,7 +109,7 @@ pub const ForwardSession = struct {
     /// Forward data from local to remote port
     pub fn forwardToRemote(self: *ForwardSession, port_index: usize, data: []const u8) !void {
         if (!self.active) return error.SessionClosed;
-        if (port_index >= self.ports.len) return error.InvalidPortIndex;
+        if (port_index >= self.ports.len or port_index > 127) return error.InvalidPortIndex;
 
         // Port-forward uses SPDY channels
         // Even channels (0, 2, 4, ...) are data channels

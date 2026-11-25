@@ -89,20 +89,29 @@ pub const RetryContext = struct {
         const multiplier_pow = std.math.pow(f64, self.config.backoff_multiplier, attempt_f);
         var backoff_duration = backoff_f * multiplier_pow;
 
-        // Cap at max backoff
+        // Cap at max backoff (also guards NaN / Inf from overflowed pow)
         const max_backoff_f: f64 = @floatFromInt(self.config.max_backoff_ms);
-        if (backoff_duration > max_backoff_f) {
+        if (!std.math.isFinite(backoff_duration) or backoff_duration > max_backoff_f) {
             backoff_duration = max_backoff_f;
+        } else if (backoff_duration < 0) {
+            backoff_duration = 0;
         }
 
         // Add random jitter: backoff * (1 + random(-jitter, +jitter))
-        const jitter_range = backoff_duration * self.config.jitter_factor;
+        const jitter_factor = if (std.math.isFinite(self.config.jitter_factor))
+            std.math.clamp(self.config.jitter_factor, 0.0, 1.0)
+        else
+            0.0;
+        const jitter_range = backoff_duration * jitter_factor;
         const jitter = (self.prng.random().float(f64) * 2.0 - 1.0) * jitter_range;
         backoff_duration += jitter;
 
-        // Ensure non-negative
-        if (backoff_duration < 0) {
-            backoff_duration = 0;
+        // Clamp after jitter so result is always finite and in [0, max_backoff_ms]
+        if (!std.math.isFinite(backoff_duration) or backoff_duration >= max_backoff_f) {
+            return self.config.max_backoff_ms;
+        }
+        if (backoff_duration <= 0) {
+            return 0;
         }
 
         return @intFromFloat(backoff_duration);
@@ -127,7 +136,13 @@ pub const RetryContext = struct {
         if (duration_ms == 0) return;
         const clamped: i64 = @intCast(@min(duration_ms, std.math.maxInt(i64)));
         try std.Io.sleep(io, .fromMilliseconds(clamped), .awake);
-        self.total_time_ms += duration_ms;
+        self.total_time_ms +|= duration_ms;
+    }
+
+    /// Convert millisecond duration to nanoseconds capped to `maxInt(i64)`.
+    pub fn durationMsToNanos(duration_ms: u64) i64 {
+        const ns_u64 = std.math.mul(u64, duration_ms, std.time.ns_per_ms) catch return std.math.maxInt(i64);
+        return @intCast(@min(ns_u64, @as(u64, std.math.maxInt(i64))));
     }
 
     /// Sleep for the backoff duration.
@@ -138,14 +153,14 @@ pub const RetryContext = struct {
         if (duration_ms == 0) return;
 
         // std.time.sleep was removed in Zig 0.16; use std.c.nanosleep instead.
-        const ns_total: i64 = @intCast(duration_ms * std.time.ns_per_ms);
+        const ns_total = durationMsToNanos(duration_ms);
         var req = std.c.timespec{
             .sec = @divTrunc(ns_total, std.time.ns_per_s),
             .nsec = @rem(ns_total, std.time.ns_per_s),
         };
         var rem: std.c.timespec = undefined;
         _ = std.c.nanosleep(&req, &rem);
-        self.total_time_ms += duration_ms;
+        self.total_time_ms +|= duration_ms;
     }
 
     /// Increment attempt counter

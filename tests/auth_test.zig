@@ -82,3 +82,47 @@ test "DeleteOptions: buildBody includes preconditions" {
     try std.testing.expectEqualStrings("12345", precond.get("resourceVersion").?.string);
     try std.testing.expectEqualStrings("abc-def-ghi", precond.get("uid").?.string);
 }
+
+test "exec_credential: scrubSecrets redacts bearer tokens, JWTs, JSON tokens, and kv tokens" {
+    var buf: [512]u8 = undefined;
+
+    const bearer = klient.exec_credential.scrubSecrets(&buf, "Authorization: Bearer secret_abc.123-xyz failed");
+    try std.testing.expect(std.mem.indexOf(u8, bearer, "secret_abc") == null);
+    try std.testing.expect(std.mem.indexOf(u8, bearer, "[REDACTED]") != null);
+
+    const jwt = klient.exec_credential.scrubSecrets(&buf, "got eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMifQ.sig_value in err");
+    try std.testing.expect(std.mem.indexOf(u8, jwt, "eyJhbGci") == null);
+    try std.testing.expect(std.mem.indexOf(u8, jwt, "[REDACTED]") != null);
+
+    const json_tok = klient.exec_credential.scrubSecrets(&buf, "{\"access_token\":\"supersecretvalue\",\"ok\":true}");
+    try std.testing.expect(std.mem.indexOf(u8, json_tok, "supersecretvalue") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json_tok, "\"ok\":true") != null);
+
+    const kv_tok = klient.exec_credential.scrubSecrets(&buf, "err: id_token=my_secret_123 retry");
+    try std.testing.expect(std.mem.indexOf(u8, kv_tok, "my_secret_123") == null);
+    try std.testing.expect(std.mem.indexOf(u8, kv_tok, "retry") != null);
+}
+
+test "exec_credential: executeCredentialPlugin merges config.env into child environment" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var env = [_]klient.exec_credential.EnvVar{
+        .{ .name = "KLIENT_TEST_TOKEN", .value = "merged-env-token-42" },
+    };
+    var args = [_][]const u8{
+        "-c",
+        "printf '{\"apiVersion\":\"client.authentication.k8s.io/v1\",\"kind\":\"ExecCredential\",\"status\":{\"token\":\"%s\"}}' \"$KLIENT_TEST_TOKEN\"",
+    };
+    const cfg = klient.exec_credential.ExecConfig{
+        .command = "/bin/sh",
+        .args = &args,
+        .env = &env,
+    };
+
+    const cred = try klient.exec_credential.executeCredentialPlugin(allocator, io, cfg);
+    defer cred.deinit();
+
+    try std.testing.expect(cred.value.status != null);
+    try std.testing.expectEqualStrings("merged-env-token-42", cred.value.status.?.token.?);
+}
